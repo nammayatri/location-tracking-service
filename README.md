@@ -24,6 +24,10 @@
 
 `cargo` is available in the Nix develop shell. You can also use one of the `,` prefixed commands (shown in Nix shell banner) to invoke cargo indirectly. 
 
+### VSCode
+
+The necessary extensions are configured in `.vscode/`. See [nammayatri README](https://github.com/nammayatri/nammayatri/tree/main/Backend#visual-studio-code) for complete instructions.
+
 ### Autoformatting
 
 Run `, fmt` (or `treefmt`) to auto-format the project tree. The CI checks for it.

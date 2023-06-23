@@ -1,0 +1,6 @@
+{
+    "recommendations": [
+        "mkhl.direnv",
+        "rust-lang.rust-analyzer"
+    ]
+}
