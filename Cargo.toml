@@ -1,0 +1,15 @@
+#! ./.Cargo.toml
+
+[package]
+name = "location-tracking-service"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+tokio = {version = "1.28.2", features = ["macros", "rt-multi-thread"]}
+dotenv = "0.15.0"
+redis = "0.23.0"
+cargo-test = "0.3.1"
+cargo-check = "0.2.2"
