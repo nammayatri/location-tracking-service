@@ -56,6 +56,10 @@
             config.mission-control.devShell
             config.flake-root.devShell
           ];
+          shellHook = ''
+            # For rust-analyzer 'hover' tooltips to work.
+            export RUST_SRC_PATH=${pkgs.rustPlatform.rustLibSrc}
+          '';
           nativeBuildInputs = [
             # Add your dev tools here.
             pkgs.cargo-watch
