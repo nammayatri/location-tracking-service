@@ -1,5 +1,7 @@
 //! src/main.rs
 
+use location_tracking_service::connection::connect;
+
 fn main() {
-    println!("Hello, world!");
+    let _conn = connect();
 }
