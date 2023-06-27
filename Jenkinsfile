@@ -1,3 +1,4 @@
+// This pipeline uses Groovy functions from https://github.com/juspay/jenkins-nix-ci
 pipeline {
     agent none
     stages {
