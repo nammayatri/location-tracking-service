@@ -44,7 +44,6 @@ fn main() {
     // let mut new_list: Vec<(f64, f64, String)> = Vec::new();
     // push_coord(&mut new_list, (1.0, 1.0, "loc1"));
     // println!("{:?}", new_list);
-
     let mut conn = connect();
     let upd_list: Arc<Mutex<Vec<(f64, f64, String)>>> = Arc::new(Mutex::new(Vec::new()));
     
@@ -53,6 +52,7 @@ fn main() {
         loop {
             let rand_list = make_rand_loc_list(NUM_DRIVERS);
             //println!("{}", rand_list.len());
+
             for (lon, lat, loc_val) in rand_list {
                 //println!("({}, {}, {})", item.0, item.1, item.2);
                 if let Ok(mut x) = upd_list_clone.lock() {
