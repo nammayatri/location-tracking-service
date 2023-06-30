@@ -10,13 +10,16 @@ path = "src/lib.rs"
 
 [[bin]]
 path = "src/main.rs"
-name = "location-tracking-service"
+name = "service_tracking"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-tokio = {version = "1.28.2", features = ["macros", "rt-multi-thread"]}
+tokio = {version = "1.28.2", features = ["full"]}
 dotenv = "0.15.0"
 redis = "0.23.0"
 cargo-test = "0.3.1"
 cargo-check = "0.2.2"
+rand = "0.8.5"
+futures = "0.3.28"
+geohash = "0.13.0"
