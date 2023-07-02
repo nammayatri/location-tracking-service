@@ -109,6 +109,11 @@
             exec = ''cargo watch -x run'';
             description = "Watch for changes and run the project executable";
           };
+
+          services = {
+            exec = self'.packages.services;
+            description = "Run the project service dependencies";
+          };
         };
       };
     };
