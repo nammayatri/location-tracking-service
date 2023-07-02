@@ -11,6 +11,10 @@
     treefmt-nix.url = "github:numtide/treefmt-nix";
     mission-control.url = "github:Platonic-Systems/mission-control";
     flake-root.url = "github:srid/flake-root";
+
+    # Services
+    process-compose-flake.url = "github:Platonic-Systems/process-compose-flake";
+    services-flake.url = "github:juspay/services-flake/redis/init";
   };
   outputs = inputs:
     inputs.flake-parts.lib.mkFlake { inherit inputs; } {
@@ -20,8 +24,20 @@
         inputs.treefmt-nix.flakeModule
         inputs.mission-control.flakeModule
         inputs.flake-root.flakeModule
+        inputs.process-compose-flake.flakeModule
       ];
       perSystem = { config, self', pkgs, lib, system, ... }: {
+        process-compose."services" = {
+          imports = [
+            inputs.services-flake.processComposeModules.default
+          ];
+          services.redis = {
+            enable = true;
+            extraConfig = ''
+              requirepass myPassword
+            '';
+          };
+        };
         # Rust project definition
         # cf. https://github.com/nix-community/dream2nix
         dream2nix.inputs."location-tracking-service" = {
