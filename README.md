@@ -32,6 +32,11 @@ The necessary extensions are configured in `.vscode/`. See [nammayatri README](h
 
 Run `, fmt` (or `treefmt`) to auto-format the project tree. The CI checks for it.
 
+### Services
+
+Run `, services` to run the service dependencies (example: redis-server) using [services-flake](https://github.com/juspay/services-flake).   
+
 ## Usage / Installing
 
 Run `nix build` in the project which produces a `./result` symlink. You can also run `nix run` to run the program immediately after build.
+
