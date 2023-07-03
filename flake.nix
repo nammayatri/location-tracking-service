@@ -14,6 +14,7 @@
 
     # Services
     process-compose-flake.url = "github:Platonic-Systems/process-compose-flake";
+    # TODO: update flake after https://github.com/juspay/services-flake/pull/8 is merged.
     services-flake.url = "github:juspay/services-flake/redis/init";
   };
   outputs = inputs:
