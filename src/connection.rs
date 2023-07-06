@@ -8,10 +8,7 @@ pub fn connect() -> redis::Connection {
 
     //let redis_password = var("REDIS_PASSWORD").unwrap_or_default();
 
-    let redis_conn_url = format!(
-        "redis://{}:{}",
-        redis_host, redis_port
-    );
+    let redis_conn_url = format!("redis://{}:{}", redis_host, redis_port);
 
     println!("{}", redis_conn_url);
 
