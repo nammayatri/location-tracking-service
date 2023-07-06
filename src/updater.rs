@@ -1,4 +1,4 @@
-//! /src/update.rs
+//! /src/updater.rs
 
 use super::hashing::*;
 use redis::Commands;

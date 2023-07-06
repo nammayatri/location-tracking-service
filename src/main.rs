@@ -44,7 +44,7 @@ fn main() {
     let start_sorted_batch = Instant::now();
     let upd_list: Arc<Mutex<Vec<(f64, f64, String)>>> = Arc::new(Mutex::new(Vec::new()));
 
-    let upd_list_clone = upd_list.clone();
+    let upd_list_clone: Arc<Mutex<Vec<(f64, f64, String)>>> = upd_list.clone();
     let t1 = thread::spawn(move || {
         // loop {
         for (lon, lat, loc_val) in rand_list {
@@ -85,8 +85,6 @@ fn main() {
     let duration_batch_sort = start_sorted_batch.elapsed();
     println!("Sorted batched approach took {:?}", duration_batch_sort);
 
-    
-
     //
     //
     // Unsorted batched method
@@ -125,7 +123,8 @@ fn main() {
                         "cleaning list of size {}, and adding to redis server",
                         x.len()
                     );
-                    let _: () = conn.geo_add(GEOSET_NAME, x.to_vec())
+                    let _: () = conn
+                        .geo_add(GEOSET_NAME, x.to_vec())
                         .expect("Failed to add to server");
 
                     // Code to see how update works when multiple values are given for same member in one update
@@ -143,7 +142,7 @@ fn main() {
 
     let duration_batch_unsort = start_unsorted_batch.elapsed();
     println!("Unsorted batched approach took {:?}", duration_batch_unsort);
-    
+
     //
     //
     // Unbatched method
@@ -156,7 +155,8 @@ fn main() {
     let start_no_batch = Instant::now();
 
     for item in rand_list {
-        let _: () = conn.geo_add(GEOSET_NAME, item)
+        let _: () = conn
+            .geo_add(GEOSET_NAME, item)
             .expect("Couldn't add to server");
     }
 
@@ -169,6 +169,7 @@ fn main() {
     //
     //
 
-    let _: () = conn.zremrangebyrank(GEOSET_NAME, 0, num.try_into().unwrap())
+    let _: () = conn
+        .zremrangebyrank(GEOSET_NAME, 0, num.try_into().unwrap())
         .expect("Failed to delete");
 }
