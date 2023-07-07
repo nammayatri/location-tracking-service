@@ -35,7 +35,6 @@
           services.redis = {
             enable = true;
             extraConfig = ''
-              requirepass myPassword
             '';
           };
         };
@@ -76,7 +75,9 @@
           shellHook = ''
             # For rust-analyzer 'hover' tooltips to work.
             export RUST_SRC_PATH=${pkgs.rustPlatform.rustLibSrc}
+            export REDIS_HOST=${config.process-compose.services.services.redis.bind}
           '';
+          # export REDIS_HOST=${config.process-compose.services.services.redis.host}
           nativeBuildInputs = [
             # Add your dev tools here.
             pkgs.cargo-watch

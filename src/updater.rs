@@ -20,7 +20,7 @@ pub fn add_to_server(conn: &mut redis::Connection, list: Vec<(f64, f64, String)>
         .collect();
 
     let _: () = conn
-        .geo_add(GEOSET_NAME, &new_list)
+        .geo_add(GEOSET_NAME, new_list)
         .expect("failed to insert");
 }
 
