@@ -35,6 +35,7 @@
           services.redis = {
             enable = true;
             extraConfig = ''
+              requirepass myPassword
             '';
           };
         };
