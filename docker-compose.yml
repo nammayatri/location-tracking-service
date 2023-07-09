@@ -1,0 +1,34 @@
+version: '2'
+
+services:
+  redis:
+    image: docker.io/bitnami/redis:7.0
+    environment:
+      - ALLOW_EMPTY_PASSWORD=yes
+    ports:
+      - '6379:6379'
+
+  redis-exporter:
+    image: docker.io/bitnami/redis-exporter:1
+    environment:
+      - REDIS_ADDR=redis
+      - REDIS_EXPORTER_INCL_SYSTEM_METRICS=true
+
+  prometheus:
+    image: docker.io/bitnami/prometheus:2
+    ports:
+      - '9090:9090'
+    volumes:
+      - ./dev/prometheus/config.yaml:/opt/bitnami/prometheus/conf/prometheus.yml
+
+  grafana:
+    image: docker.io/bitnami/grafana:10
+    ports:
+      - '3000:3000'
+    environment:
+      - 'GF_SECURITY_ADMIN_PASSWORD=bitnami'
+    volumes:
+      - grafana_data:/opt/bitnami/grafana/data
+volumes:
+  grafana_data:
+    driver: local

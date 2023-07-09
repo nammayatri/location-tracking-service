@@ -157,13 +157,18 @@ fn main() {
 
     let start_unsorted_batch = Instant::now();
     t1.join().unwrap();
-    t2.join().unwrap();
 
     let duration_batch_unsort = start_unsorted_batch.elapsed();
     println!(
         "Unsorted batched approach took {:?}\n",
         duration_batch_unsort
     );
+
+    t2.join().unwrap();
+
+    let wait_time = 60 * 1000000; // seconds
+    print!("\nWaiting before starting next run");
+    thread::sleep(Duration::from_micros(wait_time));
 
     //
     //
