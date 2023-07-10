@@ -1,26 +1,14 @@
-
-use std::fmt::Debug;
-use common_utils::{
-    errors::CustomResult,
-    // ext_traits::{AsyncExt, ByteSliceExt, Encode, StringExt},
-    fp_utils,
-};
+use crate::errors;
+use common_utils::errors::CustomResult;
 use error_stack::{IntoReport, ResultExt};
-use router_env::{instrument, logger, tracing};
 use fred::{
-    interfaces::{HashesInterface, KeysInterface, StreamsInterface, GeoInterface, SortedSetsInterface},
-    types::{
-        Expiration, FromRedis, MultipleIDs, MultipleKeys, MultipleOrderedPairs, MultipleStrings,
-        RedisKey, RedisMap, RedisValue, Scanner, SetOptions, XCap, XReadResponse,GeoValue,GeoPosition
-    },
+    interfaces::{GeoInterface, KeysInterface, SortedSetsInterface},
+    types::{Expiration, FromRedis, GeoPosition, GeoValue, RedisValue, SetOptions},
 };
-use crate::{
-    errors,
-    types::{},
-};
+use router_env::{instrument, tracing};
+use std::fmt::Debug;
 
 impl super::RedisConnectionPool {
-
     // set key
     #[instrument(level = "DEBUG", skip(self))]
     pub async fn set_key<V>(&self, key: &str, value: V) -> CustomResult<(), errors::RedisError>
@@ -43,28 +31,26 @@ impl super::RedisConnectionPool {
 
     // set key with expiry
     #[instrument(level = "DEBUG", skip(self))]
-    pub async fn set_with_expiry<V>(&self, key: &str, value: V, expiry: u32) -> CustomResult<(), errors::RedisError>
+    pub async fn set_with_expiry<V>(
+        &self,
+        key: &str,
+        value: V,
+        expiry: u32,
+    ) -> CustomResult<(), errors::RedisError>
     where
         V: TryInto<RedisValue> + Debug + Send + Sync,
         V::Error: Into<fred::error::RedisError> + Send + Sync,
     {
         self.pool
-            .set(
-                key,
-                value,
-                Some(Expiration::EX(expiry.into())),
-                None,
-                false,
-            )
+            .set(key, value, Some(Expiration::EX(expiry.into())), None, false)
             .await
             .into_report()
             .change_context(errors::RedisError::SetFailed)
     }
 
-
     // get key
     #[instrument(level = "DEBUG", skip(self))]
-    pub async fn get_key<V>(&self, key: &str) -> CustomResult<V, errors::RedisError> 
+    pub async fn get_key<V>(&self, key: &str) -> CustomResult<V, errors::RedisError>
     where
         V: FromRedis + Unpin + Send + 'static,
     {
@@ -73,7 +59,7 @@ impl super::RedisConnectionPool {
             .await
             .into_report()
             .change_context(errors::RedisError::GetFailed)
-    } 
+    }
 
     // delete key
     #[instrument(level = "DEBUG", skip(self))]
@@ -84,16 +70,27 @@ impl super::RedisConnectionPool {
             .into_report()
             .change_context(errors::RedisError::DeleteFailed)
     }
-    
+
     //GEOADD
     #[instrument(level = "DEBUG", skip(self))]
-    pub async fn geo_add(&self, key: &str, longitude: f64, latitude: f64, member: &str, options: Option<SetOptions>, changed: bool) -> CustomResult<(), errors::RedisError> {
+    pub async fn geo_add(
+        &self,
+        key: &str,
+        longitude: f64,
+        latitude: f64,
+        member: &str,
+        options: Option<SetOptions>,
+        changed: bool,
+    ) -> CustomResult<(), errors::RedisError> {
         self.pool
             .geoadd(
                 key,
                 options,
                 changed,
-                vec![GeoValue::new(GeoPosition::from((longitude, latitude)), member)],
+                vec![GeoValue::new(
+                    GeoPosition::from((longitude, latitude)),
+                    member,
+                )],
             )
             .await
             .into_report()
@@ -102,34 +99,34 @@ impl super::RedisConnectionPool {
 
     //ZREMRANGEBYRANK
     #[instrument(level = "DEBUG", skip(self))]
-    pub async fn zremrange_by_rank(&self, key: &str, start: i64, stop: i64) -> CustomResult<(), errors::RedisError> {
+    pub async fn zremrange_by_rank(
+        &self,
+        key: &str,
+        start: i64,
+        stop: i64,
+    ) -> CustomResult<(), errors::RedisError> {
         self.pool
             .zremrangebyrank(key, start, stop)
             .await
             .into_report()
             .change_context(errors::RedisError::ZremrangeByRankFailed)
     }
-    
-
-
-
 }
-
 
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used)]
 
-    use crate::{errors::RedisError, RedisConnectionPool, RedisEntryId, RedisSettings};
+    use crate::{RedisConnectionPool, RedisSettings};
 
     #[tokio::test]
-    async fn test_set_key(){
+    async fn test_set_key() {
         let is_success = tokio::task::spawn_blocking(move || {
             futures::executor::block_on(async {
                 // Arrange
                 let pool = RedisConnectionPool::new(&RedisSettings::default())
-                .await
-                .expect("Failed to create Redis Connection Pool");
+                    .await
+                    .expect("Failed to create Redis Connection Pool");
 
                 // Act
 
@@ -148,6 +145,5 @@ mod tests {
         .expect("Spawn block failure");
 
         assert!(is_success);
-        
     }
 }

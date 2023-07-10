@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct UpdateDriverLocationRequest {
@@ -20,5 +20,5 @@ pub struct GetNearbyDriversRequest {
     lat: f64,
     lon: f64,
     vt: String,
-    radius: i32
+    radius: i32,
 }

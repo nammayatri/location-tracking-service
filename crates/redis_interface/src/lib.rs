@@ -1,13 +1,6 @@
-
-
-
-
-
-
-
+pub mod commands;
 pub mod errors;
 pub mod types;
-pub mod commands;
 
 use std::sync::{atomic, Arc};
 
@@ -137,12 +130,10 @@ impl RedisConnectionPool {
     }
 }
 
-
-
 struct RedisConfig {
-    default_ttl: u32, // time to live
+    default_ttl: u32,               // time to live
     default_stream_read_count: u64, // number of messages to read from a stream
-    default_hash_ttl: u32, // time to live for a hash
+    default_hash_ttl: u32,          // time to live for a hash
 }
 
 impl From<&RedisSettings> for RedisConfig {
@@ -154,4 +145,3 @@ impl From<&RedisSettings> for RedisConfig {
         }
     }
 }
-
