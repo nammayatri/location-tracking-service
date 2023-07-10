@@ -1,6 +1,7 @@
 use super::models::{GetNearbyDriversRequest, UpdateDriverLocationRequest};
 use crate::AppState;
 use actix_web::{get, post, web, App, HttpRequest, HttpResponse, HttpServer, Responder};
+use log::info;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 
@@ -20,6 +21,9 @@ async fn update_driver_location(
     //headers
     let token = req.headers().get("token").unwrap().to_owned();
 
+    //logs
+    info!("Token: {}", token.to_str().unwrap());
+
     // response
     let response = {
         let mut response = HttpResponse::Ok();
@@ -37,6 +41,7 @@ async fn get_nearby_drivers(
 ) -> impl Responder {
     let body = param_obj.into_inner();
     let json = serde_json::to_string(&body).unwrap();
+
     HttpResponse::Ok().body(json)
 }
 

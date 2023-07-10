@@ -3,7 +3,10 @@ use common_utils::errors::CustomResult;
 use error_stack::{IntoReport, ResultExt};
 use fred::{
     interfaces::{GeoInterface, KeysInterface, SortedSetsInterface},
-    types::{Expiration, FromRedis, GeoPosition, GeoValue, RedisValue, SetOptions},
+    types::{
+        Expiration, FromRedis, GeoPosition, GeoRadiusInfo, GeoUnit, GeoValue, RedisValue,
+        SetOptions, SortOrder,
+    },
 };
 use router_env::{instrument, tracing};
 use std::fmt::Debug;
@@ -46,6 +49,47 @@ impl super::RedisConnectionPool {
             .await
             .into_report()
             .change_context(errors::RedisError::SetFailed)
+    }
+
+    // setnx key with expiry
+    #[instrument(level = "DEBUG", skip(self))]
+    pub async fn setnx_with_expiry<V>(
+        &self,
+        key: &str,
+        value: V,
+        expiry: i64,
+    ) -> CustomResult<(), errors::RedisError>
+    where
+        V: TryInto<RedisValue> + Debug + Send + Sync,
+        V::Error: Into<fred::error::RedisError> + Send + Sync,
+    {
+        let output: Result<(), _> = self
+            .pool
+            .msetnx((key, value))
+            .await
+            .into_report()
+            .change_context(errors::RedisError::SetFailed);
+
+        if output.is_ok() {
+            self.set_expiry(key, expiry).await?;
+        } else {
+            return Err(errors::RedisError::SetFailed.into());
+        }
+
+        Ok(())
+    }
+
+    #[instrument(level = "DEBUG", skip(self))]
+    pub async fn set_expiry(
+        &self,
+        key: &str,
+        seconds: i64,
+    ) -> CustomResult<(), errors::RedisError> {
+        self.pool
+            .expire(key, seconds)
+            .await
+            .into_report()
+            .change_context(errors::RedisError::SetExpiryFailed)
     }
 
     // get key
@@ -97,6 +141,39 @@ impl super::RedisConnectionPool {
             .change_context(errors::RedisError::GeoAddFailed)
     }
 
+    //GEOSEARCH
+    #[instrument(level = "DEBUG", skip(self))]
+    pub async fn geo_search(
+        &self,
+        key: &str,
+        from_member: Option<RedisValue>,
+        from_lonlat: Option<GeoPosition>,
+        by_radius: Option<(f64, GeoUnit)>,
+        by_box: Option<(f64, f64, GeoUnit)>,
+        ord: Option<SortOrder>,
+        count: Option<(u64, fred::types::Any)>,
+        withcoord: bool,
+        withdist: bool,
+        withhash: bool,
+    ) -> CustomResult<Vec<GeoRadiusInfo>, errors::RedisError> {
+        self.pool
+            .geosearch(
+                key,
+                from_member,
+                from_lonlat,
+                by_radius,
+                by_box,
+                ord,
+                count,
+                withcoord,
+                withdist,
+                withhash,
+            )
+            .await
+            .into_report()
+            .change_context(errors::RedisError::GeoSearchFailed)
+    }
+
     //ZREMRANGEBYRANK
     #[instrument(level = "DEBUG", skip(self))]
     pub async fn zremrange_by_rank(
@@ -135,7 +212,9 @@ mod tests {
 
                 // let result = pool.geo_add("chakriGeo", 1.0, 2.0, "value", None, false).await;
 
-                let result = pool.zremrange_by_rank("zremrange_by_rank_key", 0, 5).await;
+                // let result = pool.zremrange_by_rank("zremrange_by_rank_key", 0, 5).await;
+
+                let result = pool.setnx_with_expiry("key", "value".to_string(), 40).await;
 
                 // Assert Setup
                 result.is_ok()

@@ -1,5 +1,6 @@
 use actix_web::middleware::Logger;
 use actix_web::{get, web, App, HttpResponse, HttpServer, Responder};
+use env_logger::Env;
 use redis_interface::{RedisConnectionPool, RedisSettings};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
@@ -21,6 +22,7 @@ pub async fn start_server() -> std::io::Result<()> {
                 .expect("Failed to create Redis connection pool"),
         )),
     });
+    env_logger::init_from_env(Env::default().default_filter_or("info"));
     HttpServer::new(move || {
         App::new()
             .app_data(data.clone())
