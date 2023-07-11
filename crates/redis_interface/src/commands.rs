@@ -2,10 +2,10 @@ use crate::errors;
 use common_utils::errors::CustomResult;
 use error_stack::{IntoReport, ResultExt};
 use fred::{
-    interfaces::{GeoInterface, KeysInterface, SortedSetsInterface},
+    interfaces::{GeoInterface, HashesInterface, KeysInterface, SortedSetsInterface},
     types::{
-        Expiration, FromRedis, GeoPosition, GeoRadiusInfo, GeoUnit, GeoValue, RedisValue,
-        SetOptions, SortOrder,
+        Expiration, FromRedis, GeoPosition, GeoRadiusInfo, GeoUnit, GeoValue, MultipleGeoValues,
+        RedisMap, RedisValue, SetOptions, SortOrder,
     },
 };
 use router_env::{instrument, tracing};
@@ -115,27 +115,66 @@ impl super::RedisConnectionPool {
             .change_context(errors::RedisError::DeleteFailed)
     }
 
-    //GEOADD
+    //HSET
     #[instrument(level = "DEBUG", skip(self))]
-    pub async fn geo_add(
+    pub async fn set_hash_fields<V>(
         &self,
         key: &str,
-        longitude: f64,
-        latitude: f64,
-        member: &str,
+        values: V,
+    ) -> CustomResult<(), errors::RedisError>
+    where
+        V: TryInto<RedisMap> + Debug + Send + Sync,
+        V::Error: Into<fred::error::RedisError> + Send + Sync,
+    {
+        let output: Result<(), _> = self
+            .pool
+            .hset(key, values)
+            .await
+            .into_report()
+            .change_context(errors::RedisError::SetHashFailed);
+
+        // setting expiry for the key
+        if output.is_ok() {
+            self.set_expiry(key, self.config.default_hash_ttl.into())
+                .await?;
+        } else {
+            return Err(errors::RedisError::SetHashFailed.into());
+        }
+
+        Ok(())
+    }
+
+    //HGET
+    #[instrument(level = "DEBUG", skip(self))]
+    pub async fn get_hash_field<V>(
+        &self,
+        key: &str,
+        field: &str,
+    ) -> CustomResult<V, errors::RedisError>
+    where
+        V: FromRedis + Unpin + Send + 'static,
+    {
+        self.pool
+            .hget(key, field)
+            .await
+            .into_report()
+            .change_context(errors::RedisError::GetHashFieldFailed)
+    }
+
+    //GEOADD
+    #[instrument(level = "DEBUG", skip(self))]
+    pub async fn geo_add<V>(
+        &self,
+        key: &str,
+        values: V,
         options: Option<SetOptions>,
         changed: bool,
-    ) -> CustomResult<(), errors::RedisError> {
+    ) -> CustomResult<(), errors::RedisError>
+    where
+        V: Into<MultipleGeoValues> + Send + Debug,
+    {
         self.pool
-            .geoadd(
-                key,
-                options,
-                changed,
-                vec![GeoValue::new(
-                    GeoPosition::from((longitude, latitude)),
-                    member,
-                )],
-            )
+            .geoadd(key, options, changed, values)
             .await
             .into_report()
             .change_context(errors::RedisError::GeoAddFailed)
@@ -195,6 +234,7 @@ mod tests {
     #![allow(clippy::unwrap_used)]
 
     use crate::{RedisConnectionPool, RedisSettings};
+    use fred::types::{GeoPosition, GeoValue};
 
     #[tokio::test]
     async fn test_set_key() {
@@ -210,11 +250,18 @@ mod tests {
                 // let result = pool.set_key("chakri", "value".to_string()).await;
                 // print!("{:?}", pool.get_key::<String>("chakri").await);
 
-                // let result = pool.geo_add("chakriGeo", 1.0, 2.0, "value", None, false).await;
+                let result = pool
+                    .geo_add(
+                        "GeoAdd",
+                        vec![GeoValue::new(GeoPosition::from((1.0, 2.0)), "value")],
+                        None,
+                        false,
+                    )
+                    .await;
 
                 // let result = pool.zremrange_by_rank("zremrange_by_rank_key", 0, 5).await;
 
-                let result = pool.setnx_with_expiry("key", "value".to_string(), 40).await;
+                // let result = pool.setnx_with_expiry("key", "value".to_string(), 40).await;
 
                 // Assert Setup
                 result.is_ok()
@@ -226,3 +273,8 @@ mod tests {
         assert!(is_success);
     }
 }
+
+// GeoValue::new(
+//     GeoPosition::from((longitude, latitude)),
+//     member,
+// )]
