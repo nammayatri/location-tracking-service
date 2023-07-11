@@ -1438,6 +1438,7 @@ dependencies = [
  "redis_interface",
  "serde",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]

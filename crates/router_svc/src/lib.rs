@@ -1,9 +1,12 @@
 use actix_web::middleware::Logger;
 use actix_web::{get, web, App, HttpResponse, HttpServer, Responder};
 use env_logger::Env;
+use log::info;
 use redis_interface::{RedisConnectionPool, RedisSettings};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
+use std::thread;
+use tokio::time::Duration;
 
 mod tracking;
 use tracking::services;
@@ -11,18 +14,42 @@ use tracking::services;
 // appstate for redis
 pub struct AppState {
     pub redis_pool: Arc<Mutex<RedisConnectionPool>>,
+    pub entries: Arc<Mutex<Vec<Location>>>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct Location {
+    lat: f64,
+    lon: f64,
 }
 
 #[actix_web::main]
 pub async fn start_server() -> std::io::Result<()> {
+    env_logger::init_from_env(Env::default().default_filter_or("info"));
+
     let data = web::Data::new(AppState {
         redis_pool: Arc::new(Mutex::new(
             RedisConnectionPool::new(&RedisSettings::default())
                 .await
                 .expect("Failed to create Redis connection pool"),
         )),
+        entries: Arc::new(Mutex::new(vec![])),
     });
-    env_logger::init_from_env(Env::default().default_filter_or("info"));
+
+    // Spawn a thread to run a separate process
+    let thread_data = data.clone();
+    thread::spawn(move || {
+        loop {
+            thread::sleep(Duration::from_secs(10));
+            // Access the vector in the separate thread's lifetime
+            let entries = thread_data.entries.lock().unwrap();
+            info!("entries {:?}", entries);
+            // for item in entries.iter() {
+            //     info!("xyz {:?}", item);
+            // }
+        }
+    });
+
     HttpServer::new(move || {
         App::new()
             .app_data(data.clone())

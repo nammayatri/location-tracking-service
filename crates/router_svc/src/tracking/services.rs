@@ -45,7 +45,39 @@ async fn get_nearby_drivers(
     HttpResponse::Ok().body(json)
 }
 
+// Just trying
+
+use crate::Location;
+
+#[post("/location")]
+async fn location(
+    data: web::Data<AppState>,
+    param_obj: web::Json<Location>,
+    req: HttpRequest,
+) -> impl Responder {
+    let body = param_obj.into_inner();
+    let json = serde_json::to_string(&body).unwrap();
+
+    // info!("Location json: {}", json);
+    // info!("Location body: {:?}", body);
+
+    let mut entries = data.entries.lock().unwrap();
+    entries.push(body);
+
+    // info!("Entries: {:?}", entries);
+
+    // response
+    let response = {
+        let mut response = HttpResponse::Ok();
+        response.content_type("application/json");
+        response.body(json)
+    };
+
+    response
+}
+
 pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.service(update_driver_location)
-        .service(get_nearby_drivers);
+        .service(get_nearby_drivers)
+        .service(location);
 }
