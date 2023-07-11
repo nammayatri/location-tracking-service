@@ -34,8 +34,6 @@
           ];
           services.redis = {
             enable = true;
-            extraConfig = ''
-            '';
           };
         };
         # Rust project definition
