@@ -1,17 +1,13 @@
 //! src/connection.rs
 
-use dotenv::var;
+use std::env::var;
 
 pub fn connect() -> redis::Connection {
     let redis_host = var("REDIS_HOST").expect("missing environment variable REDIS_HOST");
-    let redis_hostport =
-        var("REDIS_HOSTPORT").expect("missing environment variable REDIS_HOSTPORT");
-
-    let redis_password = var("REDIS_PASSWORD").unwrap_or_default();
 
     let redis_conn_url = format!(
-        "redis://{}@{}:{}",
-        redis_password, redis_host, redis_hostport
+        "redis://{}",
+        redis_host
     );
 
     println!("{}", redis_conn_url);
