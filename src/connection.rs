@@ -5,10 +5,7 @@ use std::env::var;
 pub fn connect() -> redis::Connection {
     let redis_host = var("REDIS_HOST").expect("missing environment variable REDIS_HOST");
 
-    let redis_conn_url = format!(
-        "redis://{}",
-        redis_host
-    );
+    let redis_conn_url = format!("redis://{}", redis_host);
 
     println!("{}", redis_conn_url);
 
