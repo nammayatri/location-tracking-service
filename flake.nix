@@ -34,9 +34,6 @@
           ];
           services.redis = {
             enable = true;
-            extraConfig = ''
-              requirepass myPassword
-            '';
           };
         };
         # Rust project definition
