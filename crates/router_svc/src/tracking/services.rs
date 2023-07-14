@@ -1,6 +1,6 @@
 use super::models::{GetNearbyDriversRequest, UpdateDriverLocationRequest};
 use crate::AppState;
-use actix_web::{get, post, web, App, HttpRequest, HttpResponse, HttpServer, Responder};
+use actix_web::{get, post, web, App, HttpRequest, HttpResponse, HttpServer, Responder, http::header::HeaderMap};
 use log::info;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
@@ -15,9 +15,13 @@ async fn update_driver_location(
     let json = serde_json::to_string(&body).unwrap();
 
     // redis
-    let mut redis_conn = data.redis_pool.lock().unwrap();
-    _ = redis_conn.set_key("key", "value".to_string()).await;
+    // let mut redis_conn = data.redis_pool.lock().unwrap();
+    // _ = redis_conn.set_key("key", "value".to_string()).await;
 
+    // pushing to shared vector
+    // let mut entries = data.entries.lock().unwrap();
+    // entries.push((body.pt.lon, body.pt.lat, body.driverId));
+    
     //headers
     let token = req.headers().get("token").unwrap().to_owned();
 
@@ -62,8 +66,9 @@ async fn location(
     // info!("Location body: {:?}", body);
 
     let mut entries = data.entries.lock().unwrap();
-    entries.push(body);
+    entries.push((body.lon, body.lat, body.driver_id));
 
+    println!("{:?}", req.headers());
     // info!("Entries: {:?}", entries);
 
     // response
