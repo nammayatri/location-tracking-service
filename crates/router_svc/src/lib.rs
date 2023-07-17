@@ -44,8 +44,10 @@ pub async fn start_server() -> std::io::Result<()> {
             thread::sleep(Duration::from_secs(10));
             // Access the vector in the separate thread's lifetime
             if let mut entries = thread_data.entries.lock().unwrap() {
-                info!("Entries: {:?}\nSending to redis server", entries);
-                entries.clear();
+                if let mut redis = thread_data.redis_pool.lock().unwrap() {
+                    info!("Entries: {:?}\nSending to redis server", entries);
+                    entries.clear();
+                }
             }
             // for item in entries.iter() {
             //     info!("xyz {:?}", item);
