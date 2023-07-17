@@ -1,6 +1,8 @@
 use super::models::{GetNearbyDriversRequest, UpdateDriverLocationRequest};
 use crate::AppState;
-use actix_web::{get, post, web, App, HttpRequest, HttpResponse, HttpServer, Responder, http::header::HeaderMap};
+use actix_web::{
+    get, http::header::HeaderMap, post, web, App, HttpRequest, HttpResponse, HttpServer, Responder,
+};
 use log::info;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
@@ -21,7 +23,7 @@ async fn update_driver_location(
     // pushing to shared vector
     // let mut entries = data.entries.lock().unwrap();
     // entries.push((body.pt.lon, body.pt.lat, body.driverId));
-    
+
     //headers
     let token = req.headers().get("token").unwrap().to_owned();
 
