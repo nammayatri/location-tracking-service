@@ -46,6 +46,8 @@ async fn get_nearby_drivers(
     let body = param_obj.into_inner();
     let json = serde_json::to_string(&body).unwrap();
 
+    let redis_pool = data.redis_pool.lock();
+
     HttpResponse::Ok().body(json)
 }
 
@@ -68,7 +70,8 @@ async fn location(
     let mut entries = data.entries.lock().unwrap();
     entries.push((body.lon, body.lat, body.driver_id));
 
-    println!("{:?}", req.headers());
+    //println!("{:?}", req.headers());
+    println!("headers: {:?}", req.headers());
     // info!("Entries: {:?}", entries);
 
     // response
