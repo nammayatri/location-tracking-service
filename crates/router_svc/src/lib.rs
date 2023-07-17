@@ -14,13 +14,14 @@ use tracking::services;
 // appstate for redis
 pub struct AppState {
     pub redis_pool: Arc<Mutex<RedisConnectionPool>>,
-    pub entries: Arc<Mutex<Vec<Location>>>,
+    pub entries: Arc<Mutex<Vec<(f64, f64, String)>>>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Location {
     lat: f64,
     lon: f64,
+    driver_id: String,
 }
 
 #[actix_web::main]
@@ -42,8 +43,12 @@ pub async fn start_server() -> std::io::Result<()> {
         loop {
             thread::sleep(Duration::from_secs(10));
             // Access the vector in the separate thread's lifetime
-            let entries = thread_data.entries.lock().unwrap();
-            info!("entries {:?}", entries);
+            if let mut entries = thread_data.entries.lock().unwrap() {
+                if let mut redis = thread_data.redis_pool.lock().unwrap() {
+                    info!("Entries: {:?}\nSending to redis server", entries);
+                    entries.clear();
+                }
+            }
             // for item in entries.iter() {
             //     info!("xyz {:?}", item);
             // }
