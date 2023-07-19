@@ -1,7 +1,14 @@
-use super::models::{GetNearbyDriversRequest, UpdateDriverLocationRequest};
+use super::models::{DriverLocs, GetNearbyDriversRequest, UpdateDriverLocationRequest};
 use crate::AppState;
 use actix_web::{
     get, http::header::HeaderMap, post, web, App, HttpRequest, HttpResponse, HttpServer, Responder,
+};
+use fred::{
+    interfaces::{GeoInterface, HashesInterface, KeysInterface, SortedSetsInterface},
+    types::{
+        Expiration, FromRedis, GeoPosition, GeoRadiusInfo, GeoUnit, GeoValue, MultipleGeoValues,
+        RedisMap, RedisValue, RespVersion, SetOptions, SortOrder,
+    },
 };
 use log::info;
 use serde::{Deserialize, Serialize};
@@ -47,10 +54,49 @@ async fn get_nearby_drivers(
 ) -> impl Responder {
     let body = param_obj.into_inner();
     let json = serde_json::to_string(&body).unwrap();
+    //println!("{}",json);
+    let mut redis_pool = data.redis_pool.lock().unwrap();
+    let resp = redis_pool
+        .geo_search(
+            &format!("dl:loc:blr:{}:1234", body.vt),
+            None,
+            Some(GeoPosition::from((body.lon, body.lat))),
+            Some((body.radius, GeoUnit::Kilometers)),
+            None,
+            Some(SortOrder::Asc),
+            None,
+            true,
+            true,
+            false,
+        )
+        .await
+        .unwrap();
+    let mut resp_vec: Vec<DriverLocs> = Vec::new();
+    for item in resp {
+        let RedisValue::String(driverId) = item.member else {todo!()};
+        let pos = item.position.unwrap();
+        resp_vec.push(DriverLocs {
+            lon: pos.longitude,
+            lat: pos.latitude,
+            driver_id: driverId.to_string(),
+        });
+    }
+    let resp_vec = serde_json::to_string(&resp_vec).unwrap();
+    println!("{}", resp_vec);
+    let response = {
+        let mut response = HttpResponse::Ok();
+        response.content_type("application/json");
+        response.body(
+            [
+                "{".to_string(),
+                format!("\"resp\":{}", resp_vec),
+                "}".to_string(),
+            ]
+            .concat(),
+        )
+    };
 
-    let redis_pool = data.redis_pool.lock();
-
-    HttpResponse::Ok().body(json)
+    response
 }
 
 // Just trying

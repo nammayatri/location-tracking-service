@@ -3,22 +3,29 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct UpdateDriverLocationRequest {
-    pt: Point,
-    ts: DateTime<Utc>,
-    acc: i32,
-    vt: String,
+    pub pt: Point,
+    pub ts: DateTime<Utc>,
+    pub acc: i32,
+    pub vt: String,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-struct Point {
-    lat: f64,
-    lon: f64,
+pub struct Point {
+    pub lat: f64,
+    pub lon: f64,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct GetNearbyDriversRequest {
-    lat: f64,
-    lon: f64,
-    vt: String,
-    radius: i32,
+    pub lat: f64,
+    pub lon: f64,
+    pub vt: String,
+    pub radius: f64,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct DriverLocs {
+    pub lon: f64,
+    pub lat: f64,
+    pub driver_id: String,
 }

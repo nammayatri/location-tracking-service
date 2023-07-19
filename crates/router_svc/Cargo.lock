@@ -1434,6 +1434,7 @@ dependencies = [
  "actix-web",
  "chrono",
  "env_logger 0.10.0",
+ "fred",
  "log",
  "redis_interface",
  "serde",

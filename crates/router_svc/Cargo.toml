@@ -18,3 +18,4 @@ redis_interface = { version = "0.1.0", path = "../redis_interface" }
 env_logger = "0.10.0"
 log = "0.4.14"
 tokio = "1.29.1"
+fred = { version = "6.0.0", features = ["metrics", "partial-tracing"] }
