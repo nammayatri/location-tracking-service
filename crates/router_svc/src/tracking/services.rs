@@ -82,7 +82,7 @@ async fn get_nearby_drivers(
         });
     }
     let resp_vec = serde_json::to_string(&resp_vec).unwrap();
-    println!("{}", resp_vec);
+    // println!("{}", resp_vec);
     let response = {
         let mut response = HttpResponse::Ok();
         response.content_type("application/json");
