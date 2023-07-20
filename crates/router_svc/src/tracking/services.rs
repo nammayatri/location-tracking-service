@@ -12,7 +12,12 @@ use fred::{
 };
 use log::info;
 use serde::{Deserialize, Serialize};
-use std::sync::{Arc, Mutex};
+use std::{
+    sync::{Arc, Mutex},
+    thread::current,
+};
+
+const BPP_URL: &str = "localhost:8016";
 
 #[post("/ui/driver/location")]
 async fn update_driver_location(
@@ -33,6 +38,7 @@ async fn update_driver_location(
 
     //headers
     let token = req.headers().get("token").unwrap().to_owned();
+    let client = reqwest::Client::new();
 
     //logs
     info!("Token: {}", token.to_str().unwrap());
@@ -56,9 +62,10 @@ async fn get_nearby_drivers(
     let json = serde_json::to_string(&body).unwrap();
     //println!("{}",json);
     let mut redis_pool = data.redis_pool.lock().unwrap();
+    let mut current_bucket = data.current_bucket.lock().unwrap();
     let resp = redis_pool
         .geo_search(
-            &format!("dl:loc:blr:{}:1234", body.vt),
+            &format!("dl:loc:blr:{}:{}", body.vt, current_bucket),
             None,
             Some(GeoPosition::from((body.lon, body.lat))),
             Some((body.radius, GeoUnit::Kilometers)),
@@ -73,12 +80,12 @@ async fn get_nearby_drivers(
         .unwrap();
     let mut resp_vec: Vec<DriverLocs> = Vec::new();
     for item in resp {
-        let RedisValue::String(driverId) = item.member else {todo!()};
+        let RedisValue::String(driver_id) = item.member else {todo!()};
         let pos = item.position.unwrap();
         resp_vec.push(DriverLocs {
             lon: pos.longitude,
             lat: pos.latitude,
-            driver_id: driverId.to_string(),
+            driver_id: driver_id.to_string(),
         });
     }
     let resp_vec = serde_json::to_string(&resp_vec).unwrap();

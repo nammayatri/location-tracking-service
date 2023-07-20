@@ -19,3 +19,6 @@ env_logger = "0.10.0"
 log = "0.4.14"
 tokio = "1.29.1"
 fred = { version = "6.0.0", features = ["metrics", "partial-tracing"] }
+reqwest = {version = "0.11.18", features = ["json"]}
+futures = "0.3.28"
+redis = "0.23.0"

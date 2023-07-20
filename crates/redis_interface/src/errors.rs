@@ -60,6 +60,8 @@ pub enum RedisError {
     PublishError,
     #[error("Failed to add geospatial items to Redis")]
     GeoAddFailed,
+    #[error("Failed to zadd from Redis")]
+    ZAddFailed,
     #[error("Failed to zremrangebyrank from Redis")]
     ZremrangeByRankFailed,
     #[error("Failed to geo search from Redis")]

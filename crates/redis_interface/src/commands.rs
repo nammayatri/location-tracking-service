@@ -5,7 +5,7 @@ use fred::{
     interfaces::{GeoInterface, HashesInterface, KeysInterface, SortedSetsInterface},
     types::{
         Expiration, FromRedis, GeoPosition, GeoRadiusInfo, GeoUnit, GeoValue, MultipleGeoValues,
-        RedisMap, RedisValue, SetOptions, SortOrder,
+        Ordering, RedisMap, RedisValue, SetOptions, SortOrder,
     },
 };
 use router_env::{instrument, tracing};
@@ -226,6 +226,24 @@ impl super::RedisConnectionPool {
             .await
             .into_report()
             .change_context(errors::RedisError::ZremrangeByRankFailed)
+    }
+
+    //ZADD
+    #[instrument(level = "DEBUG", skip(self))]
+    pub async fn zadd(
+        &self,
+        key: &str,
+        options: Option<SetOptions>,
+        ordering: Option<Ordering>,
+        changed: bool,
+        incr: bool,
+        values: Vec<(f64, &str)>,
+    ) -> CustomResult<(), errors::RedisError> {
+        self.pool
+            .zadd(key, options, ordering, changed, incr, values)
+            .await
+            .into_report()
+            .change_context(errors::RedisError::ZAddFailed)
     }
 }
 
