@@ -55,7 +55,10 @@ async fn update_driver_location(
             if x == "nil".to_string() {
                 println!("oh no nil");
                 driver_id = "4321".to_string(); //   BPP SERVICE REQUIRED HERE
-                let _ : () = redis_pool.set_with_expiry(&token, &driver_id, 30).await.unwrap();
+                let _: () = redis_pool
+                    .set_with_expiry(&token, &driver_id, 30)
+                    .await
+                    .unwrap();
             } else {
                 driver_id = x;
             }
@@ -63,7 +66,10 @@ async fn update_driver_location(
         _ => {
             println!("where token");
             driver_id = "4321".to_string(); //   BPP SERVICE REQUIRED HERE
-            let _ : () = redis_pool.set_with_expiry(&token, &driver_id, 30).await.unwrap();
+            let _: () = redis_pool
+                .set_with_expiry(&token, &driver_id, 30)
+                .await
+                .unwrap();
         }
     }
 
@@ -119,9 +125,10 @@ async fn get_nearby_drivers(
     //println!("{}",json);
     let mut redis_pool = data.redis_pool.lock().unwrap();
     let mut current_bucket = Duration::as_secs(&SystemTime::elapsed(&UNIX_EPOCH).unwrap()) / 60;
+    let city = "blr"; // BPP SERVICE REQUIRED HERE
     let resp = redis_pool
         .geo_search(
-            &format!("dl:loc:blr:{}:{}", body.vt, current_bucket),
+            &format!("dl:loc:{}:{}:{}", city, body.vt, current_bucket),
             None,
             Some(GeoPosition::from((body.lon, body.lat))),
             Some((body.radius, GeoUnit::Kilometers)),
