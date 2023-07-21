@@ -41,6 +41,7 @@ async fn update_driver_location(
 
     //headers
     let token = req.headers().get("token").unwrap().to_owned();
+
     let client = reqwest::Client::new();
 
     //logs

@@ -51,8 +51,10 @@
           };
           packageOverrides = rec {
             location-tracking-service = {
-              add-deps = with pkgs; {
+              add-deps = with pkgs; with pkgs.darwin.apple_sdk.frameworks; {
                 nativeBuildInputs = old: old ++ lib.optionals stdenv.isDarwin [
+                  Security
+                ] ++ [
                   libiconv
                 ];
               };
