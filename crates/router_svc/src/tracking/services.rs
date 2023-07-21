@@ -30,7 +30,8 @@ async fn update_driver_location(
 ) -> impl Responder {
     let body = param_obj.into_inner();
     let json = serde_json::to_string(&body).unwrap();
-
+    info!("json {:?}", json);
+    // info!("body {:?}", body);
     // redis
     // let mut redis_conn = data.redis_pool.lock().unwrap();
     // _ = redis_conn.set_key("key", "value".to_string()).await;
@@ -40,18 +41,69 @@ async fn update_driver_location(
     // entries.push((body.pt.lon, body.pt.lat, body.driverId));
 
     //headers
+    // println!("headers: {:?}", req.headers());
     let token = req.headers().get("token").unwrap().to_owned();
+    let token = token.to_str().unwrap().to_owned();
+    info!("Token: {}", token);
 
     let client = reqwest::Client::new();
+    let driver_id: String;
+    let nil_string = String::from("nil");
+    let mut redis_pool = data.redis_pool.lock().unwrap();
+    match redis_pool.get_key::<String>(&token).await {
+        Ok(x) => {
+            if x == "nil".to_string() {
+                println!("oh no nil");
+                driver_id = "4321".to_string(); //   BPP SERVICE REQUIRED HERE
+                let _ : () = redis_pool.set_with_expiry(&token, &driver_id, 30).await.unwrap();
+            } else {
+                driver_id = x;
+            }
+        }
+        _ => {
+            println!("where token");
+            driver_id = "4321".to_string(); //   BPP SERVICE REQUIRED HERE
+            let _ : () = redis_pool.set_with_expiry(&token, &driver_id, 30).await.unwrap();
+        }
+    }
+
+    let on_ride_key = format!("{}:onRide", driver_id);
+    match redis_pool.get_key::<bool>(&on_ride_key).await {
+        Ok(true) => {
+            println!("{}", body.ts);
+            let on_ride_loc_key = format!("dl:loc:{}", driver_id);
+            let _: () = redis_pool
+                .geo_add(
+                    &on_ride_loc_key,
+                    GeoValue {
+                        coordinates: GeoPosition {
+                            longitude: body.pt.lon,
+                            latitude: body.pt.lat,
+                        },
+                        member: RedisValue::String(format!("{}", body.ts).try_into().unwrap()),
+                    },
+                    None,
+                    false,
+                )
+                .await
+                .unwrap();
+        }
+        _ => {
+            drop(redis_pool);
+            let city = "blr".to_string(); // BPP SERVICE REQUIRED HERE
+            let mut entries = data.entries[&body.vt].lock().unwrap();
+            entries.push((body.pt.lon, body.pt.lat, driver_id, city));
+        }
+    }
 
     //logs
-    info!("Token: {}", token.to_str().unwrap());
+    // info!("Token: {:?}", token.to_str().unwrap());
 
     // response
     let response = {
         let mut response = HttpResponse::Ok();
         response.content_type("application/json");
-        response.body(token.to_str().unwrap().to_owned())
+        response.body(token)
     };
 
     response
@@ -128,8 +180,8 @@ async fn location(
     let mut entries = data.entries[&body.vt].lock().unwrap();
     entries.push((body.lon, body.lat, body.driver_id, "blr".to_string()));
 
-    //println!("{:?}", req.headers());
-    println!("headers: {:?}", req.headers());
+    // println!("{:?}", req.headers());
+    // println!("headers: {:?}", req.headers());
     // info!("Entries: {:?}", entries);
 
     // response

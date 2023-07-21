@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct UpdateDriverLocationRequest {
     pub pt: Point,
     pub ts: DateTime<Utc>,
@@ -9,7 +9,7 @@ pub struct UpdateDriverLocationRequest {
     pub vt: String,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Point {
     pub lat: f64,
     pub lon: f64,
