@@ -66,4 +66,6 @@ pub enum RedisError {
     ZremrangeByRankFailed,
     #[error("Failed to geo search from Redis")]
     GeoSearchFailed,
+    #[error("Failed to zcard from Redis")]
+    ZCardFailed,
 }

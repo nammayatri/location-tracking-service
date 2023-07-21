@@ -245,6 +245,16 @@ impl super::RedisConnectionPool {
             .into_report()
             .change_context(errors::RedisError::ZAddFailed)
     }
+
+    //ZCARD
+    #[instrument(level = "DEBUG", skip(self))]
+    pub async fn zcard(&self, key: &str) -> CustomResult<u64, errors::RedisError> {
+        self.pool
+            .zcard(key)
+            .await
+            .into_report()
+            .change_context(errors::RedisError::ZCardFailed)
+    }
 }
 
 #[cfg(test)]

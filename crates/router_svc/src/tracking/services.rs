@@ -1,7 +1,8 @@
 use super::models::{DriverLocs, GetNearbyDriversRequest, UpdateDriverLocationRequest};
 use crate::AppState;
 use actix_web::{
-    get, http::header::HeaderMap, post, web, App, HttpRequest, HttpResponse, HttpServer, Responder,
+    get, http::header::HeaderMap, post, rt::System, web, App, HttpRequest, HttpResponse,
+    HttpServer, Responder,
 };
 use fred::{
     interfaces::{GeoInterface, HashesInterface, KeysInterface, SortedSetsInterface},
@@ -15,6 +16,8 @@ use serde::{Deserialize, Serialize};
 use std::{
     sync::{Arc, Mutex},
     thread::current,
+    time::Duration,
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 const BPP_URL: &str = "localhost:8016";
@@ -62,7 +65,7 @@ async fn get_nearby_drivers(
     let json = serde_json::to_string(&body).unwrap();
     //println!("{}",json);
     let mut redis_pool = data.redis_pool.lock().unwrap();
-    let mut current_bucket = data.current_bucket.lock().unwrap();
+    let mut current_bucket = Duration::as_secs(&SystemTime::elapsed(&UNIX_EPOCH).unwrap()) / 60;
     let resp = redis_pool
         .geo_search(
             &format!("dl:loc:blr:{}:{}", body.vt, current_bucket),
@@ -118,12 +121,11 @@ async fn location(
 ) -> impl Responder {
     let body = param_obj.into_inner();
     let json = serde_json::to_string(&body).unwrap();
-
     // info!("Location json: {}", json);
     // info!("Location body: {:?}", body);
 
-    let mut entries = data.entries.lock().unwrap();
-    entries.push((body.lon, body.lat, body.driver_id));
+    let mut entries = data.entries[&body.vt].lock().unwrap();
+    entries.push((body.lon, body.lat, body.driver_id, "blr".to_string()));
 
     //println!("{:?}", req.headers());
     println!("headers: {:?}", req.headers());
