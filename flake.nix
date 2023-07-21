@@ -6,6 +6,7 @@
 
     # Rust
     dream2nix.url = "github:nix-community/dream2nix";
+    nixpkgs-pr.url = "github:siph/nixpkgs/diesel-cli-ext";
 
     # Dev tools
     treefmt-nix.url = "github:numtide/treefmt-nix";
@@ -51,8 +52,12 @@
           };
           packageOverrides = rec {
             location-tracking-service = {
-              add-deps = with pkgs; {
+              add-deps = with pkgs; with pkgs.darwin.apple_sdk.frameworks; {
                 nativeBuildInputs = old: old ++ lib.optionals stdenv.isDarwin [
+                  Security
+                  diesel-cli
+                  inputs.nixpkgs-pr.legacyPackages.${system}.diesel-cli-ext
+                ] ++ [
                   libiconv
                 ];
               };

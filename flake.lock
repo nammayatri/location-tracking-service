@@ -308,6 +308,22 @@
         "type": "github"
       }
     },
+    "nixpkgs-pr": {
+      "locked": {
+        "lastModified": 1689537029,
+        "narHash": "sha256-RzNNtQSRdgLkKbSpH3K8j/oDScNptkmRirKkXlcvxAY=",
+        "owner": "siph",
+        "repo": "nixpkgs",
+        "rev": "75e44fae31281cedab6a8af201be220ba7e74573",
+        "type": "github"
+      },
+      "original": {
+        "owner": "siph",
+        "ref": "diesel-cli-ext",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
     "nixpkgsV1": {
       "locked": {
         "lastModified": 1686501370,
@@ -436,6 +452,7 @@
         "flake-root": "flake-root",
         "mission-control": "mission-control",
         "nixpkgs": "nixpkgs_2",
+        "nixpkgs-pr": "nixpkgs-pr",
         "process-compose-flake": "process-compose-flake",
         "services-flake": "services-flake",
         "systems": "systems",

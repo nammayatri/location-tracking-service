@@ -247,17 +247,19 @@ mod tests {
 
                 // Act
 
-                // let result = pool.set_key("chakri", "value".to_string()).await;
+                let result = pool
+                    .set_with_expiry("chakri", "value".to_string(), 10)
+                    .await;
                 // print!("{:?}", pool.get_key::<String>("chakri").await);
 
-                let result = pool
-                    .geo_add(
-                        "GeoAdd",
-                        vec![GeoValue::new(GeoPosition::from((1.0, 2.0)), "value")],
-                        None,
-                        false,
-                    )
-                    .await;
+                // let result = pool
+                //     .geo_add(
+                //         "GeoAdd",
+                //         vec![GeoValue::new(GeoPosition::from((1.0, 2.0)), "value"), GeoValue::new(GeoPosition::from((3.0, 4.0)), "value2")],
+                //         None,
+                //         false,
+                //     )
+                //     .await;
 
                 // let result = pool.zremrange_by_rank("zremrange_by_rank_key", 0, 5).await;
 

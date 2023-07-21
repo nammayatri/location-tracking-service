@@ -22,3 +22,6 @@ cargo-test = "0.3.1"
 actix-web = "4.3.1"
 redis_interface = { version = "0.1.0", path = "./crates/redis_interface" }
 router_svc = { version = "0.1.0", path = "./crates/router_svc" }
+diesel = { version = "2.1.0", features = ["postgres", "r2d2"] }
+chrono = "0.4.26"
+actix = "0.13.0"
