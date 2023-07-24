@@ -76,6 +76,9 @@
             # For rust-analyzer 'hover' tooltips to work.
             export RUST_SRC_PATH=${pkgs.rustPlatform.rustLibSrc}
             export REDIS_HOST=${config.process-compose.services.services.redis.bind}
+            export LOCATION_EXPIRY="90"
+            export TOKEN_EXPIRY="30"
+            export ON_RIDE_EXPIRY="172800"
           '';
           nativeBuildInputs = [
             # Add your dev tools here.

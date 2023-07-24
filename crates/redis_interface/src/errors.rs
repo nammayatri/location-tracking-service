@@ -68,4 +68,8 @@ pub enum RedisError {
     GeoSearchFailed,
     #[error("Failed to zcard from Redis")]
     ZCardFailed,
+    #[error("Failed to get geospatial values from Redis")]
+    GeoPosFailed,
+    #[error("Failed to get array of members from Redis")]
+    ZRangeFailed,
 }

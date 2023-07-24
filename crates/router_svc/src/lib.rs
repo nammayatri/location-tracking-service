@@ -10,6 +10,7 @@ use redis::Commands;
 use redis_interface::{RedisConnectionPool, RedisSettings};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::env::var;
 use std::hash::Hash;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -21,7 +22,6 @@ mod tracking;
 use tracking::services;
 
 pub const LIST_OF_VT: [&str; 4] = ["auto", "cab", "suv", "sedan"];
-pub const LOCATION_EXPIRY_IN_SEC: usize = 90;
 
 // appstate for redis
 pub struct AppState {
@@ -58,6 +58,11 @@ pub async fn start_server(conn: redis::Connection) -> std::io::Result<()> {
         )),
     });
 
+    let location_expiry_in_sec = var("LOCATION_EXPIRY")
+        .expect("LOCATION_EXPIRY not found")
+        .parse::<usize>()
+        .unwrap();
+
     let thread_data = data.clone();
     thread::spawn(move || loop {
         thread::sleep(Duration::from_secs(10));
@@ -79,7 +84,7 @@ pub async fn start_server(conn: redis::Connection) -> std::io::Result<()> {
                         .expect("Couldn't add to redis");
                     if num == 0 {
                         let _: () = redis
-                            .expire(&key, LOCATION_EXPIRY_IN_SEC)
+                            .expire(&key, location_expiry_in_sec)
                             .expect("Unable to set expiry time");
                         info!("num 0");
                     }

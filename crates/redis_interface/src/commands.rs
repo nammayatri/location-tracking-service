@@ -4,8 +4,8 @@ use error_stack::{IntoReport, ResultExt};
 use fred::{
     interfaces::{GeoInterface, HashesInterface, KeysInterface, SortedSetsInterface},
     types::{
-        Expiration, FromRedis, GeoPosition, GeoRadiusInfo, GeoUnit, GeoValue, MultipleGeoValues,
-        Ordering, RedisMap, RedisValue, SetOptions, SortOrder,
+        Expiration, FromRedis, GeoPosition, GeoRadiusInfo, GeoUnit, GeoValue, Limit,
+        MultipleGeoValues, Ordering, RedisMap, RedisValue, SetOptions, SortOrder, ZSort,
     },
 };
 use router_env::{instrument, tracing};
@@ -213,6 +213,19 @@ impl super::RedisConnectionPool {
             .change_context(errors::RedisError::GeoSearchFailed)
     }
 
+    //GEOPOS
+    pub async fn geopos(
+        &self,
+        key: &str,
+        members: Vec<&str>,
+    ) -> CustomResult<RedisValue, errors::RedisError> {
+        self.pool
+            .geopos(key, members)
+            .await
+            .into_report()
+            .change_context(errors::RedisError::GeoPosFailed)
+    }
+
     //ZREMRANGEBYRANK
     #[instrument(level = "DEBUG", skip(self))]
     pub async fn zremrange_by_rank(
@@ -254,6 +267,24 @@ impl super::RedisConnectionPool {
             .await
             .into_report()
             .change_context(errors::RedisError::ZCardFailed)
+    }
+
+    //ZRANGE
+    async fn zrange<R, K, M, N>(
+        &self,
+        key: &str,
+        min: i64,
+        max: i64,
+        sort: Option<ZSort>,
+        rev: bool,
+        limit: Option<Limit>,
+        withscores: bool,
+    ) -> CustomResult<RedisValue, errors::RedisError> {
+        self.pool
+            .zrange(key, min, max, sort, rev, limit, withscores)
+            .await
+            .into_report()
+            .change_context(errors::RedisError::ZRangeFailed)
     }
 }
 
