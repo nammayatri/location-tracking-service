@@ -22,6 +22,7 @@ mod tracking;
 use tracking::services;
 
 pub const LIST_OF_VT: [&str; 4] = ["auto", "cab", "suv", "sedan"];
+pub const LIST_OF_CITIES: [&str; 2] = ["blr", "ccu"];
 
 // appstate for redis
 pub struct AppState {
@@ -67,34 +68,46 @@ pub async fn start_server(conn: redis::Connection) -> std::io::Result<()> {
     thread::spawn(move || loop {
         thread::sleep(Duration::from_secs(10));
         // Access the vector in the separate thread's lifetime
-        for item in LIST_OF_VT {
+        for vt in LIST_OF_VT {
+            // println!("hello?");
             let bucket = Duration::as_secs(&SystemTime::elapsed(&UNIX_EPOCH).unwrap()) / 60;
-            let key = format!("dl:loc:blr:{}:{}", item, bucket);
-            let mut entries = thread_data.entries[item].lock().unwrap();
-            let new_entries = entries
-                .clone()
-                .into_iter()
-                .map(|x| (x.0, x.1, x.2))
-                .collect::<Vec<(f64, f64, String)>>();
-            if !entries.is_empty() {
-                if let mut redis = thread_data.redis.lock().unwrap() {
-                    let num = redis.zcard::<_, u64>(&key).expect("Unable to zcard");
-                    let _: () = redis
-                        .geo_add(&key, new_entries.to_vec())
-                        .expect("Couldn't add to redis");
-                    if num == 0 {
+
+            let mut entries = thread_data.entries[vt].lock().unwrap();
+
+            // println!("entries: {:?}", entries);
+            // entries.sort_by(|a, b| a.3.cmp(&b.3));
+            // println!("sorted entries: {:?}", entries);
+
+            for city in LIST_OF_CITIES {
+                //println!("entries: {:?}", entries);
+                let new_entries = entries
+                    .clone()
+                    .into_iter()
+                    .filter(|x| x.3 == city)
+                    .map(|x| (x.0, x.1, x.2))
+                    .collect::<Vec<(f64, f64, String)>>();
+
+                let key = format!("dl:loc:{}:{}:{}", city, vt, bucket);
+                // println!("key: {}", key);
+
+                if !new_entries.is_empty() {
+                    if let mut redis = thread_data.redis.lock().unwrap() {
+                        let num = redis.zcard::<_, u64>(&key).expect("Unable to zcard");
                         let _: () = redis
-                            .expire(&key, location_expiry_in_sec)
-                            .expect("Unable to set expiry time");
-                        info!("num 0");
+                            .geo_add(&key, new_entries.to_vec())
+                            .expect("Couldn't add to redis");
+                        if num == 0 {
+                            let _: () = redis
+                                .expire(&key, location_expiry_in_sec)
+                                .expect("Unable to set expiry time");
+                            // info!("num 0");
+                        }
                     }
+                    info!("Entries: {:?}\nSending to redis server", new_entries);
+                    info!("^  Vt: {}, key: {}\n", vt, key);
                 }
-                info!("Entries: {:?}\nSending to redis server", entries);
-                info!("^  Vt: {}, key: {}", item, key);
-                entries.clear();
-            } else {
-                info!("Bucket: {}", bucket);
             }
+            entries.clear()
         }
     });
 

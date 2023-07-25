@@ -217,7 +217,7 @@ impl super::RedisConnectionPool {
     pub async fn geopos(
         &self,
         key: &str,
-        members: Vec<&str>,
+        members: Vec<String>,
     ) -> CustomResult<RedisValue, errors::RedisError> {
         self.pool
             .geopos(key, members)
@@ -270,7 +270,7 @@ impl super::RedisConnectionPool {
     }
 
     //ZRANGE
-    async fn zrange<R, K, M, N>(
+    pub async fn zrange(
         &self,
         key: &str,
         min: i64,

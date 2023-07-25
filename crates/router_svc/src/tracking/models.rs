@@ -1,4 +1,5 @@
 use chrono::{DateTime, Utc};
+use fred::types::GeoPosition;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -44,12 +45,17 @@ pub struct RideEndRequest {
 }
 
 #[derive(Deserialize, Serialize, Debug)]
-pub struct Resp {
-    pub resp: Vec<DriverLocs>,
+pub struct NearbyDriverResp {
+    pub resp: Vec<(f64, f64, String)>,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct RideId {
     pub on_ride: bool,
     pub ride_id: String,
+}
+
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub struct DriverRideData {
+    pub resp: Vec<(f64, f64)>,
 }

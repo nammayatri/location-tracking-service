@@ -1,13 +1,14 @@
 use super::models::{
-    DriverLocs, GetNearbyDriversRequest, Resp, RideEndRequest, RideId, RideStartRequest,
-    UpdateDriverLocationRequest,
+    DriverRideData, GetNearbyDriversRequest, NearbyDriverResp, RideEndRequest, RideId,
+    RideStartRequest, UpdateDriverLocationRequest,
 };
 use crate::AppState;
 use actix_web::{
-    get, http::header::HeaderMap, post, rt::System, web, App, HttpRequest, HttpResponse,
-    HttpServer, Responder,
+    get, http::header::HeaderMap, post, rt::System, web, web::Bytes, App, HttpRequest,
+    HttpResponse, HttpServer, Responder,
 };
 use fred::{
+    bytes_utils::string::StrInner,
     interfaces::{GeoInterface, HashesInterface, KeysInterface, SortedSetsInterface},
     types::{
         Expiration, FromRedis, GeoPosition, GeoRadiusInfo, GeoUnit, GeoValue, MultipleGeoValues,
@@ -15,8 +16,9 @@ use fred::{
     },
 };
 use log::info;
+use rand::{thread_rng, Rng};
 use serde::{Deserialize, Serialize};
-use std::env::var;
+use std::{env::var, os::unix::thread};
 use std::{
     sync::{Arc, Mutex},
     thread::current,
@@ -58,27 +60,17 @@ async fn update_driver_location(
     let driver_id: String;
     let nil_string = String::from("nil");
     let mut redis_pool = data.redis_pool.lock().unwrap();
-    match redis_pool.get_key::<String>(&token).await {
-        Ok(x) => {
-            if x == "nil".to_string() {
-                println!("oh no nil");
-                driver_id = "4321".to_string(); //   BPP SERVICE REQUIRED HERE
-                let _: () = redis_pool
-                    .set_with_expiry(&token, &driver_id, token_expiry_in_sec)
-                    .await
-                    .unwrap();
-            } else {
-                driver_id = x;
-            }
-        }
-        _ => {
-            println!("where token");
-            driver_id = "4321".to_string(); //   BPP SERVICE REQUIRED HERE
-            let _: () = redis_pool
-                .set_with_expiry(&token, &driver_id, 30)
-                .await
-                .unwrap();
-        }
+
+    let x = redis_pool.get_key::<String>(&token).await.unwrap();
+    if x == "nil".to_string() {
+        // println!("oh no nil");
+        driver_id = "4321".to_string(); //   BPP SERVICE REQUIRED HERE
+        let _: () = redis_pool
+            .set_with_expiry(&token, &driver_id, token_expiry_in_sec)
+            .await
+            .unwrap();
+    } else {
+        driver_id = x;
     }
 
     let city = "blr".to_string(); // BPP SERVICE REQUIRED HERE
@@ -86,29 +78,32 @@ async fn update_driver_location(
     let on_ride_key = format!("ds:on_ride:{}:{}", city, driver_id);
     let on_ride_resp = redis_pool.get_key::<String>(&on_ride_key).await.unwrap();
 
+    // println!("RIDE_ID TESTING: {:?}", serde_json::from_str::<RideId>(&on_ride_resp));
+
     match serde_json::from_str::<RideId>(&on_ride_resp) {
-        Ok(resp) => {
-            if resp.on_ride {
-                info!("member: {}", body.ts.to_rfc3339());
-                let on_ride_loc_key = format!("dl:loc:{}:{}", city, driver_id);
-                let _: () = redis_pool
-                    .geo_add(
-                        &on_ride_loc_key,
-                        GeoValue {
-                            coordinates: GeoPosition {
-                                longitude: body.pt.lon,
-                                latitude: body.pt.lat,
-                            },
-                            member: RedisValue::String(
-                                format!("{}", body.ts.to_rfc3339()).try_into().unwrap(),
-                            ),
+        Ok(RideId {
+            on_ride: true,
+            ride_id: _,
+        }) => {
+            info!("member: {}", body.ts.to_rfc3339());
+            let on_ride_loc_key = format!("dl:loc:{}:{}", city, driver_id);
+            let _: () = redis_pool
+                .geo_add(
+                    &on_ride_loc_key,
+                    GeoValue {
+                        coordinates: GeoPosition {
+                            longitude: body.pt.lon,
+                            latitude: body.pt.lat,
                         },
-                        None,
-                        false,
-                    )
-                    .await
-                    .unwrap();
-            }
+                        member: RedisValue::String(
+                            format!("{}", body.ts.to_rfc3339()).try_into().unwrap(),
+                        ),
+                    },
+                    None,
+                    false,
+                )
+                .await
+                .unwrap();
         }
         _ => {
             drop(redis_pool);
@@ -158,17 +153,14 @@ async fn get_nearby_drivers(
         )
         .await
         .unwrap();
-    let mut resp_vec: Vec<DriverLocs> = Vec::new();
+    let mut resp_vec: Vec<(f64, f64, String)> = Vec::new();
     for item in resp {
-        let RedisValue::String(driver_id) = item.member else {todo!()};
-        let pos = item.position.unwrap();
-        resp_vec.push(DriverLocs {
-            lon: pos.longitude,
-            lat: pos.latitude,
-            driver_id: driver_id.to_string(),
-        });
+        if let RedisValue::String(driver_id) = item.member {
+            let pos = item.position.unwrap();
+            resp_vec.push((pos.longitude, pos.latitude, driver_id.to_string()));
+        }
     }
-    let resp = Resp { resp: resp_vec };
+    let resp = NearbyDriverResp { resp: resp_vec };
     let resp = serde_json::to_string(&resp).unwrap();
     // println!("{}", resp_vec);
     HttpResponse::Ok()
@@ -230,7 +222,7 @@ async fn ride_end(
 
     let ride_id = path.into_inner();
 
-    info!("rideId: {}", ride_id);
+    println!("rideId: {}", ride_id);
 
     let city = "blr"; // BPP SERVICE REQUIRED HERE
 
@@ -248,16 +240,52 @@ async fn ride_end(
         .parse::<u32>()
         .unwrap();
 
-    if let Ok(mut redis_pool) = data.redis_pool.lock() {
-        let result = redis_pool
-            .set_with_expiry(&key, value, on_ride_expiry)
-            .await;
-        if result.is_err() {
-            return HttpResponse::InternalServerError().body("Error");
-        }
+    let redis_pool = data.redis_pool.lock().unwrap();
+    let result = redis_pool
+        .set_with_expiry(&key, value, on_ride_expiry)
+        .await;
+    if result.is_err() {
+        return HttpResponse::InternalServerError().body("Error");
     }
 
-    HttpResponse::Ok().body(json)
+    let key = format!("dl:loc:{}:{}", city, body.driver_id);
+
+    let RedisValue::Array(res) = redis_pool
+        .zrange(&key, 0, -1, None, false, None, false)
+        .await
+        .unwrap() else {todo!()};
+
+    let mut res = res
+        .into_iter()
+        .map(|x| match x {
+            RedisValue::String(y) => String::from_utf8(y.into_inner().to_vec()).unwrap(),
+            _ => String::from(""),
+        })
+        .collect::<Vec<String>>();
+
+    res.sort();
+
+    println!("res: {:?}", res);
+
+    let RedisValue::Array(res) = redis_pool.geopos(&key, res).await.unwrap() else {todo!()};
+    let _: () = redis_pool.delete_key(&key).await.unwrap();
+
+    drop(redis_pool);
+
+    let mut resp = Vec::new();
+    for item in res {
+        let item = item.as_geo_position().unwrap().unwrap();
+        resp.push((item.longitude, item.latitude));
+    }
+
+    let data = DriverRideData { resp };
+
+    let resp = serde_json::to_string(&data).unwrap();
+
+    // println!("resp: {:?}", resp);
+    HttpResponse::Ok()
+        .content_type("application/json")
+        .body(resp)
 }
 
 // Just trying
@@ -274,9 +302,19 @@ async fn location(
     let json = serde_json::to_string(&body).unwrap();
     // info!("Location json: {}", json);
     // info!("Location body: {:?}", body);
+    let mut rng = thread_rng();
 
     let mut entries = data.entries[&body.vt].lock().unwrap();
-    entries.push((body.lon, body.lat, body.driver_id, "blr".to_string()));
+    entries.push((
+        body.lon,
+        body.lat,
+        body.driver_id,
+        if rng.gen_range(0..2) == 1 {
+            "blr".to_string()
+        } else {
+            "ccu".to_string()
+        },
+    ));
 
     // println!("{:?}", req.headers());
     // println!("headers: {:?}", req.headers());

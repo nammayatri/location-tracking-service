@@ -23,3 +23,4 @@ reqwest = {version = "0.11.18", features = ["json"]}
 futures = "0.3.28"
 redis = "0.23.0"
 dotenv = "0.15.0"
+rand = "0.8.5"

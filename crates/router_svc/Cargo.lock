@@ -1681,6 +1681,7 @@ dependencies = [
  "fred",
  "futures",
  "log",
+ "rand",
  "redis",
  "redis_interface",
  "reqwest",
