@@ -2,7 +2,8 @@ use super::models::{
     AuthResponseData, GetNearbyDriversRequest, RideEndRequest, RideStartRequest,
     UpdateDriverLocationRequest,
 };
-use crate::AppState;
+use crate::{messages::GetGeometry, AppState, DbActor};
+use actix::Addr;
 use actix_web::{
     get, http::header::HeaderMap, post, web, App, HttpRequest, HttpResponse, HttpServer, Responder,
 };
@@ -19,6 +20,18 @@ async fn update_driver_location(
 ) -> impl Responder {
     let body = param_obj.into_inner();
     let json = serde_json::to_string(&body).unwrap();
+
+    let db: Addr<DbActor> = data.as_ref().db.clone();
+    let dbData = db
+        .send(GetGeometry {
+            lat: body.pt.lat,
+            lon: body.pt.lon,
+        })
+        .await
+        .unwrap();
+
+    let region = dbData.unwrap().region;
+    info!("region xyz: {:?}", region);
 
     // redis
     let mut redis_conn = data.redis_pool.lock().unwrap();

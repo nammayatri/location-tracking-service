@@ -17,9 +17,12 @@ use diesel::{
     PgConnection,
 };
 pub mod db_models;
-use std::env;
+use dotenv::var;
 mod db_utils;
 use db_utils::{get_pool, DbActor};
+mod actors;
+mod messages;
+mod schema;
 
 // appstate for redis
 pub struct AppState {
@@ -38,7 +41,7 @@ pub struct Location {
 #[actix_web::main]
 pub async fn start_server() -> std::io::Result<()> {
     env_logger::init_from_env(Env::default().default_filter_or("info"));
-    let db_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+    let db_url = var("DATABASE_URL").expect("DATABASE_URL must be set");
     let pool = get_pool(&db_url);
     // let pool: ConnectionManager::<PgConnection> = ConnectionManager::<PgConnection>::new(db_url);
     // Pool::builder().build(pool).expect("Error building a connection pool.");

@@ -57,6 +57,7 @@
                   Security
                   diesel-cli
                   inputs.nixpkgs-pr.legacyPackages.${system}.diesel-cli-ext
+                  postgresql
                 ] ++ [
                   libiconv
                 ];
@@ -79,6 +80,7 @@
             # For rust-analyzer 'hover' tooltips to work.
             export RUST_SRC_PATH=${pkgs.rustPlatform.rustLibSrc}
             export REDIS_HOST=${config.process-compose.services.services.redis.bind}
+            export DATABASE_URL=postgresql://postgres:root@localhost:5434/atlas_dev
           '';
           nativeBuildInputs = [
             # Add your dev tools here.
