@@ -6,13 +6,13 @@ pub struct UpdateDriverLocationRequest {
     pub pt: Point,
     pub ts: DateTime<Utc>,
     pub acc: i32,
-    pub vt: String,
+
+
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct AuthResponseData {
     pub driverId: String,
-    pub token: String,
 }
 
 #[derive(Serialize, Deserialize, Clone)]

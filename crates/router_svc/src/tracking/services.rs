@@ -8,7 +8,7 @@ use actix_web::{
     get, http::header::HeaderMap, post, web, App, HttpRequest, HttpResponse, HttpServer, Responder,
 };
 use log::info;
-use reqwest::{Client, Error};
+use reqwest::{Client, Error, header};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 
@@ -21,6 +21,11 @@ async fn update_driver_location(
     let body = param_obj.into_inner();
     let json = serde_json::to_string(&body).unwrap();
 
+    //headers
+    let token = req.headers().get("token").unwrap().to_owned();
+    let vechile_type = req.headers().get("vt").unwrap().to_owned();
+    let merchant_id = req.headers().get("mid").unwrap().to_owned();
+
     let db: Addr<DbActor> = data.as_ref().db.clone();
     let dbData = db
         .send(GetGeometry {
@@ -29,6 +34,17 @@ async fn update_driver_location(
         })
         .await
         .unwrap();
+    
+    // send error response for invalid location
+    if dbData.is_err() {   
+        let response = {
+            let mut response = HttpResponse::BadRequest();
+            response.content_type("application/json");
+            response.body("{\"error\": \"Invalid Location\"}")
+        };
+        return response;
+    }
+    
 
     let region = dbData.unwrap().region;
     info!("region xyz: {:?}", region);
@@ -41,15 +57,13 @@ async fn update_driver_location(
     // let mut entries = data.entries.lock().unwrap();
     // entries.push((body.pt.lon, body.pt.lat, body.driverId));
 
-    //headers
-    let token = req.headers().get("token").unwrap().to_owned();
 
     let result = redis_conn
         .get_key::<String>(format!("dl:{}", token.to_str().unwrap()).as_str())
         .await;
 
     if result.is_err() {
-        return HttpResponse::InternalServerError().body("Redis Error");
+        return HttpResponse::BadRequest().body("Redis Error");
     }
 
     let result = result.unwrap();
@@ -57,13 +71,14 @@ async fn update_driver_location(
     let response_data: Option<AuthResponseData> = if result != "nil" {
         Some(AuthResponseData {
             driverId: result,
-            token: token.to_str().unwrap().to_owned(),
         })
     } else {
         let client = reqwest::Client::new();
         let resp = client
             .get("http://127.0.0.1:8016/internal/auth")
             .header("token", token.clone())
+            .header("api-key", "ae288466-2add-11ee-be56-0242ac120002")
+            .header("merchant-id", merchant_id)
             .send()
             .await
             .expect("response not received");
@@ -73,14 +88,19 @@ async fn update_driver_location(
 
         if status != 200 {
             let response = {
-                let mut response = HttpResponse::Ok();
+                let mut response = HttpResponse::BadRequest();
                 response.content_type("application/json");
                 response.body(response_body)
             };
             return response;
         }
         info!("response: {}", response_body);
+
+
         let response_data: AuthResponseData = serde_json::from_str(&response_body).unwrap();
+        _ = redis_conn
+            .set_with_expiry(format!("dl:{}", token.to_str().unwrap()).as_str(), &response_data.driverId, 3600)
+            .await;
         Some(response_data)
     };
 
@@ -92,9 +112,6 @@ async fn update_driver_location(
     // let resToken = &response_data.token;
     // info!("data xyz: {} {}", driver_id, resToken);
 
-    _ = redis_conn
-        .set_with_expiry(format!("dl:{}", res.token).as_str(), res.driverId, 3600)
-        .await;
 
     //logs
     info!("driverId: {}", token.to_str().unwrap());
