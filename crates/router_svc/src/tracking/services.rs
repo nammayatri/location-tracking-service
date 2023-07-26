@@ -1,8 +1,8 @@
 use super::models::{
-    DriverRideData, GetNearbyDriversRequest, NearbyDriverResp, RideEndRequest, RideId,
-    RideStartRequest, UpdateDriverLocationRequest,
+    DriverRideData, DurationStruct, GetNearbyDriversRequest, NearbyDriverResp, RideEndRequest,
+    RideId, RideStartRequest, UpdateDriverLocationRequest, AuthResponseData
 };
-use crate::AppState;
+use crate::{messages::GetGeometry, AppState, DbActor};
 use actix_web::{get, post, web, HttpRequest, HttpResponse, Responder};
 use fred::types::{GeoPosition, GeoUnit, GeoValue, RedisValue, SortOrder};
 use log::info;
@@ -11,6 +11,9 @@ use std::collections::HashMap;
 // use serde::{Deserialize, Serialize};
 use std::env::var;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use reqwest::{Client, Error};
+
+use actix::Addr;
 
 use crate::types::*;
 
@@ -19,7 +22,7 @@ const _BPP_URL: &str = "localhost:8016";
 #[post("/ui/driver/location")]
 async fn update_driver_location(
     data: web::Data<AppState>,
-    param_obj: web::Json<UpdateDriverLocationRequest>,
+    param_obj: web::Json<Vec<UpdateDriverLocationRequest>>,
     req: HttpRequest,
 ) -> impl Responder {
     let body = param_obj.into_inner();
@@ -82,39 +85,49 @@ async fn update_driver_location(
         driver_id = x;
     }
 
-    let city = "blr".to_string(); // BPP SERVICE REQUIRED HERE
+    let db: Addr<DbActor> = data.as_ref().db.clone();
+    let dbData = db
+        .send(GetGeometry {
+            lat: body[0].pt.lat,
+            lon: body[0].pt.lon,
+        })
+        .await
+        .unwrap();
+
+    let city = dbData.unwrap().region;
+    info!("region xyz: {:?}", &city);
 
     let on_ride_key = format!("ds:on_ride:{merchant_id}:{city}:{driver_id}");
     let on_ride_resp = redis_pool.get_key::<Key>(&on_ride_key).await.unwrap();
 
     // println!("RIDE_ID TESTING: {:?}", serde_json::from_str::<RideId>(&on_ride_resp));
-
     match serde_json::from_str::<RideId>(&on_ride_resp) {
         Ok(RideId {
             on_ride: true,
             ride_id: _,
         }) => {
-            info!("member: {}", body.ts.to_rfc3339());
-            let on_ride_loc_key = format!("dl:loc:{merchant_id}:{city}:{driver_id}");
-            let _: () = redis_pool
-                .geo_add(
-                    &on_ride_loc_key,
-                    GeoValue {
-                        coordinates: GeoPosition {
-                            longitude: body.pt.lon,
-                            latitude: body.pt.lat,
+            for loc in body {
+                info!("member: {}", loc.ts.to_rfc3339());
+                let on_ride_loc_key = format!("dl:loc:{merchant_id}:{city}:{}", driver_id.clone());
+                let _: () = redis_pool
+                    .geo_add(
+                        &on_ride_loc_key,
+                        GeoValue {
+                            coordinates: GeoPosition {
+                                longitude: loc.pt.lon,
+                                latitude: loc.pt.lat,
+                            },
+                            member: RedisValue::String(loc.ts.to_rfc3339().try_into().unwrap()),
                         },
-                        member: RedisValue::String(body.ts.to_rfc3339().try_into().unwrap()),
-                    },
-                    None,
-                    false,
-                )
-                .await
-                .unwrap();
+                        None,
+                        false,
+                    )
+                    .await
+                    .unwrap();
+            }
         }
         _ => {
             drop(redis_pool);
-
             let mut entries = data
                 .entries
                 .lock()
@@ -154,17 +167,20 @@ async fn update_driver_location(
                     .unwrap()
                     .insert(vehicle_type.clone(), Vec::new());
             }
-            entries
-                .get_mut(&merchant_id)
-                .expect("no merchant id")
-                .get_mut(&city)
-                .expect("no city")
-                .get_mut(&vehicle_type)
-                .expect("no vehicle type")
-                .push((body.pt.lon, body.pt.lat, driver_id));
-            // println!("{:?}", entries);
 
-            // info!("{:?}", entries);
+            for loc in body {
+                entries
+                    .get_mut(&merchant_id)
+                    .expect("no merchant id")
+                    .get_mut(&city)
+                    .expect("no city")
+                    .get_mut(&vehicle_type)
+                    .expect("no vehicle type")
+                    .push((loc.pt.lon, loc.pt.lat, driver_id.clone()));
+                // println!("{:?}", entries);
+
+                // info!("{:?}", entries);
+            }
         }
     }
 
@@ -364,8 +380,8 @@ async fn location(
 ) -> impl Responder {
     let body = param_obj.into_inner();
     let json = serde_json::to_string(&body).unwrap();
-    info!("Location json: {}\n", json);
-    info!("Location body: {:?}\n", body);
+    // info!("Location json: {}\n", json);
+    // info!("Location body: {:?}\n", body);
 
     let start_full = Instant::now();
 
@@ -431,22 +447,26 @@ async fn location(
         // println!("{:?}", entries);
     }
 
-    let duration_full = start_full.elapsed();
+    let duration_full = serde_json::to_string(&DurationStruct {
+        dur: start_full.elapsed(),
+    })
+    .unwrap();
 
-    println!(
-        "\n\n\n\n\n\n\nTime taken: {:?}\n\n\n\n\n\n\n\n\n",
-        duration_full
-    );
+    // println!(
+    //     "\n\n\n\n\n\n\nTime taken: {:?}\n\n\n\n\n\n\n\n\n",
+    //     duration_full
+    // );
 
     // println!("{:?}", req.headers());
     // println!("headers: {:?}", req.headers());
     // info!("Entries: {:?}", entries);
 
     // response
+    // println!("{:?}", duration_full);
     let response = {
         let mut response = HttpResponse::Ok();
         response.content_type("application/json");
-        response.body(json)
+        response.body(duration_full)
     };
 
     response

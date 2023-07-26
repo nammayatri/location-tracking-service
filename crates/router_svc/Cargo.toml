@@ -24,3 +24,6 @@ futures = "0.3.28"
 redis = "0.23.0"
 dotenv = "0.15.0"
 rand = "0.8.5"
+actix = "0.13.0"
+diesel = { version = "2.1.0", features = ["postgres", "r2d2", "chrono"] }
+postgis_diesel = "2.2.0"

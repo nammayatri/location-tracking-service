@@ -1,6 +1,7 @@
 // use fred::types::GeoPosition;
 use crate::types::*;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct UpdateDriverLocationRequest {
@@ -61,3 +62,15 @@ pub struct RideId {
 pub struct DriverRideData {
     pub resp: Vec<(Longitude, Latitude)>,
 }
+
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub struct DurationStruct {
+    pub dur: Duration,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct AuthResponseData {
+    pub driverId: String,
+    pub token: String,
+}
+
