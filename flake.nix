@@ -57,6 +57,7 @@
                 ] ++ [
                   libiconv
                   pkg-config
+                  pkg-config
                 ];
               };
             };
