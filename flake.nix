@@ -56,6 +56,7 @@
                   Security
                 ] ++ [
                   libiconv
+                  pkg-config
                 ];
               };
             };

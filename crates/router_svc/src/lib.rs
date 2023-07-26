@@ -1,22 +1,27 @@
+use actix_web::http::header::EntityTag;
 use actix_web::middleware::Logger;
-use actix_web::web::Data;
-use actix_web::{get, web, App, HttpResponse, HttpServer, Responder};
+// use actix_web::web::Data;
+use actix_web::{web, App, HttpServer};
 use env_logger::Env;
-use fred::types::{GeoPosition, GeoValue, MultipleGeoValues, RedisValue};
-use futures::executor;
-use futures::task::ArcWake;
+use futures::executor::EnterError;
+// use fred::types::{GeoPosition, GeoValue, MultipleGeoValues, RedisValue};
+// use futures::executor;
+// use futures::task::ArcWake;
 use log::info;
 use redis::Commands;
 use redis_interface::{RedisConnectionPool, RedisSettings};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::env::var;
-use std::hash::Hash;
+// use std::hash::Hash;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tokio::runtime::Runtime;
+// use tokio::runtime::Runtime;
 use tokio::time::Duration;
+
+mod types;
+use types::*;
 
 mod tracking;
 use tracking::services;
@@ -28,16 +33,24 @@ pub const LIST_OF_CITIES: [&str; 2] = ["blr", "ccu"];
 pub struct AppState {
     pub redis_pool: Arc<Mutex<RedisConnectionPool>>,
     pub redis: Arc<Mutex<redis::Connection>>,
-    pub entries: HashMap<String, Arc<Mutex<Vec<(f64, f64, String, String)>>>>,
-    pub current_bucket: Mutex<u64>,
+    pub entries: Arc<
+        Mutex<
+            HashMap<
+                MerchantId,
+                HashMap<CityName, HashMap<VehicleType, Vec<(Longitude, Latitude, DriverId)>>>,
+            >,
+        >,
+    >,
+    pub current_bucket: Mutex<BucketNumber>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Location {
-    lat: f64,
-    lon: f64,
-    driver_id: String,
-    vt: String,
+    lat: Latitude,
+    lon: Longitude,
+    driver_id: DriverId,
+    vehicle_type: VehicleType,
+    merchant_id: MerchantId,
 }
 
 #[actix_web::main]
@@ -51,9 +64,7 @@ pub async fn start_server(conn: redis::Connection) -> std::io::Result<()> {
                 .expect("Failed to create Redis connection pool"),
         )),
         redis: Arc::new(Mutex::new(conn)),
-        entries: HashMap::from(
-            LIST_OF_VT.map(|x| (x.to_string(), Arc::new(Mutex::new(Vec::new())))),
-        ),
+        entries: Arc::new(Mutex::new(HashMap::new())),
         current_bucket: Mutex::new(Duration::as_secs(
             &SystemTime::elapsed(&UNIX_EPOCH).unwrap(),
         )),
@@ -68,47 +79,78 @@ pub async fn start_server(conn: redis::Connection) -> std::io::Result<()> {
     thread::spawn(move || loop {
         thread::sleep(Duration::from_secs(10));
         // Access the vector in the separate thread's lifetime
-        for vt in LIST_OF_VT {
-            // println!("hello?");
-            let bucket = Duration::as_secs(&SystemTime::elapsed(&UNIX_EPOCH).unwrap()) / 60;
+        // println!("started thread");
+        let bucket = Duration::as_secs(&SystemTime::elapsed(&UNIX_EPOCH).unwrap()) / 60;
+        let mut entries = thread_data.entries.lock().unwrap();
+        for merchant_id in entries.keys() {
+            let entries = entries[merchant_id].to_owned();
+            for city in entries.keys() {
+                let entries = entries[city].to_owned();
+                for vehicle_type in entries.keys() {
+                    let entries = entries[vehicle_type].to_owned();
 
-            let mut entries = thread_data.entries[vt].lock().unwrap();
+                    let key = format!("dl:loc:{merchant_id}:{city}:{vehicle_type}:{bucket}");
 
-            // println!("entries: {:?}", entries);
-            // entries.sort_by(|a, b| a.3.cmp(&b.3));
-            // println!("sorted entries: {:?}", entries);
-
-            for city in LIST_OF_CITIES {
-                //println!("entries: {:?}", entries);
-                let new_entries = entries
-                    .clone()
-                    .into_iter()
-                    .filter(|x| x.3 == city)
-                    .map(|x| (x.0, x.1, x.2))
-                    .collect::<Vec<(f64, f64, String)>>();
-
-                let key = format!("dl:loc:{}:{}:{}", city, vt, bucket);
-                // println!("key: {}", key);
-
-                if !new_entries.is_empty() {
-                    if let mut redis = thread_data.redis.lock().unwrap() {
-                        let num = redis.zcard::<_, u64>(&key).expect("Unable to zcard");
+                    if !entries.is_empty() {
+                        let mut redis = thread_data.redis.lock().unwrap();
+                        let num = redis.zcard::<_, u64>(&key).expect("unable to zcard");
                         let _: () = redis
-                            .geo_add(&key, new_entries.to_vec())
+                            .geo_add(&key, entries.to_vec())
                             .expect("Couldn't add to redis");
                         if num == 0 {
                             let _: () = redis
                                 .expire(&key, location_expiry_in_sec)
-                                .expect("Unable to set expiry time");
-                            // info!("num 0");
+                                .expect("Unable to set expiry");
                         }
+                        info!("Entries: {:?}\nSending to redis server", entries);
+                        info!("^ Merchant id: {merchant_id}, City: {city}, Vt: {vehicle_type}, key: {key}\n");
+                    } else {
+                        println!("sleeping");
                     }
-                    info!("Entries: {:?}\nSending to redis server", new_entries);
-                    info!("^  Vt: {}, key: {}\n", vt, key);
                 }
             }
-            entries.clear()
         }
+        entries.clear();
+        //     for vt in LIST_OF_VT {
+        //         // println!("hello?");
+
+        //         let mut entries = thread_data.entries.lock().unwrap();
+
+        //         // println!("entries: {:?}", entries);
+        //         // entries.sort_by(|a, b| a.3.cmp(&b.3));
+        //         // println!("sorted entries: {:?}", entries);
+
+        //         for city in LIST_OF_CITIES {
+        //             //println!("entries: {:?}", entries);
+        //             let new_entries = entries[vt]
+        //                 .clone()
+        //                 .into_iter()
+        //                 .filter(|x| x.3 == city)
+        //                 .map(|x| (x.0, x.1, x.2))
+        //                 .collect::<Vec<(f64, f64, String)>>();
+
+        //             let key = format!("dl:loc:{}:{}:{}", city, vt, bucket);
+        //             // println!("key: {}", key);
+
+        //             if !new_entries.is_empty() {
+        //                 let mut redis = thread_data.redis.lock().unwrap();
+        //                 let num = redis.zcard::<_, u64>(&key).expect("Unable to zcard");
+        //                 let _: () = redis
+        //                     .geo_add(&key, new_entries.to_vec())
+        //                     .expect("Couldn't add to redis");
+        //                 if num == 0 {
+        //                     let _: () = redis
+        //                         .expire(&key, location_expiry_in_sec)
+        //                         .expect("Unable to set expiry time");
+        //                     // info!("num 0");
+        //                 }
+
+        //                 info!("Entries: {:?}\nSending to redis server", new_entries);
+        //                 info!("^  Vt: {}, key: {}\n", vt, key);
+        //             }
+        //         }
+        //         entries.clear()
+        //     }
     });
 
     // let thread_data = data.clone();

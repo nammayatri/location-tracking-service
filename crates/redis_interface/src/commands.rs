@@ -4,8 +4,8 @@ use error_stack::{IntoReport, ResultExt};
 use fred::{
     interfaces::{GeoInterface, HashesInterface, KeysInterface, SortedSetsInterface},
     types::{
-        Expiration, FromRedis, GeoPosition, GeoRadiusInfo, GeoUnit, GeoValue, Limit,
-        MultipleGeoValues, Ordering, RedisMap, RedisValue, SetOptions, SortOrder, ZSort,
+        Expiration, FromRedis, GeoPosition, GeoRadiusInfo, GeoUnit, Limit, MultipleGeoValues,
+        Ordering, RedisMap, RedisValue, SetOptions, SortOrder, ZSort,
     },
 };
 use router_env::{instrument, tracing};

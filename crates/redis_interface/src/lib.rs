@@ -131,16 +131,16 @@ impl RedisConnectionPool {
 }
 
 struct RedisConfig {
-    default_ttl: u32,               // time to live
-    default_stream_read_count: u64, // number of messages to read from a stream
-    default_hash_ttl: u32,          // time to live for a hash
+    default_ttl: u32,                // time to live
+    _default_stream_read_count: u64, // number of messages to read from a stream
+    default_hash_ttl: u32,           // time to live for a hash
 }
 
 impl From<&RedisSettings> for RedisConfig {
     fn from(config: &RedisSettings) -> Self {
         Self {
             default_ttl: config.default_ttl,
-            default_stream_read_count: config.stream_read_count,
+            _default_stream_read_count: config.stream_read_count,
             default_hash_ttl: config.default_hash_ttl,
         }
     }
