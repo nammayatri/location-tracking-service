@@ -40,3 +40,7 @@ Run `, services` to run the service dependencies (example: redis-server) using [
 
 Run `nix build` in the project which produces a `./result` symlink. You can also run `nix run` to run the program immediately after build.
 
+## Contributing PRs
+
+Run `nix run github:srid/nixci` locally to make sure that the project builds. The CI runs the same.
+
