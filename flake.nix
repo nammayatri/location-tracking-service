@@ -6,7 +6,6 @@
 
     # Rust
     dream2nix.url = "github:nix-community/dream2nix";
-    nixpkgs-pr.url = "github:siph/nixpkgs/diesel-cli-ext";
 
     # Dev tools
     treefmt-nix.url = "github:numtide/treefmt-nix";
@@ -41,7 +40,7 @@
         # cf. https://github.com/nix-community/dream2nix
         dream2nix.inputs."location-tracking-service" = {
           source = lib.sourceFilesBySuffices ./. [
-            ".rs"
+
             "Cargo.toml"
             "Cargo.lock"
           ];
@@ -55,9 +54,6 @@
               add-deps = with pkgs; with pkgs.darwin.apple_sdk.frameworks; {
                 nativeBuildInputs = old: old ++ lib.optionals stdenv.isDarwin [
                   Security
-                  diesel-cli
-                  inputs.nixpkgs-pr.legacyPackages.${system}.diesel-cli-ext
-                  postgresql
                 ] ++ [
                   libiconv
                 ];
@@ -81,6 +77,7 @@
             export RUST_SRC_PATH=${pkgs.rustPlatform.rustLibSrc}
             export REDIS_HOST=${config.process-compose.services.services.redis.bind}
             export DATABASE_URL=postgresql://postgres:root@localhost:5434/atlas_dev
+            export AUTH_URL=http://127.0.0.1:8016/internal/auth
             export LOCATION_EXPIRY="90"
             export TOKEN_EXPIRY="30"
             export ON_RIDE_EXPIRY="172800"

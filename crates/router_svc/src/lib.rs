@@ -31,12 +31,6 @@ use diesel::{
     r2d2::{ConnectionManager, Pool},
     PgConnection,
 };
-pub mod db_models;
-mod db_utils;
-use db_utils::{get_pool, DbActor};
-mod actors;
-mod messages;
-mod schema;
 
 pub const LIST_OF_VT: [&str; 4] = ["auto", "cab", "suv", "sedan"];
 pub const LIST_OF_CITIES: [&str; 2] = ["blr", "ccu"];
@@ -53,7 +47,6 @@ pub struct AppState {
             >,
         >,
     >,
-    pub db: Addr<DbActor>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -68,9 +61,6 @@ pub struct Location {
 #[actix_web::main]
 pub async fn start_server(conn: redis::Connection) -> std::io::Result<()> {
     env_logger::init_from_env(Env::default().default_filter_or("info"));
-    let db_url = var("DATABASE_URL").expect("DATABASE_URL must be set");
-    let pool = get_pool(&db_url);
-    let db_addr = SyncArbiter::start(5, move || DbActor(pool.clone()));
     let data = web::Data::new(AppState {
         redis_pool: Arc::new(Mutex::new(
             RedisConnectionPool::new(&RedisSettings::default())
@@ -79,7 +69,6 @@ pub async fn start_server(conn: redis::Connection) -> std::io::Result<()> {
         )),
         redis: Arc::new(Mutex::new(conn)),
         entries: Arc::new(Mutex::new(HashMap::new())),
-        db: db_addr.clone(),
     });
 
     let location_expiry_in_sec = var("LOCATION_EXPIRY")

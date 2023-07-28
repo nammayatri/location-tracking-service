@@ -1,23 +1,21 @@
 use super::models::{
-    DriverRideData, DurationStruct, GetNearbyDriversRequest, NearbyDriverResp, RideEndRequest,
-    RideId, RideStartRequest, UpdateDriverLocationRequest, AuthResponseData
+    AuthResponseData, DriverRideData, DurationStruct, GetNearbyDriversRequest, NearbyDriverResp,
+    RideEndRequest, RideId, RideStartRequest, UpdateDriverLocationRequest,
 };
-use crate::{messages::GetGeometry, AppState, DbActor};
+use crate::AppState;
 use actix_web::{get, post, web, HttpRequest, HttpResponse, Responder};
 use fred::types::{GeoPosition, GeoUnit, GeoValue, RedisValue, SortOrder};
 use log::info;
 use rand::{thread_rng, Rng};
 use std::collections::HashMap;
 // use serde::{Deserialize, Serialize};
+use reqwest::{Client, Error};
 use std::env::var;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use reqwest::{Client, Error};
 
 use actix::Addr;
 
 use crate::types::*;
-
-const _BPP_URL: &str = "localhost:8016";
 
 #[post("/ui/driver/location")]
 async fn update_driver_location(
@@ -68,36 +66,55 @@ async fn update_driver_location(
         .parse::<u32>()
         .unwrap();
 
+    let auth_url = var("AUTH_URL").expect("AUTH_URL not found");
+
     let _client = reqwest::Client::new();
-    let driver_id: DriverId;
     let nil_string = String::from("nil");
     let redis_pool = data.redis_pool.lock().unwrap();
 
     let x = redis_pool.get_key::<Key>(&token).await.unwrap();
-    if x == nil_string {
+    let response_data = if x == nil_string {
         // println!("oh no nil");
-        driver_id = "4321".to_string(); //   BPP SERVICE REQUIRED HERE
+        let client = Client::new();
+        let resp = client
+            .get(auth_url)
+            .header("token", token.clone())
+            .header("api-key", "ae288466-2add-11ee-be56-0242ac120002")
+            .header("merchant-id", merchant_id.clone())
+            .send()
+            .await
+            .expect("resp not received");
+
+        let status = resp.status();
+        let response_body = resp.text().await.unwrap();
+
+        if status != 200 {
+            return HttpResponse::Ok()
+                .content_type("application/json")
+                .body(response_body);
+        }
+
+        info!("response body: {}", response_body);
+
+        let response = serde_json::from_str::<AuthResponseData>(&response_body).unwrap();
+
+        // let driver_id = "4321".to_string(); //   BPP SERVICE REQUIRED HERE
         let _: () = redis_pool
-            .set_with_expiry(&token, &driver_id, token_expiry_in_sec)
+            .set_with_expiry(&token, &response.driver_id, token_expiry_in_sec)
             .await
             .unwrap();
+
+        response
     } else {
-        driver_id = x;
-    }
+        AuthResponseData { driver_id: x }
+    };
 
-    let db: Addr<DbActor> = data.as_ref().db.clone();
-    let dbData = db
-        .send(GetGeometry {
-            lat: body[0].pt.lat,
-            lon: body[0].pt.lon,
-        })
-        .await
-        .unwrap();
+    let city = "blr".to_string(); // ADD REGION SYSTEM HERE
 
-    let city = dbData.unwrap().region;
-    info!("region xyz: {:?}", &city);
-
-    let on_ride_key = format!("ds:on_ride:{merchant_id}:{city}:{driver_id}");
+    let on_ride_key = format!(
+        "ds:on_ride:{merchant_id}:{city}:{}",
+        response_data.driver_id
+    );
     let on_ride_resp = redis_pool.get_key::<Key>(&on_ride_key).await.unwrap();
 
     // println!("RIDE_ID TESTING: {:?}", serde_json::from_str::<RideId>(&on_ride_resp));
@@ -108,7 +125,10 @@ async fn update_driver_location(
         }) => {
             for loc in body {
                 info!("member: {}", loc.ts.to_rfc3339());
-                let on_ride_loc_key = format!("dl:loc:{merchant_id}:{city}:{}", driver_id.clone());
+                let on_ride_loc_key = format!(
+                    "dl:loc:{merchant_id}:{city}:{}",
+                    response_data.driver_id.clone()
+                );
                 let _: () = redis_pool
                     .geo_add(
                         &on_ride_loc_key,
@@ -176,7 +196,7 @@ async fn update_driver_location(
                     .expect("no city")
                     .get_mut(&vehicle_type)
                     .expect("no vehicle type")
-                    .push((loc.pt.lon, loc.pt.lat, driver_id.clone()));
+                    .push((loc.pt.lon, loc.pt.lat, response_data.driver_id.clone()));
                 // println!("{:?}", entries);
 
                 // info!("{:?}", entries);
@@ -187,11 +207,13 @@ async fn update_driver_location(
     //logs
     // info!("Token: {:?}", token.to_str().unwrap());
 
+    let response_data = serde_json::to_string(&response_data).unwrap();
+
     // response
     let response = {
         let mut response = HttpResponse::Ok();
-        response.content_type("text");
-        response.body(token)
+        response.content_type("application/json");
+        response.body(response_data)
     };
 
     response
