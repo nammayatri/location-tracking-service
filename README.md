@@ -40,3 +40,9 @@ Run `, services` to run the service dependencies (example: redis-server) using [
 
 Run `nix build` in the project which produces a `./result` symlink. You can also run `nix run` to run the program immediately after build.
 
+# Redis key-value details
+
+1. **Token cache**: (token, driver_id)
+2. **On ride status cache**: (ds:on_ride:merchant_id:city:driver_id, RideId {on_ride: bool, ride_id: String})
+3. **On ride location cache**: (dl:loc:merchant_id:city:driver_id, (timestamp, (longitude, latitude)))
+4. **Main redis cache**: (dl:loc:merchant_id:city:vehicle_type:bucket, (driver_id, (longitude, latitude)))
