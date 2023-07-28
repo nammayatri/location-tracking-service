@@ -234,8 +234,8 @@ async fn get_nearby_drivers(
     let resp = redis_pool
         .geo_search(
             &format!(
-                "dl:loc:{}:{}:{}:{}",
-                body.merchant_id, city, body.vehicle_type, current_bucket
+                "dl:loc:{}:{city}:{}:{current_bucket}",
+                body.merchant_id, body.vehicle_type
             ),
             None,
             Some(GeoPosition::from((body.lon, body.lat))),
