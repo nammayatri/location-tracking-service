@@ -78,7 +78,8 @@
             export REDIS_HOST=${config.process-compose.services.services.redis.bind}
             export DATABASE_URL=postgresql://postgres:root@localhost:5434/atlas_dev
             export AUTH_URL=http://127.0.0.1:8016/internal/auth
-            export LOCATION_EXPIRY="90"
+            export TEST_LOC_EXPIRY="90"
+            export LOCATION_EXPIRY="60"
             export TOKEN_EXPIRY="30"
             export ON_RIDE_EXPIRY="172800"
           '';

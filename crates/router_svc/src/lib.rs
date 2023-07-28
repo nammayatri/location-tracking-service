@@ -73,6 +73,11 @@ pub async fn start_server(conn: redis::Connection) -> std::io::Result<()> {
 
     let location_expiry_in_sec = var("LOCATION_EXPIRY")
         .expect("LOCATION_EXPIRY not found")
+        .parse::<u64>()
+        .unwrap();
+
+    let test_loc_expiry_in_sec = var("TEST_LOC_EXPIRY")
+        .expect("TEST_LOC_EXPIRY not found")
         .parse::<usize>()
         .unwrap();
 
@@ -81,7 +86,7 @@ pub async fn start_server(conn: redis::Connection) -> std::io::Result<()> {
         thread::sleep(Duration::from_secs(10));
         // Access the vector in the separate thread's lifetime
         // println!("started thread");
-        let bucket = Duration::as_secs(&SystemTime::elapsed(&UNIX_EPOCH).unwrap()) / 60;
+        let bucket = Duration::as_secs(&SystemTime::elapsed(&UNIX_EPOCH).unwrap()) / location_expiry_in_sec;
         let mut entries = thread_data.entries.lock().unwrap();
         for merchant_id in entries.keys() {
             let entries = entries[merchant_id].to_owned();
@@ -100,7 +105,7 @@ pub async fn start_server(conn: redis::Connection) -> std::io::Result<()> {
                             .expect("Couldn't add to redis");
                         if num == 0 {
                             let _: () = redis
-                                .expire(&key, location_expiry_in_sec)
+                                .expire(&key, test_loc_expiry_in_sec)
                                 .expect("Unable to set expiry");
                         }
                         info!("Entries: {:?}\nSending to redis server", entries);
@@ -110,70 +115,7 @@ pub async fn start_server(conn: redis::Connection) -> std::io::Result<()> {
             }
         }
         entries.clear();
-        //     for vt in LIST_OF_VT {
-        //         // println!("hello?");
-
-        //         let mut entries = thread_data.entries.lock().unwrap();
-
-        //         // println!("entries: {:?}", entries);
-        //         // entries.sort_by(|a, b| a.3.cmp(&b.3));
-        //         // println!("sorted entries: {:?}", entries);
-
-        //         for city in LIST_OF_CITIES {
-        //             //println!("entries: {:?}", entries);
-        //             let new_entries = entries[vt]
-        //                 .clone()
-        //                 .into_iter()
-        //                 .filter(|x| x.3 == city)
-        //                 .map(|x| (x.0, x.1, x.2))
-        //                 .collect::<Vec<(f64, f64, String)>>();
-
-        //             let key = format!("dl:loc:{}:{}:{}", city, vt, bucket);
-        //             // println!("key: {}", key);
-
-        //             if !new_entries.is_empty() {
-        //                 let mut redis = thread_data.redis.lock().unwrap();
-        //                 let num = redis.zcard::<_, u64>(&key).expect("Unable to zcard");
-        //                 let _: () = redis
-        //                     .geo_add(&key, new_entries.to_vec())
-        //                     .expect("Couldn't add to redis");
-        //                 if num == 0 {
-        //                     let _: () = redis
-        //                         .expire(&key, location_expiry_in_sec)
-        //                         .expect("Unable to set expiry time");
-        //                     // info!("num 0");
-        //                 }
-
-        //                 info!("Entries: {:?}\nSending to redis server", new_entries);
-        //                 info!("^  Vt: {}, key: {}\n", vt, key);
-        //             }
-        //         }
-        //         entries.clear()
-        //     }
     });
-
-    // let thread_data = data.clone();
-    // thread::spawn(move || {
-    //     let mut key = format!(
-    //         "dl:loc:blr:auto:{}",
-    //         Duration::as_secs(&SystemTime::elapsed(&UNIX_EPOCH).unwrap())
-    //     );
-    //     loop {
-    //         if let Ok(mut current_bucket) = thread_data.current_bucket.lock() {
-    //             *current_bucket =
-    //                 Duration::as_secs(&SystemTime::elapsed(&UNIX_EPOCH).unwrap()) / 60;
-    //             key = format!("dl:loc:blr:auto:{}", current_bucket);
-    //             info!("Current key: {}", key);
-    //         }
-    //         if let mut redis = thread_data.redis.lock().unwrap() {
-    //             let _: () = redis
-    //                 .geo_add(&key, (0.1, 0.1, "foo"))
-    //                 .expect("Couldn't add default value to key");
-    //             let _: () = redis.expire(&key, 90).expect("Couldn't set expiry time");
-    //         }
-    //         thread::sleep(Duration::from_secs(60));
-    //     }
-    // });
 
     HttpServer::new(move || {
         App::new()

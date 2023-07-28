@@ -68,14 +68,13 @@ async fn update_driver_location(
 
     let auth_url = var("AUTH_URL").expect("AUTH_URL not found");
 
-    let _client = reqwest::Client::new();
+    let client = reqwest::Client::new();
     let nil_string = String::from("nil");
     let redis_pool = data.redis_pool.lock().unwrap();
 
     let x = redis_pool.get_key::<Key>(&token).await.unwrap();
     let response_data = if x == nil_string {
         // println!("oh no nil");
-        let client = Client::new();
         let resp = client
             .get(auth_url)
             .header("token", token.clone())
@@ -115,7 +114,7 @@ async fn update_driver_location(
         "ds:on_ride:{merchant_id}:{city}:{}",
         response_data.driver_id
     );
-    let on_ride_resp = redis_pool.get_key::<Key>(&on_ride_key).await.unwrap();
+    let on_ride_resp = redis_pool.get_key::<String>(&on_ride_key).await.unwrap();
 
     // println!("RIDE_ID TESTING: {:?}", serde_json::from_str::<RideId>(&on_ride_resp));
     match serde_json::from_str::<RideId>(&on_ride_resp) {
@@ -228,15 +227,21 @@ async fn get_nearby_drivers(
     let body = param_obj.into_inner();
     let _json = serde_json::to_string(&body).unwrap();
     //println!("{}",json);
-    let redis_pool = data.redis_pool.lock().unwrap();
-    let current_bucket = Duration::as_secs(&SystemTime::elapsed(&UNIX_EPOCH).unwrap()) / 60;
+    let location_expiry_in_seconds = var("LOCATION_EXPIRY")
+        .expect("LOCATION_EXPIRY not found")
+        .parse::<u64>()
+        .unwrap();
+    let current_bucket = Duration::as_secs(&SystemTime::elapsed(&UNIX_EPOCH).unwrap()) / location_expiry_in_seconds;
     let city = "blr"; // BPP SERVICE REQUIRED HERE
+    let key = format!(
+        "dl:loc:{}:{city}:{}:{current_bucket}",
+        body.merchant_id, body.vehicle_type
+    );
+
+    let redis_pool = data.redis_pool.lock().unwrap();
     let resp = redis_pool
         .geo_search(
-            &format!(
-                "dl:loc:{}:{city}:{}:{current_bucket}",
-                body.merchant_id, body.vehicle_type
-            ),
+            &key,
             None,
             Some(GeoPosition::from((body.lon, body.lat))),
             Some((body.radius, GeoUnit::Kilometers)),
