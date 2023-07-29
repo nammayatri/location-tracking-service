@@ -70,5 +70,5 @@ pub struct DurationStruct {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct AuthResponseData {
-    pub driver_id: String,
+    pub driverId: String,
 }

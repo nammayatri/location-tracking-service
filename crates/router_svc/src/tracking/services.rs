@@ -72,6 +72,7 @@ async fn update_driver_location(
     let nil_string = String::from("nil");
     let redis_pool = data.redis_pool.lock().unwrap();
 
+    info!("token: {}", token);
     let x = redis_pool.get_key::<Key>(&token).await.unwrap();
     let response_data = if x == nil_string {
         // println!("oh no nil");
@@ -99,20 +100,20 @@ async fn update_driver_location(
 
         // let driver_id = "4321".to_string(); //   BPP SERVICE REQUIRED HERE
         let _: () = redis_pool
-            .set_with_expiry(&token, &response.driver_id, token_expiry_in_sec)
+            .set_with_expiry(&token, &response.driverId, token_expiry_in_sec)
             .await
             .unwrap();
 
         response
     } else {
-        AuthResponseData { driver_id: x }
+        AuthResponseData { driverId: x }
     };
 
     let city = "blr".to_string(); // ADD REGION SYSTEM HERE
 
     let on_ride_key = format!(
         "ds:on_ride:{merchant_id}:{city}:{}",
-        response_data.driver_id
+        response_data.driverId
     );
     let on_ride_resp = redis_pool.get_key::<String>(&on_ride_key).await.unwrap();
 
@@ -126,7 +127,7 @@ async fn update_driver_location(
                 info!("member: {}", loc.ts.to_rfc3339());
                 let on_ride_loc_key = format!(
                     "dl:loc:{merchant_id}:{city}:{}",
-                    response_data.driver_id.clone()
+                    response_data.driverId.clone()
                 );
                 let _: () = redis_pool
                     .geo_add(
@@ -195,7 +196,7 @@ async fn update_driver_location(
                     .expect("no city")
                     .get_mut(&vehicle_type)
                     .expect("no vehicle type")
-                    .push((loc.pt.lon, loc.pt.lat, response_data.driver_id.clone()));
+                    .push((loc.pt.lon, loc.pt.lat, response_data.driverId.clone()));
                 // println!("{:?}", entries);
 
                 // info!("{:?}", entries);
