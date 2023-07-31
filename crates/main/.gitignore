@@ -1,0 +1,7 @@
+/target
+data
+
+# Nix
+/.direnv
+/result
+
