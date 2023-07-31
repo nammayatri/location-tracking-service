@@ -1,8 +1,22 @@
 use super::models::MultiPolygonBody;
-use geo::{Coord, LineString, coord, Polygon, MultiPolygon};
+use geo::{coord, Coord, LineString, MultiPolygon, Polygon};
 
 pub fn make_multipolygon(mut entries: Vec<Vec<(f64, f64)>>) -> MultiPolygon {
-    MultiPolygon::new(entries.into_iter().map(|vec| Polygon::new(LineString::new(vec.into_iter().map(|elem| coord! {x: elem.0, y: elem.1 }).collect::<Vec<Coord<f64>>>()), vec![])).collect::<Vec<Polygon>>())
+    MultiPolygon::new(
+        entries
+            .into_iter()
+            .map(|vec| {
+                Polygon::new(
+                    LineString::new(
+                        vec.into_iter()
+                            .map(|elem| coord! {x: elem.0, y: elem.1 })
+                            .collect::<Vec<Coord<f64>>>(),
+                    ),
+                    vec![],
+                )
+            })
+            .collect::<Vec<Polygon>>(),
+    )
 }
 
 pub fn create_karnataka_multipolygon_body() -> MultiPolygonBody {

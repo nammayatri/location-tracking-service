@@ -24,10 +24,10 @@ mod types;
 use types::*;
 
 mod tracking;
-use tracking::services;
 use tracking::karnataka;
 use tracking::kerala;
 use tracking::models::MultiPolygonBody;
+use tracking::services;
 
 use actix::{Addr, SyncArbiter};
 use diesel::{
@@ -73,8 +73,11 @@ pub async fn start_server(conn: redis::Connection) -> std::io::Result<()> {
         )),
         redis: Arc::new(Mutex::new(conn)),
         entries: Arc::new(Mutex::new(HashMap::new())),
-        polygon: vec![karnataka::create_karnataka_multipolygon_body(), kerala::create_kerala_multipolygon_body()],
-});
+        polygon: vec![
+            karnataka::create_karnataka_multipolygon_body(),
+            kerala::create_kerala_multipolygon_body(),
+        ],
+    });
 
     let location_expiry_in_sec = var("LOCATION_EXPIRY")
         .expect("LOCATION_EXPIRY not found")

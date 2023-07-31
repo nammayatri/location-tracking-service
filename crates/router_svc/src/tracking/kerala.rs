@@ -1,5 +1,5 @@
-use super::models::MultiPolygonBody;
 use super::karnataka::make_multipolygon;
+use super::models::MultiPolygonBody;
 
 pub fn create_kerala_multipolygon_body() -> MultiPolygonBody {
     MultiPolygonBody {

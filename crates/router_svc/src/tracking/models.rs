@@ -1,8 +1,8 @@
 // use fred::types::GeoPosition;
 use crate::types::*;
+use geo::MultiPolygon;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
-use geo::MultiPolygon;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct UpdateDriverLocationRequest {

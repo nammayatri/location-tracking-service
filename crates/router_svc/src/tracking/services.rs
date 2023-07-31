@@ -79,33 +79,30 @@ async fn update_driver_location(
     // allMultiPolygons.push(karnataka);
     // allMultiPolygons.push(kerala);
 
+    let mut city = String::new();
+    let mut intersection = false;
     for multi_polygon_body in &data.polygon {
-        // let mut multiPolygon = multi_polygon.multipolygon.clone();
-        // let mut allPolygons = vec![];
-        // for polygon in multiPolygon {
-        //     let mut coordinates: Vec<Coord<f64>> = vec![];
-        //     for point in polygon {
-        //         coordinates.push(coord! { x: point.0, y: point.1 });
-        //     }
-
-        //     let mut polygonNew = LineString::new(coordinates);
-        //     let polygon = Polygon::new(polygonNew.clone(), vec![]);
-
-        //     // info!("contains xyz: {}", polygon.contains(&point!(x: 77.4744 , y: 13.1819)));
-        //     allPolygons.push(polygon);
-        // }
-
-        // let multipolygonNew: MultiPolygon = MultiPolygon::new(allPolygons);
-
-        let mut multi_polygon = &multi_polygon_body.multipolygon;
-        let intersection = multi_polygon.contains(&point!(x: 78.94424030594956, y: 17.926496576258415));
-        info!(
-            "multipolygon contains xyz: {}", intersection
-        );
+        intersection = multi_polygon_body
+            .multipolygon
+            .intersects(&point!(x: body[0].pt.lon, y: body[0].pt.lat));
+        // info!(
+        //     "multipolygon contains xyz: {}", intersection
+        // );
         if intersection {
-            info!("Region : {}", multi_polygon_body.region);
+            // info!("Region : {}", multi_polygon_body.region);
+            city = multi_polygon_body.region.clone();
             break;
         }
+    }
+
+    if !intersection {
+        let duration_full = DurationStruct {
+            dur: start.elapsed(),
+        };
+        let duration = serde_json::to_string(&duration_full).unwrap();
+        return HttpResponse::ServiceUnavailable()
+            .content_type("application/json")
+            .body(duration);
     }
 
     let auth_url = var("AUTH_URL").expect("AUTH_URL not found");
@@ -150,8 +147,6 @@ async fn update_driver_location(
     } else {
         AuthResponseData { driverId: x }
     };
-
-    let city = "blr".to_string(); // ADD REGION SYSTEM HERE
 
     let on_ride_key = format!("ds:on_ride:{merchant_id}:{city}:{}", response_data.driverId);
     let on_ride_resp = redis_pool.get_key::<String>(&on_ride_key).await.unwrap();
@@ -277,7 +272,27 @@ async fn get_nearby_drivers(
         .unwrap();
     let current_bucket =
         Duration::as_secs(&SystemTime::elapsed(&UNIX_EPOCH).unwrap()) / location_expiry_in_seconds;
-    let city = "blr"; // BPP SERVICE REQUIRED HERE
+    let mut city = String::new();
+    let mut intersection = false;
+    for multi_polygon_body in &data.polygon {
+        intersection = multi_polygon_body
+            .multipolygon
+            .intersects(&point!(x: body.lon, y: body.lat));
+        // info!(
+        //     "multipolygon contains xyz: {}", intersection
+        // );
+        if intersection {
+            // info!("Region : {}", multi_polygon_body.region);
+            city = multi_polygon_body.region.clone();
+            break;
+        }
+    }
+
+    if !intersection {
+        return HttpResponse::ServiceUnavailable()
+            .content_type("text")
+            .body("No service in region");
+    }
     let key = format!(
         "dl:loc:{}:{city}:{}:{current_bucket}",
         body.merchant_id, body.vehicle_type
@@ -326,7 +341,27 @@ async fn ride_start(
     let ride_id = path.into_inner();
     info!("rideId: {ride_id}");
 
-    let city = "blr"; // BPP SERVICE REQUIRED HERE
+    let mut city = String::new();
+    let mut intersection = false;
+    for multi_polygon_body in &data.polygon {
+        intersection = multi_polygon_body
+            .multipolygon
+            .intersects(&point!(x: body.lon, y: body.lat));
+        // info!(
+        //     "multipolygon contains xyz: {}", intersection
+        // );
+        if intersection {
+            // info!("Region : {}", multi_polygon_body.region);
+            city = multi_polygon_body.region.clone();
+            break;
+        }
+    }
+
+    if !intersection {
+        return HttpResponse::ServiceUnavailable()
+            .content_type("text")
+            .body("No service in region");
+    }
 
     let value = RideId {
         on_ride: true,
@@ -373,7 +408,27 @@ async fn ride_end(
 
     println!("rideId: {}", ride_id);
 
-    let city = "blr"; // BPP SERVICE REQUIRED HERE
+    let mut city = String::new();
+    let mut intersection = false;
+    for multi_polygon_body in &data.polygon {
+        intersection = multi_polygon_body
+            .multipolygon
+            .intersects(&point!(x: body.lon, y: body.lat));
+        // info!(
+        //     "multipolygon contains xyz: {}", intersection
+        // );
+        if intersection {
+            // info!("Region : {}", multi_polygon_body.region);
+            city = multi_polygon_body.region.clone();
+            break;
+        }
+    }
+
+    if !intersection {
+        return HttpResponse::ServiceUnavailable()
+            .content_type("text")
+            .body("No service in region");
+    }
 
     let value = RideId {
         on_ride: false,
