@@ -1,7 +1,7 @@
 #! ./.Cargo.toml
 
 [package]
-name = "main"
+name = "location-tracking-service"
 version = "0.1.0"
 edition = "2021"
 
@@ -9,8 +9,8 @@ edition = "2021"
 path = "src/lib.rs"
 
 [[bin]]
-path = "src/main.rs"
-name = "main"
+path = "crates/main/src/main.rs"
+name = "location-tracking-service"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -20,8 +20,9 @@ dotenv = "0.15.0"
 redis = "0.23.0"
 cargo-test = "0.3.1"
 actix-web = "4.3.1"
-redis_interface = { version = "0.1.0", path = "../redis_interface" }
-router_svc = { version = "0.1.0", path = "../router_svc" }
+redis_interface = { version = "0.1.0", path = "./crates/redis_interface" }
+router_svc = { version = "0.1.0", path = "./crates/router_svc" }
+main = {version = "0.1.0", path = "./crates/main"}
 diesel = { version = "2.1.0", features = ["postgres", "r2d2", "chrono"] }
 chrono = "0.4.26"
 actix = "0.13.0"

@@ -72,6 +72,8 @@ async fn update_driver_location(
     let nil_string = String::from("nil");
     let redis_pool = data.redis_pool.lock().unwrap();
 
+    let start = Instant::now();
+
     info!("token: {}", token);
     let x = redis_pool.get_key::<Key>(&token).await.unwrap();
     let response_data = if x == nil_string {
@@ -204,6 +206,10 @@ async fn update_driver_location(
         }
     }
 
+    let duration_full = serde_json::to_string(&DurationStruct {
+        dur: start.elapsed(),
+    })
+    .unwrap();
     //logs
     // info!("Token: {:?}", token.to_str().unwrap());
 
@@ -213,7 +219,7 @@ async fn update_driver_location(
     let response = {
         let mut response = HttpResponse::Ok();
         response.content_type("application/json");
-        response.body(response_data)
+        response.body(duration_full)
     };
 
     response
