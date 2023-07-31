@@ -9,6 +9,10 @@ use log::info;
 use rand::{thread_rng, Rng};
 use std::collections::HashMap;
 // use serde::{Deserialize, Serialize};
+use super::karnataka;
+use super::kerala;
+use geo::{coord, polygon, BooleanOps, Contains, Coord, Intersects, LineString, MultiPolygon};
+use geo::{line_string, point, Polygon};
 use reqwest::{Client, Error};
 use std::env::var;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -37,6 +41,8 @@ async fn update_driver_location(
 
     //headers
     // println!("headers: {:?}", req.headers());
+
+    let start = Instant::now();
     let token: Token = req
         .headers()
         .get("token")
@@ -66,13 +72,47 @@ async fn update_driver_location(
         .parse::<u32>()
         .unwrap();
 
+    // let karnataka = karnataka::create_karnataka_multipolygon_body();
+    // let kerala = kerala::create_kerala_multipolygon_body();
+
+    // let mut allMultiPolygons = vec![];
+    // allMultiPolygons.push(karnataka);
+    // allMultiPolygons.push(kerala);
+
+    for multi_polygon_body in &data.polygon {
+        // let mut multiPolygon = multi_polygon.multipolygon.clone();
+        // let mut allPolygons = vec![];
+        // for polygon in multiPolygon {
+        //     let mut coordinates: Vec<Coord<f64>> = vec![];
+        //     for point in polygon {
+        //         coordinates.push(coord! { x: point.0, y: point.1 });
+        //     }
+
+        //     let mut polygonNew = LineString::new(coordinates);
+        //     let polygon = Polygon::new(polygonNew.clone(), vec![]);
+
+        //     // info!("contains xyz: {}", polygon.contains(&point!(x: 77.4744 , y: 13.1819)));
+        //     allPolygons.push(polygon);
+        // }
+
+        // let multipolygonNew: MultiPolygon = MultiPolygon::new(allPolygons);
+
+        let mut multi_polygon = &multi_polygon_body.multipolygon;
+        let intersection = multi_polygon.contains(&point!(x: 78.94424030594956, y: 17.926496576258415));
+        info!(
+            "multipolygon contains xyz: {}", intersection
+        );
+        if intersection {
+            info!("Region : {}", multi_polygon_body.region);
+            break;
+        }
+    }
+
     let auth_url = var("AUTH_URL").expect("AUTH_URL not found");
 
     let client = reqwest::Client::new();
     let nil_string = String::from("nil");
     let redis_pool = data.redis_pool.lock().unwrap();
-
-    let start = Instant::now();
 
     info!("token: {}", token);
     let x = redis_pool.get_key::<Key>(&token).await.unwrap();
@@ -96,7 +136,7 @@ async fn update_driver_location(
                 .body(response_body);
         }
 
-        info!("response body: {}", response_body);
+        // info!("response body: {}", response_body);
 
         let response = serde_json::from_str::<AuthResponseData>(&response_body).unwrap();
 
@@ -113,10 +153,7 @@ async fn update_driver_location(
 
     let city = "blr".to_string(); // ADD REGION SYSTEM HERE
 
-    let on_ride_key = format!(
-        "ds:on_ride:{merchant_id}:{city}:{}",
-        response_data.driverId
-    );
+    let on_ride_key = format!("ds:on_ride:{merchant_id}:{city}:{}", response_data.driverId);
     let on_ride_resp = redis_pool.get_key::<String>(&on_ride_key).await.unwrap();
 
     // println!("RIDE_ID TESTING: {:?}", serde_json::from_str::<RideId>(&on_ride_resp));
@@ -213,7 +250,7 @@ async fn update_driver_location(
     //logs
     // info!("Token: {:?}", token.to_str().unwrap());
 
-    let response_data = serde_json::to_string(&response_data).unwrap();
+    // let response_data = serde_json::to_string(&response_data).unwrap();
 
     // response
     let response = {
@@ -238,7 +275,8 @@ async fn get_nearby_drivers(
         .expect("LOCATION_EXPIRY not found")
         .parse::<u64>()
         .unwrap();
-    let current_bucket = Duration::as_secs(&SystemTime::elapsed(&UNIX_EPOCH).unwrap()) / location_expiry_in_seconds;
+    let current_bucket =
+        Duration::as_secs(&SystemTime::elapsed(&UNIX_EPOCH).unwrap()) / location_expiry_in_seconds;
     let city = "blr"; // BPP SERVICE REQUIRED HERE
     let key = format!(
         "dl:loc:{}:{city}:{}:{current_bucket}",

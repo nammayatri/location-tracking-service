@@ -27,3 +27,4 @@ rand = "0.8.5"
 actix = "0.13.0"
 diesel = { version = "2.1.0", features = ["postgres", "r2d2", "chrono"] }
 postgis_diesel = "2.2.0"
+geo = "0.26.0"

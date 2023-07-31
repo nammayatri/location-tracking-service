@@ -25,6 +25,9 @@ use types::*;
 
 mod tracking;
 use tracking::services;
+use tracking::karnataka;
+use tracking::kerala;
+use tracking::models::MultiPolygonBody;
 
 use actix::{Addr, SyncArbiter};
 use diesel::{
@@ -47,6 +50,7 @@ pub struct AppState {
             >,
         >,
     >,
+    pub polygon: Vec<MultiPolygonBody>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -69,7 +73,8 @@ pub async fn start_server(conn: redis::Connection) -> std::io::Result<()> {
         )),
         redis: Arc::new(Mutex::new(conn)),
         entries: Arc::new(Mutex::new(HashMap::new())),
-    });
+        polygon: vec![karnataka::create_karnataka_multipolygon_body(), kerala::create_kerala_multipolygon_body()],
+});
 
     let location_expiry_in_sec = var("LOCATION_EXPIRY")
         .expect("LOCATION_EXPIRY not found")
@@ -86,7 +91,8 @@ pub async fn start_server(conn: redis::Connection) -> std::io::Result<()> {
         thread::sleep(Duration::from_secs(10));
         // Access the vector in the separate thread's lifetime
         // println!("started thread");
-        let bucket = Duration::as_secs(&SystemTime::elapsed(&UNIX_EPOCH).unwrap()) / location_expiry_in_sec;
+        let bucket =
+            Duration::as_secs(&SystemTime::elapsed(&UNIX_EPOCH).unwrap()) / location_expiry_in_sec;
         let mut entries = thread_data.entries.lock().unwrap();
         for merchant_id in entries.keys() {
             let entries = entries[merchant_id].to_owned();

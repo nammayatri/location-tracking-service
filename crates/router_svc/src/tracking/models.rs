@@ -2,6 +2,7 @@
 use crate::types::*;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
+use geo::MultiPolygon;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct UpdateDriverLocationRequest {
@@ -71,4 +72,10 @@ pub struct DurationStruct {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct AuthResponseData {
     pub driverId: String,
+}
+
+#[derive(Clone)]
+pub struct MultiPolygonBody {
+    pub region: String,
+    pub multipolygon: MultiPolygon,
 }
