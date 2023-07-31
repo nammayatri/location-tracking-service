@@ -6,7 +6,7 @@ version = "0.1.0"
 edition = "2021"
 
 [lib]
-path = "src/lib.rs"
+path = "crates/main/src/lib.rs"
 
 [[bin]]
 path = "crates/main/src/main.rs"
