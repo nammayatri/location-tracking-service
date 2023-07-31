@@ -1,5 +1,7 @@
 use chrono::{DateTime, Utc};
+use diesel::sql_types::Array;
 use serde::{Deserialize, Serialize};
+use geo::{MultiPolygon};
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct UpdateDriverLocationRequest {
@@ -41,4 +43,16 @@ pub struct RideEndRequest {
     lat: f64,
     lon: f64,
     pub driver_id: String,
+}
+
+pub struct PolygonBody {
+    pub region: String,
+    pub polygon: Vec<(f64, f64)>
+}
+
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct MultiPolygonBody {
+    pub region: String,
+    pub multipolygon: Vec<Vec<(f64,f64)>>
 }

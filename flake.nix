@@ -58,6 +58,7 @@
                   diesel-cli
                   inputs.nixpkgs-pr.legacyPackages.${system}.diesel-cli-ext
                   postgresql
+                  openssl
                 ] ++ [
                   libiconv
                 ];

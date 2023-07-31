@@ -10,7 +10,15 @@ use actix_web::{
 use log::info;
 use reqwest::{Client, Error, header};
 use serde::{Deserialize, Serialize};
+use std::fs::File;
+use std::io::Read;
+use std::path::Path;
 use std::sync::{Arc, Mutex};
+use geo::{Contains, polygon, LineString, Coord, coord, MultiPolygon, BooleanOps, Intersects};
+use geo::{line_string, point, Polygon};
+use super::bangaloreUrban;
+use super::karnataka;
+use super::kerala;
 
 #[post("/ui/driver/location")]
 async fn update_driver_location(
@@ -26,28 +34,139 @@ async fn update_driver_location(
     let vechile_type = req.headers().get("vt").unwrap().to_owned();
     let merchant_id = req.headers().get("mid").unwrap().to_owned();
 
-    let db: Addr<DbActor> = data.as_ref().db.clone();
-    let dbData = db
-        .send(GetGeometry {
-            lat: body.pt.lat,
-            lon: body.pt.lon,
-        })
-        .await
-        .unwrap();
-    
+    // let db: Addr<DbActor> = data.as_ref().db.clone();
+    // let dbData = db
+    //     .send(GetGeometry {
+    //         lat: body.pt.lat,
+    //         lon: body.pt.lon,
+    //     })
+    //     .await
+    //     .unwrap();
+
     // send error response for invalid location
-    if dbData.is_err() {   
-        let response = {
-            let mut response = HttpResponse::BadRequest();
-            response.content_type("application/json");
-            response.body("{\"error\": \"Invalid Location\"}")
-        };
-        return response;
+    // if dbData.is_err() {   
+    //     let response = {
+    //         let mut response = HttpResponse::BadRequest();
+    //         response.content_type("application/json");
+    //         response.body("{\"error\": \"Invalid Location\"}")
+    //     };
+    //     return response;
+    // }
+
+
+    // let region = dbData.unwrap().region;
+    // info!("region xyz: {:?}", region);
+
+
+    let karnataka = karnataka::create_karnataka_multipolygon_body();
+    // let karnatakaMultipolygon = &karnataka.multipolygon;
+    // let mut allPolygons = vec![];
+    // for polygon in karnatakaMultipolygon {
+    //     let mut coordinates: Vec<Coord<f64>> = vec![];
+    //     for point in polygon {
+    //         coordinates.push(coord! { x: point.0, y: point.1 });
+    //     };
+        
+    //     let mut polygonNew = LineString::new(coordinates);
+    //     let polygon = Polygon::new(polygonNew.clone(), vec![]);
+        
+    //     info!("contains xyz: {}", polygon.contains(&point!(x: 77.4744 , y: 13.1819)));
+    //     allPolygons.push(polygon);
+    // }
+    
+    // let multipolygonNew : MultiPolygon = MultiPolygon::new(allPolygons);
+
+    // info!("multipolygon karnataka contains xyz: {}", multipolygonNew.intersects(&point!(x: 76.9108, y: 12.8856)));
+
+
+
+    let kerala = kerala::create_kerala_multipolygon_body();
+    // let keralaMultipolygon = &kerala.multipolygon;
+
+    let mut allMultiPolygons = vec![];
+    allMultiPolygons.push(karnataka);
+    allMultiPolygons.push(kerala);
+
+    for multiPolygonBody in allMultiPolygons {
+        let mut multiPolygon = multiPolygonBody.multipolygon;
+        let mut allPolygons = vec![];
+        for polygon in multiPolygon {
+            let mut coordinates: Vec<Coord<f64>> = vec![];
+            for point in polygon {
+                coordinates.push(coord! { x: point.0, y: point.1 });
+            };
+            
+            let mut polygonNew = LineString::new(coordinates);
+            let polygon = Polygon::new(polygonNew.clone(), vec![]);
+            
+            // info!("contains xyz: {}", polygon.contains(&point!(x: 77.4744 , y: 13.1819)));
+            allPolygons.push(polygon);
+        }
+        
+        let multipolygonNew : MultiPolygon = MultiPolygon::new(allPolygons);
+
+        info!("multipolygon contains xyz: {}", multipolygonNew.intersects(&point!(x: 78.94424030594956, y: 17.926496576258415)));
+        if multipolygonNew.intersects(&point!(x: 78.94424030594956, y: 17.926496576258415)) {
+            info!("Region : {}", multiPolygonBody.region);
+        }
     }
+
+
+
+
+
+
+
+
+    // let multi_polygon: MultiPolygon = MultiPolygon::new(vec![
+    //     polygon![
+    //       (x: 0.0, y: 0.0),
+    //       (x: 2.0, y: 0.0),
+    //       (x: 2.0, y: 1.0),
+    //       (x: 0.0, y: 1.0),
+    //     ],
+    //     polygon![
+    //       (x: 1.0, y: 1.0),
+    //       (x: -2.0, y: 1.0),
+    //       (x: -2.0, y: -1.0),
+    //       (x: 1.0, y: -1.0),
+    //     ]
+    //   ]);
+
+
+    // info!("multipolygon contains xyz: {}", multi_polygon.intersects(&point!(x: 2.0, y: 1.0)));
     
 
-    let region = dbData.unwrap().region;
-    info!("region xyz: {:?}", region);
+
+     
+    // let bangaloreUrban = bangaloreUrban::create_polygon_body();
+    // let polygon = bangaloreUrban.polygon;
+
+    // let mut coordinates: Vec<Coord<f64>> = vec![];
+    // for point in polygon {
+    //     coordinates.push(coord! { x: point.0, y: point.1 });
+    // };
+
+    // let mut polygonNew = LineString::new(coordinates);
+    // let polygon = Polygon::new(polygonNew.clone(), vec![]);
+
+    // info!("contains xyz: {}", polygon.contains(&point!(x: 77.4744 , y: 13.1819)));
+          
+
+    // 12.9700° N, 77.6536° E
+    // 12.9716° N, 77.5946° E
+    // let line_string = line_string![
+    // (x: 0., y: 0.),    
+    // (x: 2., y: 0.),
+    // (x: 2., y: 2.),
+    // (x: 0., y: 2.),
+    // (x: 0., y: 0.),
+    // ];
+
+    // let polygon = Polygon::new(line_string.clone(), vec![]);
+
+    // info!("contains : {}", polygon.contains(&point!(x: 1., y: 1.)));
+    
 
     // redis
     let mut redis_conn = data.redis_pool.lock().unwrap();
@@ -58,54 +177,54 @@ async fn update_driver_location(
     // entries.push((body.pt.lon, body.pt.lat, body.driverId));
 
 
-    let result = redis_conn
-        .get_key::<String>(format!("dl:{}", token.to_str().unwrap()).as_str())
-        .await;
+    // let result = redis_conn
+    //     .get_key::<String>(format!("dl:{}", token.to_str().unwrap()).as_str())
+    //     .await;
 
-    if result.is_err() {
-        return HttpResponse::BadRequest().body("Redis Error");
-    }
+    // if result.is_err() {
+    //     return HttpResponse::BadRequest().body("Redis Error");
+    // }
 
-    let result = result.unwrap();
+    // let result = result.unwrap();
 
-    let response_data: Option<AuthResponseData> = if result != "nil" {
-        Some(AuthResponseData {
-            driverId: result,
-        })
-    } else {
-        let client = reqwest::Client::new();
-        let resp = client
-            .get("http://127.0.0.1:8016/internal/auth")
-            .header("token", token.clone())
-            .header("api-key", "ae288466-2add-11ee-be56-0242ac120002")
-            .header("merchant-id", merchant_id)
-            .send()
-            .await
-            .expect("response not received");
+    // let response_data: Option<AuthResponseData> = if result != "nil" {
+    //     Some(AuthResponseData {
+    //         driverId: result,
+    //     })
+    // } else {
+    //     let client = reqwest::Client::new();
+    //     let resp = client
+    //         .get("http://127.0.0.1:8016/internal/auth")
+    //         .header("token", token.clone())
+    //         .header("api-key", "ae288466-2add-11ee-be56-0242ac120002")
+    //         .header("merchant-id", merchant_id)
+    //         .send()
+    //         .await
+    //         .expect("response not received");
 
-        let status = resp.status();
-        let response_body = resp.text().await.unwrap();
+    //     let status = resp.status();
+    //     let response_body = resp.text().await.unwrap();
 
-        if status != 200 {
-            let response = {
-                let mut response = HttpResponse::BadRequest();
-                response.content_type("application/json");
-                response.body(response_body)
-            };
-            return response;
-        }
-        info!("response: {}", response_body);
+    //     if status != 200 {
+    //         let response = {
+    //             let mut response = HttpResponse::BadRequest();
+    //             response.content_type("application/json");
+    //             response.body(response_body)
+    //         };
+    //         return response;
+    //     }
+    //     info!("response: {}", response_body);
 
 
-        let response_data: AuthResponseData = serde_json::from_str(&response_body).unwrap();
-        _ = redis_conn
-            .set_with_expiry(format!("dl:{}", token.to_str().unwrap()).as_str(), &response_data.driverId, 3600)
-            .await;
-        Some(response_data)
-    };
+    //     let response_data: AuthResponseData = serde_json::from_str(&response_body).unwrap();
+    //     _ = redis_conn
+    //         .set_with_expiry(format!("dl:{}", token.to_str().unwrap()).as_str(), &response_data.driverId, 3600)
+    //         .await;
+    //     Some(response_data)
+    // };
 
-    let res = response_data.unwrap();
-    info!("response_data xyz: {:?}", res);
+    // let res = response_data.unwrap();
+    // info!("response_data xyz: {:?}", res);
 
     // Extract the driverId field
     // let driver_id = response_data.driverId;
