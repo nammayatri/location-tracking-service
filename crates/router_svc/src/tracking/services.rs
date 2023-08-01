@@ -9,15 +9,12 @@ use log::info;
 use rand::{thread_rng, Rng};
 use std::collections::HashMap;
 // use serde::{Deserialize, Serialize};
-use super::karnataka;
-use super::kerala;
-use geo::{coord, polygon, BooleanOps, Contains, Coord, Intersects, LineString, MultiPolygon};
-use geo::{line_string, point, Polygon};
-use reqwest::{Client, Error};
+
+use geo::point;
+use geo::Intersects;
+
 use std::env::var;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-
-use actix::Addr;
 
 use crate::types::*;
 
@@ -261,7 +258,7 @@ async fn update_driver_location(
 async fn get_nearby_drivers(
     data: web::Data<AppState>,
     param_obj: web::Json<GetNearbyDriversRequest>,
-    req: HttpRequest,
+    _req: HttpRequest,
 ) -> impl Responder {
     let body = param_obj.into_inner();
     let _json = serde_json::to_string(&body).unwrap();
@@ -506,7 +503,7 @@ async fn location(
     _req: HttpRequest,
 ) -> impl Responder {
     let body = param_obj.into_inner();
-    let json = serde_json::to_string(&body).unwrap();
+    let _json = serde_json::to_string(&body).unwrap();
     // info!("Location json: {}\n", json);
     // info!("Location body: {:?}\n", body);
 
