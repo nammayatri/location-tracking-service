@@ -1,4 +1,3 @@
-// use fred::types::GeoPosition;
 use crate::types::*;
 use geo::MultiPolygon;
 use serde::{Deserialize, Serialize};
