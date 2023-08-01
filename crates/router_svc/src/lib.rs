@@ -1,36 +1,23 @@
-
 use actix_web::middleware::Logger;
-// use actix_web::web::Data;
 use actix_web::{web, App, HttpServer};
 use env_logger::Env;
-
-// use fred::types::{GeoPosition, GeoValue, MultipleGeoValues, RedisValue};
-// use futures::executor;
-// use futures::task::ArcWake;
 use log::info;
 use redis::Commands;
 use redis_interface::{RedisConnectionPool, RedisSettings};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::env::var;
-// use std::hash::Hash;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
-// use tokio::runtime::Runtime;
 use tokio::time::Duration;
 
 mod types;
 use types::*;
 
-mod tracking;
-use tracking::karnataka;
-use tracking::kerala;
+pub mod tracking;
 use tracking::models::MultiPolygonBody;
 use tracking::services;
-
-
-
 
 pub const LIST_OF_VT: [&str; 4] = ["auto", "cab", "suv", "sedan"];
 pub const LIST_OF_CITIES: [&str; 2] = ["blr", "ccu"];
@@ -62,18 +49,25 @@ pub struct Location {
 #[actix_web::main]
 pub async fn start_server(conn: redis::Connection) -> std::io::Result<()> {
     env_logger::init_from_env(Env::default().default_filter_or("info"));
+
+    let redis_pool = Arc::new(Mutex::new(
+        RedisConnectionPool::new(&RedisSettings::default())
+            .await
+            .expect("Failed to create Redis connection pool"),
+    ));
+
+    let redis = Arc::new(Mutex::new(conn));
+
+    let entries = Arc::new(Mutex::new(HashMap::new()));
+
+    let polygons =
+        tracking::geo_polygon::read_geo_polygon("./config").expect("Failed to read geoJSON");
+
     let data = web::Data::new(AppState {
-        redis_pool: Arc::new(Mutex::new(
-            RedisConnectionPool::new(&RedisSettings::default())
-                .await
-                .expect("Failed to create Redis connection pool"),
-        )),
-        redis: Arc::new(Mutex::new(conn)),
-        entries: Arc::new(Mutex::new(HashMap::new())),
-        polygon: vec![
-            karnataka::create_karnataka_multipolygon_body(),
-            kerala::create_kerala_multipolygon_body(),
-        ],
+        redis_pool,
+        redis,
+        entries,
+        polygon: polygons,
     });
 
     let location_expiry_in_sec = var("LOCATION_EXPIRY")
