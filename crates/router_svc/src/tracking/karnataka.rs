@@ -1,7 +1,7 @@
 use super::models::MultiPolygonBody;
 use geo::{coord, Coord, LineString, MultiPolygon, Polygon};
 
-pub fn make_multipolygon(mut entries: Vec<Vec<(f64, f64)>>) -> MultiPolygon {
+pub fn make_multipolygon(entries: Vec<Vec<(f64, f64)>>) -> MultiPolygon {
     MultiPolygon::new(
         entries
             .into_iter()

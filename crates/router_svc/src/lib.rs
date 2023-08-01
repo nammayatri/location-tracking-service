@@ -1,9 +1,9 @@
-use actix_web::http::header::EntityTag;
+
 use actix_web::middleware::Logger;
 // use actix_web::web::Data;
 use actix_web::{web, App, HttpServer};
 use env_logger::Env;
-use futures::executor::EnterError;
+
 // use fred::types::{GeoPosition, GeoValue, MultipleGeoValues, RedisValue};
 // use futures::executor;
 // use futures::task::ArcWake;
@@ -29,11 +29,8 @@ use tracking::kerala;
 use tracking::models::MultiPolygonBody;
 use tracking::services;
 
-use actix::{Addr, SyncArbiter};
-use diesel::{
-    r2d2::{ConnectionManager, Pool},
-    PgConnection,
-};
+
+
 
 pub const LIST_OF_VT: [&str; 4] = ["auto", "cab", "suv", "sedan"];
 pub const LIST_OF_CITIES: [&str; 2] = ["blr", "ccu"];
