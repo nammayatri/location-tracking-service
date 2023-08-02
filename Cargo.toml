@@ -1,20 +1,5 @@
-#! ./.Cargo.toml
-
-[package]
-name = "location-tracking-service"
-version = "0.1.0"
-edition = "2021"
-
-[[bin]]
-path = "crates/router_svc/src/main.rs"
-name = "location-tracking-service"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
-redis = "0.23.0"
-serde = { version = "1.0.155", features = ["derive"] }
-serde_dhall = "0.12.1"
-
-redis_interface = { version = "0.1.0", path = "./crates/redis_interface" }
-router_svc = { version = "0.1.0", path = "./crates/router_svc" }
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+package.edition = "2021"
+package.license = "Apache-2.0"
