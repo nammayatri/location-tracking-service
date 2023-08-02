@@ -13,8 +13,8 @@ path = "src/router.rs"
 actix-web = "4.3.1"
 serde = { version = "1.0.167", features = ["derive"] }
 serde_json = "1.0.100"
+serde_dhall = "0.12.1"
 chrono = { version = "0.4", features = ["serde"] }
-redis_interface = { version = "0.1.0", path = "../redis_interface" }
 env_logger = "0.10.0"
 log = "0.4.14"
 tokio = "1.29.1"
@@ -22,10 +22,9 @@ fred = { version = "6.0.0", features = ["metrics", "partial-tracing"] }
 reqwest = {version = "0.11.18", features = ["json"]}
 futures = "0.3.28"
 redis = "0.23.0"
-dotenv = "0.15.0"
 rand = "0.8.5"
 actix = "0.13.0"
-diesel = { version = "2.1.0", features = ["postgres", "r2d2", "chrono"] }
-postgis_diesel = "2.2.0"
 geo = "0.26.0"
 geojson = "0.24.1"
+
+redis_interface = { version = "0.1.0", path = "../redis_interface" }

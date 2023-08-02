@@ -1,3 +1,4 @@
+use crate::env::AppState;
 use actix_web::middleware::Logger;
 use actix_web::{web, App, HttpServer};
 use env_logger::Env;
@@ -19,23 +20,11 @@ pub mod tracking;
 use tracking::models::MultiPolygonBody;
 use tracking::services;
 
+pub mod env;
+use env::make_app_state;
+
 pub const LIST_OF_VT: [&str; 4] = ["auto", "cab", "suv", "sedan"];
 pub const LIST_OF_CITIES: [&str; 2] = ["blr", "ccu"];
-
-// appstate for redis
-pub struct AppState {
-    pub redis_pool: Arc<Mutex<RedisConnectionPool>>,
-    pub redis: Arc<Mutex<redis::Connection>>,
-    pub entries: Arc<
-        Mutex<
-            HashMap<
-                MerchantId,
-                HashMap<CityName, HashMap<VehicleType, Vec<(Longitude, Latitude, DriverId)>>>,
-            >,
-        >,
-    >,
-    pub polygon: Vec<MultiPolygonBody>,
-}
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Location {
@@ -47,38 +36,20 @@ pub struct Location {
 }
 
 #[actix_web::main]
-pub async fn start_server(conn: redis::Connection) -> std::io::Result<()> {
+pub async fn start_server() -> std::io::Result<()> {
     env_logger::init_from_env(Env::default().default_filter_or("info"));
 
-    let redis_pool = Arc::new(Mutex::new(
-        RedisConnectionPool::new(&RedisSettings::default())
-            .await
-            .expect("Failed to create Redis connection pool"),
-    ));
+    let dhall_config_path =
+        var("DHALL_CONFIG").unwrap_or_else(|_| "./dhall_configs/api_server.dhall".to_string());
+    let app_config = env::read_dhall_config(&dhall_config_path).unwrap();
 
-    let redis = Arc::new(Mutex::new(conn));
+    let app_state = make_app_state(app_config.clone()).await;
 
-    let entries = Arc::new(Mutex::new(HashMap::new()));
+    let data = web::Data::new(app_state.clone());
 
-    let polygons =
-        tracking::geo_polygon::read_geo_polygon("./config").expect("Failed to read geoJSON");
+    let location_expiry_in_sec = app_state.location_expiry;
 
-    let data = web::Data::new(AppState {
-        redis_pool,
-        redis,
-        entries,
-        polygon: polygons,
-    });
-
-    let location_expiry_in_sec = var("LOCATION_EXPIRY")
-        .expect("LOCATION_EXPIRY not found")
-        .parse::<u64>()
-        .unwrap();
-
-    let test_loc_expiry_in_sec = var("TEST_LOC_EXPIRY")
-        .expect("TEST_LOC_EXPIRY not found")
-        .parse::<usize>()
-        .unwrap();
+    let test_loc_expiry_in_sec = app_state.test_location_expiry;
 
     let thread_data = data.clone();
     thread::spawn(move || loop {
@@ -123,7 +94,7 @@ pub async fn start_server(conn: redis::Connection) -> std::io::Result<()> {
             .wrap(Logger::default())
             .configure(services::config)
     })
-    .bind(("127.0.0.1", 8081))?
+    .bind(("127.0.0.1", app_config.port))?
     .run()
     .await
 }
