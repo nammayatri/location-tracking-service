@@ -1,13 +1,9 @@
 //! src/connection.rs
 
-use std::env::var;
+pub fn connect(redis_host: String, redis_port: u16) -> redis::Connection {
+    let redis_conn_url = format!("redis://{}:{}", redis_host, redis_port);
 
-pub fn connect() -> redis::Connection {
-    let redis_host = var("REDIS_HOST").expect("missing environment variable REDIS_HOST");
-
-    let redis_conn_url = format!("redis://{}", redis_host);
-
-    println!("{}", redis_conn_url);
+    println!("Connecting to Redis {}", redis_conn_url);
 
     redis::Client::open(redis_conn_url)
         .expect("Invalid connection URL")

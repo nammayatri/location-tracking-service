@@ -121,6 +121,15 @@
             exec = self'.packages.services;
             description = "Run the project service dependencies";
           };
+
+          fix-warnings = {
+            exec = ''
+              cargo fix --allow-dirty --allow-staged
+              cargo clippy --all-targets --all-features -- -D warnings
+            '';
+            description = "Fix and lint the project";
+          };
+
         };
       };
     };
