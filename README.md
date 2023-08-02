@@ -22,7 +22,7 @@
 
 ### Rust
 
-`cargo` is available in the Nix develop shell. You can also use one of the `,` prefixed commands (shown in Nix shell banner) to invoke cargo indirectly. 
+`cargo` is available in the Nix develop shell. You can also use one of the `just` commands (shown in Nix shell banner) to invoke cargo indirectly. 
 
 ### VSCode
 
@@ -30,11 +30,11 @@ The necessary extensions are configured in `.vscode/`. See [nammayatri README](h
 
 ### Autoformatting
 
-Run `, fmt` (or `treefmt`) to auto-format the project tree. The CI checks for it.
+Run `just fmt` (or `treefmt`) to auto-format the project tree. The CI checks for it.
 
 ### Services
 
-Run `, services` to run the service dependencies (example: redis-server) using [services-flake](https://github.com/juspay/services-flake).   
+Run `just services` to run the service dependencies (example: redis-server) using [services-flake](https://github.com/juspay/services-flake).   
 
 ## Usage / Installing
 
