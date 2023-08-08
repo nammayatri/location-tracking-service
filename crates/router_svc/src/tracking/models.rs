@@ -1,4 +1,5 @@
 use crate::types::*;
+use chrono::{DateTime, Utc};
 use geo::MultiPolygon;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -49,7 +50,7 @@ pub struct RideEndRequest {
 
 #[derive(Deserialize, Serialize, Debug)]
 pub struct NearbyDriverResp {
-    pub resp: Vec<(Longitude, Latitude, DriverId)>,
+    pub resp: Vec<DriverLocation>,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
@@ -77,4 +78,34 @@ pub struct AuthResponseData {
 pub struct MultiPolygonBody {
     pub region: String,
     pub multipolygon: MultiPolygon,
+}
+
+#[derive(Serialize, Debug)]
+pub struct ResponseData {
+    pub result: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct BulkDataReq {
+    pub rideId: String,
+    pub loc: Vec<Point>,
+    pub driverId: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct DriverLocation {
+    pub driverId: DriverId,
+    pub lat: Latitude,
+    pub lon: Longitude,
+    pub coordinatesCalculatedAt: DateTime<Utc>,
+    pub createdAt: DateTime<Utc>,
+    pub updatedAt: DateTime<Utc>,
+    pub merchantId: MerchantId,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct RideEndRes {
+    pub rideId: String,
+    pub loc: Vec<Point>,
+    pub driverId: String,
 }
