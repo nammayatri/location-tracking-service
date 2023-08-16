@@ -12,6 +12,7 @@ use crate::RedisConnectionPool;
 use crate::RedisSettings;
 use crate::VehicleType;
 use serde::Deserialize;
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct AppConfig {
@@ -56,6 +57,28 @@ pub struct AppState {
     pub location_expiry: u64,
     pub on_ride_expiry: u64,
     pub test_location_expiry: usize,
+    pub user_limits: Arc<Mutex<HashMap<String, (usize, Instant)>>>,
+}
+
+impl AppState {
+    pub async fn check_rate_limit(&self, user_id: &str, limit: usize, interval: Duration) -> bool {
+        let mut user_limits = self.user_limits.lock().expect("Failed to get user limits");
+        let (count, last_request_time) = user_limits
+            .entry(user_id.to_string())
+            .or_insert((0, Instant::now()));
+        let elapsed = last_request_time.elapsed();
+
+        if elapsed >= interval {
+            *count = 1;
+            *last_request_time = Instant::now();
+            true
+        } else if *count < limit {
+            *count += 1;
+            true
+        } else {
+            false
+        }
+    }
 }
 
 pub async fn make_app_state(app_config: AppConfig) -> AppState {
@@ -87,6 +110,8 @@ pub async fn make_app_state(app_config: AppConfig) -> AppState {
     let polygons =
         tracking::geo_polygon::read_geo_polygon("./config").expect("Failed to read geoJSON");
 
+    let user_limits = Arc::new(Mutex::new(HashMap::new()));
+
     AppState {
         redis_pool,
         redis,
@@ -97,5 +122,6 @@ pub async fn make_app_state(app_config: AppConfig) -> AppState {
         location_expiry: app_config.location_expiry,
         on_ride_expiry: app_config.on_ride_expiry,
         test_location_expiry: app_config.test_location_expiry,
+        user_limits,
     }
 }

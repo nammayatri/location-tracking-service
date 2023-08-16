@@ -131,6 +131,13 @@ async fn update_driver_location(
         AuthResponseData { driver_id: x }
     };
 
+    let user_limit = data
+        .check_rate_limit(&response_data.driver_id, 10, Duration::from_secs(60))
+        .await;
+    if !user_limit {
+        return HttpResponse::TooManyRequests().into();
+    }
+
     let on_ride_key = format!(
         "ds:on_ride:{merchant_id}:{city}:{}",
         response_data.driver_id
