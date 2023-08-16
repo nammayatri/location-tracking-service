@@ -17,7 +17,15 @@ pub struct Point {
     pub lon: Longitude,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct DriverLocs {
+    pub lon: Longitude,
+    pub lat: Latitude,
+    pub driver_id: DriverId,
+}
+
 #[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct GetNearbyDriversRequest {
     pub lat: Latitude,
     pub lon: Longitude,
@@ -27,30 +35,21 @@ pub struct GetNearbyDriversRequest {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct DriverLocs {
-    pub lon: Longitude,
-    pub lat: Latitude,
-    pub driver_id: DriverId,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
 pub struct RideStartRequest {
     pub lat: Latitude,
     pub lon: Longitude,
     pub driver_id: DriverId,
     pub merchant_id: MerchantId,
 }
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
 pub struct RideEndRequest {
     pub lat: Latitude,
     pub lon: Longitude,
     pub driver_id: DriverId,
     pub merchant_id: MerchantId,
-}
-
-#[derive(Deserialize, Serialize, Debug)]
-pub struct NearbyDriverResp {
-    pub resp: Vec<DriverLocation>,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
@@ -70,8 +69,9 @@ pub struct DurationStruct {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AuthResponseData {
-    pub driverId: String,
+    pub driver_id: String,
 }
 
 #[derive(Clone)]
@@ -86,26 +86,29 @@ pub struct ResponseData {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
 pub struct BulkDataReq {
-    pub rideId: String,
+    pub ride_id: String,
     pub loc: Vec<Point>,
-    pub driverId: String,
+    pub driver_id: String,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
 pub struct DriverLocation {
-    pub driverId: DriverId,
+    pub driver_id: DriverId,
     pub lat: Latitude,
     pub lon: Longitude,
-    pub coordinatesCalculatedAt: DateTime<Utc>,
-    pub createdAt: DateTime<Utc>,
-    pub updatedAt: DateTime<Utc>,
-    pub merchantId: MerchantId,
+    pub coordinates_calculated_at: DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub merchant_id: MerchantId,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
 pub struct RideEndRes {
-    pub rideId: String,
+    pub ride_id: String,
     pub loc: Vec<Point>,
-    pub driverId: String,
+    pub driver_id: String,
 }

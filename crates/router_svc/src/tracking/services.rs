@@ -1,7 +1,7 @@
 use super::models::{
-    AuthResponseData, BulkDataReq, DriverLocation, DriverRideData, DurationStruct,
-    GetNearbyDriversRequest, NearbyDriverResp, Point, ResponseData, RideEndRequest, RideEndRes,
-    RideId, RideStartRequest, UpdateDriverLocationRequest,
+    AuthResponseData, BulkDataReq, DriverLocation, DurationStruct, GetNearbyDriversRequest, Point,
+    ResponseData, RideEndRequest, RideEndRes, RideId, RideStartRequest,
+    UpdateDriverLocationRequest,
 };
 use crate::AppState;
 use actix_web::{get, post, web, HttpRequest, HttpResponse, Responder};
@@ -122,16 +122,19 @@ async fn update_driver_location(
 
         // let driver_id = "4321".to_string(); //   BPP SERVICE REQUIRED HERE
         let _: () = redis_pool
-            .set_with_expiry(&token, &response.driverId, token_expiry_in_sec)
+            .set_with_expiry(&token, &response.driver_id, token_expiry_in_sec)
             .await
             .unwrap();
 
         response
     } else {
-        AuthResponseData { driverId: x }
+        AuthResponseData { driver_id: x }
     };
 
-    let on_ride_key = format!("ds:on_ride:{merchant_id}:{city}:{}", response_data.driverId);
+    let on_ride_key = format!(
+        "ds:on_ride:{merchant_id}:{city}:{}",
+        response_data.driver_id
+    );
     let on_ride_resp = redis_pool.get_key::<String>(&on_ride_key).await.unwrap();
 
     println!(
@@ -147,7 +150,7 @@ async fn update_driver_location(
                 info!("member: {}", loc.ts.to_rfc3339());
                 let on_ride_loc_key = format!(
                     "dl:loc:{merchant_id}:{city}:{}",
-                    response_data.driverId.clone()
+                    response_data.driver_id.clone()
                 );
                 let _: () = redis_pool
                     .geo_add(
@@ -212,8 +215,8 @@ async fn update_driver_location(
                         .collect::<Vec<Point>>();
 
                     let json = BulkDataReq {
-                        rideId: ride_id,
-                        driverId: response_data.driverId.clone(),
+                        ride_id: ride_id,
+                        driver_id: response_data.driver_id.clone(),
                         loc: loc,
                     };
 
@@ -244,7 +247,7 @@ async fn update_driver_location(
             }
         }
         _ => {
-            let key = format!("dl:ts:{}", response_data.driverId.clone());
+            let key = format!("dl:ts:{}", response_data.driver_id.clone());
             let utc_now_str = (Utc::now()).to_rfc3339();
             let _ = redis_pool.set_with_expiry(&key, utc_now_str, 90);
             drop(redis_pool);
@@ -296,7 +299,7 @@ async fn update_driver_location(
                     .expect("no city")
                     .get_mut(&vehicle_type)
                     .expect("no vehicle type")
-                    .push((loc.pt.lon, loc.pt.lat, response_data.driverId.clone()));
+                    .push((loc.pt.lon, loc.pt.lat, response_data.driver_id.clone()));
                 // println!("{:?}", entries);
 
                 // info!("{:?}", entries);
@@ -329,7 +332,7 @@ async fn get_nearby_drivers(
     param_obj: web::Json<GetNearbyDriversRequest>,
     _req: HttpRequest,
 ) -> impl Responder {
-    let body = param_obj.into_inner();
+    let body: GetNearbyDriversRequest = param_obj.into_inner();
     let _json = serde_json::to_string(&body).unwrap();
     info!("json {:?}", _json);
     let location_expiry_in_seconds = var("LOCATION_EXPIRY")
@@ -368,7 +371,7 @@ async fn get_nearby_drivers(
 
     if body.vehicle_type == "" {
         let mut redis = data.redis.lock().unwrap();
-        let mut all_keys = redis
+        let all_keys = redis
             .keys::<_, Vec<String>>(format!(
                 "dl:loc:{}:{city}:*:{current_bucket}",
                 body.merchant_id
@@ -404,13 +407,13 @@ async fn get_nearby_drivers(
                         Err(_) => Utc::now(),
                     };
                     let driver_location = DriverLocation {
-                        driverId: driver_id.to_string(),
+                        driver_id: driver_id.to_string(),
                         lon: pos.longitude,
                         lat: pos.latitude,
-                        coordinatesCalculatedAt: timestamp.clone(),
-                        createdAt: timestamp.clone(),
-                        updatedAt: timestamp.clone(),
-                        merchantId: body.merchant_id.clone(),
+                        coordinates_calculated_at: timestamp.clone(),
+                        created_at: timestamp.clone(),
+                        updated_at: timestamp.clone(),
+                        merchant_id: body.merchant_id.clone(),
                     };
                     resp_vec.push(driver_location);
                 }
@@ -443,13 +446,13 @@ async fn get_nearby_drivers(
                     Err(_) => Utc::now(),
                 };
                 let driver_location = DriverLocation {
-                    driverId: driver_id.to_string(),
+                    driver_id: driver_id.to_string(),
                     lon: pos.longitude,
                     lat: pos.latitude,
-                    coordinatesCalculatedAt: timestamp.clone(),
-                    createdAt: timestamp.clone(),
-                    updatedAt: timestamp.clone(),
-                    merchantId: body.merchant_id.clone(),
+                    coordinates_calculated_at: timestamp.clone(),
+                    created_at: timestamp.clone(),
+                    updated_at: timestamp.clone(),
+                    merchant_id: body.merchant_id.clone(),
                 };
                 resp_vec.push(driver_location);
             }
@@ -471,7 +474,7 @@ async fn ride_start(
     path: web::Path<String>,
 ) -> impl Responder {
     let body = param_obj.into_inner();
-    let json = serde_json::to_string(&body).unwrap();
+    let _json = serde_json::to_string(&body).unwrap();
 
     let ride_id = path.into_inner();
     info!("rideId: {ride_id}");
@@ -631,8 +634,8 @@ async fn ride_end(
     }
 
     let json = RideEndRes {
-        rideId: ride_id,
-        driverId: body.driver_id,
+        ride_id: ride_id,
+        driver_id: body.driver_id,
         loc: loc,
     };
 
