@@ -5,117 +5,109 @@
     systems.url = "github:nix-systems/default";
 
     # Rust
-    dream2nix.url = "github:nix-community/dream2nix";
+    rust-overlay.url = "github:oxalica/rust-overlay";
+    crane.url = "github:ipetkov/crane";
+    crane.inputs.nixpkgs.follows = "nixpkgs";
 
     # Dev tools
     treefmt-nix.url = "github:numtide/treefmt-nix";
-    mission-control.url = "github:Platonic-Systems/mission-control";
-    flake-root.url = "github:srid/flake-root";
 
     # Services
     process-compose-flake.url = "github:Platonic-Systems/process-compose-flake";
-    # TODO: update flake after https://github.com/juspay/services-flake/pull/8 is merged.
-    services-flake.url = "github:juspay/services-flake/redis/init";
+    services-flake.url = "github:juspay/services-flake";
   };
   outputs = inputs:
     inputs.flake-parts.lib.mkFlake { inherit inputs; } {
       systems = import inputs.systems;
       imports = [
-        inputs.dream2nix.flakeModuleBeta
         inputs.treefmt-nix.flakeModule
-        inputs.mission-control.flakeModule
-        inputs.flake-root.flakeModule
         inputs.process-compose-flake.flakeModule
       ];
-      perSystem = { config, self', pkgs, lib, system, ... }: {
-        process-compose."services" = {
-          imports = [
-            inputs.services-flake.processComposeModules.default
-          ];
-          services.redis = {
-            enable = true;
-            extraConfig = ''
-              requirepass myPassword
-            '';
+      perSystem = { config, self', pkgs, lib, system, ... }:
+        let
+          rustToolchain = (pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml).override {
+            extensions = [
+              "rust-src"
+              "rust-analyzer"
+            ];
           };
-        };
-        # Rust project definition
-        # cf. https://github.com/nix-community/dream2nix
-        dream2nix.inputs."location-tracking-service" = {
-          source = lib.sourceFilesBySuffices ./. [
-            ".rs"
-            "Cargo.toml"
-            "Cargo.lock"
-          ];
-          projects.location-tracking-service = {
-            name = "location-tracking-service";
-            subsystem = "rust";
-            translator = "cargo-lock";
+          craneLib = (inputs.crane.mkLib pkgs).overrideToolchain rustToolchain;
+          package = craneLib.buildPackage {
+            pname = "location-tracking-service";
+            src = ./.;
+            doCheck = false; # FIXME: tests require services to be running
+            buildInputs = lib.optionals pkgs.stdenv.isDarwin
+              (with pkgs.darwin.apple_sdk.frameworks; [
+                Security
+              ]) ++ [
+              pkgs.libiconv
+              pkgs.openssl
+            ];
+            nativeBuildInputs = [ pkgs.pkg-config ];
           };
-          packageOverrides = rec {
-            location-tracking-service = {
-              add-deps = with pkgs; {
-                nativeBuildInputs = old: old ++ lib.optionals stdenv.isDarwin [
-                  libiconv
-                ];
-              };
+        in
+        {
+          _module.args.pkgs = import inputs.nixpkgs {
+            inherit system;
+            overlays = [
+              inputs.rust-overlay.overlays.default
+            ];
+          };
+
+          process-compose."lts-services" = {
+            imports = [
+              inputs.services-flake.processComposeModules.default
+            ];
+            services.redis."redis1" = {
+              enable = true;
             };
-            location-tracking-service-deps = location-tracking-service;
+          };
+
+          # Flake outputs
+          packages.default = package;
+          devShells.default = pkgs.mkShell {
+            inputsFrom = [
+              config.treefmt.build.devShell
+              self'.packages.default # Makes the buildInputs of the package available in devShell (so cargo can link against Nix libraries)
+            ];
+            shellHook = ''
+              # For rust-analyzer 'hover' tooltips to work.
+              export RUST_SRC_PATH="${rustToolchain}/lib/rustlib/src/rust/library";
+
+              export REDIS_HOST=${config.process-compose."lts-services".services.redis."redis1".bind}
+              export DATABASE_URL=postgresql://postgres:root@localhost:5434/atlas_dev
+              export AUTH_URL=http://127.0.0.1:8016/internal/auth
+              export BULK_LOC_UPDATE_URL=http://127.0.0.1:8016/internal/bulkLocUpdate
+              export TEST_LOC_EXPIRY="90"
+              export LOCATION_EXPIRY="60"
+              export TOKEN_EXPIRY="30"
+              export ON_RIDE_EXPIRY="172800"
+
+              echo
+              echo "🍎🍎 Run 'just <recipe>' to get started"
+              just
+            '';
+            nativeBuildInputs = with pkgs; [
+              # Add your dev tools here.
+              cargo
+              rustc
+              rust-analyzer
+              cargo-watch
+              just
+              # Programs used by `justfile`
+              config.process-compose."lts-services".outputs.package
+            ];
+          };
+
+          # Add your auto-formatters here.
+          # cf. https://numtide.github.io/treefmt/
+          treefmt.config = {
+            projectRootFile = "flake.nix";
+            programs = {
+              nixpkgs-fmt.enable = true;
+              rustfmt.enable = true;
+            };
           };
         };
-
-        # Flake outputs
-        packages = config.dream2nix.outputs.location-tracking-service.packages;
-        devShells.default = pkgs.mkShell {
-          inputsFrom = [
-            config.dream2nix.outputs.location-tracking-service.devShells.default
-            config.treefmt.build.devShell
-            config.mission-control.devShell
-            config.flake-root.devShell
-          ];
-          shellHook = ''
-            # For rust-analyzer 'hover' tooltips to work.
-            export RUST_SRC_PATH=${pkgs.rustPlatform.rustLibSrc}
-          '';
-          nativeBuildInputs = [
-            # Add your dev tools here.
-            pkgs.cargo-watch
-          ];
-        };
-
-        # Add your auto-formatters here.
-        # cf. https://numtide.github.io/treefmt/
-        treefmt.config = {
-          projectRootFile = "flake.nix";
-          programs = {
-            nixpkgs-fmt.enable = true;
-            rustfmt.enable = true;
-          };
-        };
-
-        # Makefile'esque but in Nix. Add your dev scripts here.
-        # cf. https://github.com/Platonic-Systems/mission-control
-        mission-control.scripts = {
-          fmt = {
-            exec = config.treefmt.build.wrapper;
-            description = "Auto-format project tree";
-          };
-
-          run = {
-            exec = ''cargo run'';
-            description = "Run the project executable";
-          };
-
-          watch = {
-            exec = ''cargo watch -x run'';
-            description = "Watch for changes and run the project executable";
-          };
-
-          services = {
-            exec = self'.packages.services;
-            description = "Run the project service dependencies";
-          };
-        };
-      };
     };
 }

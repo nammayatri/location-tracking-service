@@ -1,0 +1,20 @@
+[package]
+name = "redis_interface"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+async-trait = "0.1.66"
+error-stack = "0.3.1"
+futures = "0.3"
+serde = { version = "1.0.155", features = ["derive"] }
+thiserror = "1.0.39"
+fred = { version = "6.0.0", features = ["metrics", "partial-tracing"] }
+tokio = "1.28.2"
+common_utils = { version = "0.1.0", path = "../common_utils"}
+router_env = { version = "0.1.0", path = "../router_env"}
+
+[dev-dependencies]
+tokio = { version = "1.26.0", features = ["macros", "rt-multi-thread"] }

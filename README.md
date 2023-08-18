@@ -22,7 +22,7 @@
 
 ### Rust
 
-`cargo` is available in the Nix develop shell. You can also use one of the `,` prefixed commands (shown in Nix shell banner) to invoke cargo indirectly. 
+`cargo` is available in the Nix develop shell. You can also use one of the `just` commands (shown in Nix shell banner) to invoke cargo indirectly. 
 
 ### VSCode
 
@@ -30,11 +30,11 @@ The necessary extensions are configured in `.vscode/`. See [nammayatri README](h
 
 ### Autoformatting
 
-Run `, fmt` (or `treefmt`) to auto-format the project tree. The CI checks for it.
+Run `just fmt` (or `treefmt`) to auto-format the project tree. The CI checks for it.
 
 ### Services
 
-Run `, services` to run the service dependencies (example: redis-server) using [services-flake](https://github.com/juspay/services-flake).   
+Run `just services` to run the service dependencies (example: redis-server) using [services-flake](https://github.com/juspay/services-flake).   
 
 ## Usage / Installing
 
@@ -44,3 +44,11 @@ Run `nix build` in the project which produces a `./result` symlink. You can also
 
 Run `nix run github:srid/nixci` locally to make sure that the project builds. The CI runs the same.
 
+# Redis key-value details
+
+1. **Token cache**: (token, driver_id)
+2. **On ride status cache**: (ds:on_ride:merchant_id:city:driver_id, RideId {on_ride: bool, ride_id: String})
+3. **On ride location cache**: (dl:loc:merchant_id:city:driver_id, (timestamp, (longitude, latitude)))
+4. **Main redis cache**: (dl:loc:merchant_id:city:vehicle_type:bucket, (driver_id, (longitude, latitude)))
+5. **Driver location ts**: (dl:ts:driver_id, timestamp)
+6. **redis keys of all vt**: (dl:loc:{merchant_id}:{city}:*:{bucket}, allVtKeys)

@@ -1,0 +1,7 @@
+{
+    "rust-analyzer.linkedProjects": [
+        "./crates/redis_interface/Cargo.toml",
+        "./crates/common_utils/Cargo.toml",
+        "./crates/router_svc/Cargo.toml"
+    ]
+}
