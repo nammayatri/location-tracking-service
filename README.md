@@ -42,7 +42,7 @@ Run `nix build` in the project which produces a `./result` symlink. You can also
 
 ## Contributing PRs
 
-Run `nix run github:srid/nixci` locally to make sure that the project builds. The CI runs the same.
+Run `nix run nixpkgs#nixci` locally to make sure that the project builds. The CI runs the same.
 
 # Redis key-value details
 
