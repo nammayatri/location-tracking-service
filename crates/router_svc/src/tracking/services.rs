@@ -13,6 +13,10 @@ use rand::{thread_rng, Rng};
 use redis::Commands;
 use std::collections::HashMap;
 // use serde::{Deserialize, Serialize};
+use super::super::env::{
+    driver_loc_bucket_key, driver_loc_bucket_keys_with_all_vt, driver_loc_ts_key, on_ride_key,
+    on_ride_loc_key,
+};
 use crate::types::*;
 use geo::point;
 use geo::Intersects;
@@ -111,7 +115,7 @@ async fn update_driver_location(
                 dur: start.elapsed(),
             })
             .unwrap();
-            return HttpResponse::Ok()
+            return HttpResponse::InternalServerError()
                 .content_type("application/json")
                 .body(duration_full);
         }
@@ -132,16 +136,19 @@ async fn update_driver_location(
     };
 
     let user_limit = data
-        .check_rate_limit(&response_data.driver_id, 10, Duration::from_secs(60))
+        .sliding_window_limiter(
+            &response_data.driver_id,
+            data.location_update_limit,
+            data.location_update_interval as u32,
+            &redis_pool,
+        )
         .await;
-    if !user_limit {
+    if !user_limit.1 {
         return HttpResponse::TooManyRequests().into();
     }
 
-    let on_ride_key = format!(
-        "ds:on_ride:{merchant_id}:{city}:{}",
-        response_data.driver_id
-    );
+    let on_ride_key = on_ride_key(&merchant_id, &city, &response_data.driver_id.clone()).await;
+
     let on_ride_resp = redis_pool.get_key::<String>(&on_ride_key).await.unwrap();
 
     println!(
@@ -155,10 +162,8 @@ async fn update_driver_location(
         }) => {
             for loc in body {
                 info!("member: {}", loc.ts.to_rfc3339());
-                let on_ride_loc_key = format!(
-                    "dl:loc:{merchant_id}:{city}:{}",
-                    response_data.driver_id.clone()
-                );
+                let on_ride_loc_key =
+                    on_ride_loc_key(&merchant_id, &city, &response_data.driver_id.clone()).await;
                 let _: () = redis_pool
                     .geo_add(
                         &on_ride_loc_key,
@@ -254,7 +259,7 @@ async fn update_driver_location(
             }
         }
         _ => {
-            let key = format!("dl:ts:{}", response_data.driver_id.clone());
+            let key = driver_loc_ts_key(&response_data.driver_id.clone()).await;
             let utc_now_str = (Utc::now()).to_rfc3339();
             let _ = redis_pool.set_with_expiry(&key, utc_now_str, 90);
             drop(redis_pool);
@@ -369,21 +374,20 @@ async fn get_nearby_drivers(
             .content_type("text")
             .body("No service in region");
     }
-    let key = format!(
-        "dl:loc:{}:{city}:{}:{current_bucket}",
-        body.merchant_id, body.vehicle_type
-    );
+    let key = driver_loc_bucket_key(
+        &body.merchant_id,
+        &city,
+        &body.vehicle_type,
+        &current_bucket,
+    )
+    .await;
 
     let mut resp_vec: Vec<DriverLocation> = Vec::new();
 
     if body.vehicle_type == "" {
         let mut redis = data.redis.lock().unwrap();
-        let all_keys = redis
-            .keys::<_, Vec<String>>(format!(
-                "dl:loc:{}:{city}:*:{current_bucket}",
-                body.merchant_id
-            ))
-            .unwrap();
+        let x = driver_loc_bucket_keys_with_all_vt(&body.merchant_id, &city, &current_bucket).await;
+        let all_keys = redis.keys::<_, Vec<String>>(x).unwrap();
         drop(redis);
 
         for key in all_keys {
@@ -407,7 +411,7 @@ async fn get_nearby_drivers(
             for item in resp {
                 if let RedisValue::String(driver_id) = item.member {
                     let pos = item.position.unwrap();
-                    let key = format!("dl:ts:{}", driver_id.to_string());
+                    let key = driver_loc_ts_key(&driver_id.to_string()).await;
                     let timestamp: String = redis_pool.get_key(&key).await.unwrap();
                     let timestamp = match DateTime::parse_from_rfc3339(&timestamp) {
                         Ok(x) => x.with_timezone(&Utc),
@@ -446,7 +450,7 @@ async fn get_nearby_drivers(
         for item in resp {
             if let RedisValue::String(driver_id) = item.member {
                 let pos = item.position.unwrap();
-                let key = format!("dl:ts:{}", driver_id.to_string());
+                let key = driver_loc_ts_key(&driver_id.to_string()).await;
                 let timestamp: String = redis_pool.get_key(&key).await.unwrap();
                 let timestamp = match DateTime::parse_from_rfc3339(&timestamp) {
                     Ok(x) => x.with_timezone(&Utc),
@@ -514,10 +518,7 @@ async fn ride_start(
     };
     let value = serde_json::to_string(&value).unwrap();
 
-    let key = format!(
-        "ds:on_ride:{}:{}:{}",
-        body.merchant_id, city, body.driver_id
-    );
+    let key = on_ride_key(&body.merchant_id, &city, &body.driver_id).await;
     println!("key: {}", key);
 
     let on_ride_expiry = var("ON_RIDE_EXPIRY")
@@ -588,10 +589,7 @@ async fn ride_end(
     };
     let value = serde_json::to_string(&value).unwrap();
 
-    let key = format!(
-        "ds:on_ride:{}:{}:{}",
-        body.merchant_id, city, body.driver_id
-    );
+    let key = on_ride_key(&body.merchant_id, &city, &body.driver_id).await;
     println!("key: {}", key);
 
     let on_ride_expiry = var("ON_RIDE_EXPIRY")
@@ -607,7 +605,7 @@ async fn ride_end(
         return HttpResponse::InternalServerError().body("Error");
     }
 
-    let key = format!("dl:loc:{}:{}:{}", body.merchant_id, city, body.driver_id);
+    let key = on_ride_loc_key(&body.merchant_id, &city, &body.driver_id).await;
 
     let RedisValue::Array(res) = redis_pool
         .zrange(&key, 0, -1, None, false, None, false)

@@ -11,4 +11,6 @@ in {
     location_expiry = 60,
     on_ride_expiry = 86400,
     test_location_expiry = 90,
+    location_update_limit = 10,
+    location_update_interval = 60,
 }
