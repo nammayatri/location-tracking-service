@@ -5,7 +5,7 @@ let redisCfg = {
 
 in {
     redis_cfg = redisCfg,
-    port = 8080,
+    port = 9090,
     auth_url = "",
     token_expiry = 86400,
     location_expiry = 60,

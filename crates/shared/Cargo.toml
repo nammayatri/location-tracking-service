@@ -1,0 +1,21 @@
+[package]
+name = "shared"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+tracing = "0.1.37"
+tracing-appender = "0.2.2"
+tracing-subscriber = { version = "0.3.16", features = ["env-filter", "registry", "json"] }
+async-trait = "0.1.66"
+error-stack = "0.3.1"
+futures = "0.3"
+serde = { version = "1.0.155", features = ["derive"] }
+thiserror = "1.0.39"
+fred = { version = "6.0.0", features = ["metrics", "partial-tracing"] }
+tokio = "1.28.2"
+
+[dev-dependencies]
+tokio = { version = "1.26.0", features = ["macros", "rt-multi-thread"] }
