@@ -24,7 +24,7 @@ futures = "0.3.28"
 redis = "0.23.0"
 rand = "0.8.5"
 actix = "0.13.0"
-geo = "0.26.0"
+geo = "0.25.1"
 geojson = "0.24.1"
 
 redis_interface = { version = "0.1.0", path = "../redis_interface" }

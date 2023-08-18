@@ -1,22 +1,28 @@
 use super::models::{
-    AuthResponseData, DriverRideData, DurationStruct, GetNearbyDriversRequest, NearbyDriverResp,
-    RideEndRequest, RideId, RideStartRequest, UpdateDriverLocationRequest,
+    AuthResponseData, BulkDataReq, DriverLocation, DurationStruct, GetNearbyDriversRequest, Point,
+    ResponseData, RideEndRequest, RideEndRes, RideId, RideStartRequest,
+    UpdateDriverLocationRequest,
 };
 use crate::AppState;
 use actix_web::{get, post, web, HttpRequest, HttpResponse, Responder};
+use chrono::DateTime;
+use chrono::Utc;
 use fred::types::{GeoPosition, GeoUnit, GeoValue, RedisValue, SortOrder};
 use log::info;
 use rand::{thread_rng, Rng};
+use redis::Commands;
 use std::collections::HashMap;
 // use serde::{Deserialize, Serialize};
-
+use super::super::env::{
+    driver_loc_bucket_key, driver_loc_bucket_keys_with_all_vt, driver_loc_ts_key, on_ride_key,
+    on_ride_loc_key,
+};
+use crate::types::*;
 use geo::point;
 use geo::Intersects;
-
+use reqwest::header::CONTENT_TYPE;
 use std::env::var;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-
-use crate::types::*;
 
 #[post("/ui/driver/location")]
 async fn update_driver_location(
@@ -26,18 +32,6 @@ async fn update_driver_location(
 ) -> impl Responder {
     let body = param_obj.into_inner();
     let _json = serde_json::to_string(&body).unwrap();
-    // info!("json {:?}", json);
-    // info!("body {:?}", body);
-    // redis
-    // let mut redis_conn = data.redis_pool.lock().unwrap();
-    // _ = redis_conn.set_key("key", "value".to_string()).await;
-
-    // pushing to shared vector
-    // let mut entries = data.entries.lock().unwrap();
-    // entries.push((body.pt.lon, body.pt.lat, body.driverId));
-
-    //headers
-    // println!("headers: {:?}", req.headers());
 
     let start = Instant::now();
     let token: Token = req
@@ -69,28 +63,19 @@ async fn update_driver_location(
         .parse::<u32>()
         .unwrap();
 
-    // let karnataka = karnataka::create_karnataka_multipolygon_body();
-    // let kerala = kerala::create_kerala_multipolygon_body();
-
-    // let mut allMultiPolygons = vec![];
-    // allMultiPolygons.push(karnataka);
-    // allMultiPolygons.push(kerala);
-
     let mut city = String::new();
     let mut intersection = false;
     for multi_polygon_body in &data.polygon {
         intersection = multi_polygon_body
             .multipolygon
             .intersects(&point!(x: body[0].pt.lon, y: body[0].pt.lat));
-        // info!(
-        //     "multipolygon contains xyz: {}", intersection
-        // );
         if intersection {
-            // info!("Region : {}", multi_polygon_body.region);
             city = multi_polygon_body.region.clone();
             break;
         }
     }
+
+    info!("city: {}", city);
 
     if !intersection {
         let duration_full = DurationStruct {
@@ -103,6 +88,7 @@ async fn update_driver_location(
     }
 
     let auth_url = var("AUTH_URL").expect("AUTH_URL not found");
+    let bulk_loc_update_url = var("BULK_LOC_UPDATE_URL").expect("BULK_LOC_UPDATE_URL not found");
 
     let client = reqwest::Client::new();
     let nil_string = String::from("nil");
@@ -125,9 +111,13 @@ async fn update_driver_location(
         let response_body = resp.text().await.unwrap();
 
         if status != 200 {
-            return HttpResponse::Ok()
+            let duration_full = serde_json::to_string(&DurationStruct {
+                dur: start.elapsed(),
+            })
+            .unwrap();
+            return HttpResponse::InternalServerError()
                 .content_type("application/json")
-                .body(response_body);
+                .body(duration_full);
         }
 
         // info!("response body: {}", response_body);
@@ -136,19 +126,35 @@ async fn update_driver_location(
 
         // let driver_id = "4321".to_string(); //   BPP SERVICE REQUIRED HERE
         let _: () = redis_pool
-            .set_with_expiry(&token, &response.driverId, token_expiry_in_sec)
+            .set_with_expiry(&token, &response.driver_id, token_expiry_in_sec)
             .await
             .unwrap();
 
         response
     } else {
-        AuthResponseData { driverId: x }
+        AuthResponseData { driver_id: x }
     };
 
-    let on_ride_key = format!("ds:on_ride:{merchant_id}:{city}:{}", response_data.driverId);
+    let user_limit = data
+        .sliding_window_limiter(
+            &response_data.driver_id,
+            data.location_update_limit,
+            data.location_update_interval as u32,
+            &redis_pool,
+        )
+        .await;
+    if !user_limit.1 {
+        return HttpResponse::TooManyRequests().into();
+    }
+
+    let on_ride_key = on_ride_key(&merchant_id, &city, &response_data.driver_id.clone()).await;
+
     let on_ride_resp = redis_pool.get_key::<String>(&on_ride_key).await.unwrap();
 
-    // println!("RIDE_ID TESTING: {:?}", serde_json::from_str::<RideId>(&on_ride_resp));
+    println!(
+        "RIDE_ID TESTING: {:?}",
+        serde_json::from_str::<RideId>(&on_ride_resp)
+    );
     match serde_json::from_str::<RideId>(&on_ride_resp) {
         Ok(RideId {
             on_ride: true,
@@ -156,10 +162,8 @@ async fn update_driver_location(
         }) => {
             for loc in body {
                 info!("member: {}", loc.ts.to_rfc3339());
-                let on_ride_loc_key = format!(
-                    "dl:loc:{merchant_id}:{city}:{}",
-                    response_data.driverId.clone()
-                );
+                let on_ride_loc_key =
+                    on_ride_loc_key(&merchant_id, &city, &response_data.driver_id.clone()).await;
                 let _: () = redis_pool
                     .geo_add(
                         &on_ride_loc_key,
@@ -175,9 +179,89 @@ async fn update_driver_location(
                     )
                     .await
                     .unwrap();
+
+                let num = redis_pool
+                    .zcard(&on_ride_loc_key)
+                    .await
+                    .expect("unable to zcard");
+                info!("num: {}", num);
+
+                if num == 100 {
+                    let RedisValue::Array(res) = redis_pool
+                        .zrange(&on_ride_loc_key, 0, -1, None, false, None, false)
+                        .await
+                        .unwrap() else {todo!()};
+
+                    let mut res = res
+                        .into_iter()
+                        .map(|x| match x {
+                            RedisValue::String(y) => {
+                                String::from_utf8(y.into_inner().to_vec()).unwrap()
+                            }
+                            _ => String::from(""),
+                        })
+                        .collect::<Vec<String>>();
+
+                    res.sort();
+
+                    info!("res: {:?}", res);
+
+                    let RedisValue::Array(res) = redis_pool.geopos(&on_ride_loc_key, res).await.unwrap() else {todo!()};
+                    info!("New res: {:?}", res);
+                    let ride_id = serde_json::from_str::<RideId>(&on_ride_resp)
+                        .unwrap()
+                        .ride_id;
+                    let loc: Vec<Point> = res
+                        .into_iter()
+                        .map(|x| match x {
+                            RedisValue::Array(y) => {
+                                let mut y = y.into_iter();
+                                let point = Point {
+                                    lon: y.next().unwrap().as_f64().unwrap().into(),
+                                    lat: y.next().unwrap().as_f64().unwrap().into(),
+                                };
+                                point
+                            }
+                            _ => Point { lat: 0.0, lon: 0.0 },
+                        })
+                        .collect::<Vec<Point>>();
+
+                    let json = BulkDataReq {
+                        ride_id: ride_id,
+                        driver_id: response_data.driver_id.clone(),
+                        loc: loc,
+                    };
+
+                    info!("json: {:?}", json);
+
+                    let body = client
+                        .post(&bulk_loc_update_url)
+                        .header(CONTENT_TYPE, "application/json")
+                        .body(serde_json::to_string(&json).unwrap())
+                        .send()
+                        .await
+                        .unwrap();
+                    let status = body.status();
+                    let response_body = body.text().await.unwrap();
+                    info!("response body: {}", response_body);
+                    if status != 200 {
+                        let duration_full = serde_json::to_string(&DurationStruct {
+                            dur: start.elapsed(),
+                        })
+                        .unwrap();
+                        return HttpResponse::Ok()
+                            .content_type("application/json")
+                            .body(duration_full);
+                    }
+
+                    let _: () = redis_pool.delete_key(&on_ride_loc_key).await.unwrap();
+                }
             }
         }
         _ => {
+            let key = driver_loc_ts_key(&response_data.driver_id.clone()).await;
+            let utc_now_str = (Utc::now()).to_rfc3339();
+            let _ = redis_pool.set_with_expiry(&key, utc_now_str, 90);
             drop(redis_pool);
             let mut entries = data
                 .entries
@@ -227,7 +311,7 @@ async fn update_driver_location(
                     .expect("no city")
                     .get_mut(&vehicle_type)
                     .expect("no vehicle type")
-                    .push((loc.pt.lon, loc.pt.lat, response_data.driverId.clone()));
+                    .push((loc.pt.lon, loc.pt.lat, response_data.driver_id.clone()));
                 // println!("{:?}", entries);
 
                 // info!("{:?}", entries);
@@ -260,9 +344,9 @@ async fn get_nearby_drivers(
     param_obj: web::Json<GetNearbyDriversRequest>,
     _req: HttpRequest,
 ) -> impl Responder {
-    let body = param_obj.into_inner();
+    let body: GetNearbyDriversRequest = param_obj.into_inner();
     let _json = serde_json::to_string(&body).unwrap();
-    //println!("{}",json);
+    info!("json {:?}", _json);
     let location_expiry_in_seconds = var("LOCATION_EXPIRY")
         .expect("LOCATION_EXPIRY not found")
         .parse::<u64>()
@@ -290,35 +374,103 @@ async fn get_nearby_drivers(
             .content_type("text")
             .body("No service in region");
     }
-    let key = format!(
-        "dl:loc:{}:{city}:{}:{current_bucket}",
-        body.merchant_id, body.vehicle_type
-    );
+    let key = driver_loc_bucket_key(
+        &body.merchant_id,
+        &city,
+        &body.vehicle_type,
+        &current_bucket,
+    )
+    .await;
 
-    let redis_pool = data.redis_pool.lock().unwrap();
-    let resp = redis_pool
-        .geo_search(
-            &key,
-            None,
-            Some(GeoPosition::from((body.lon, body.lat))),
-            Some((body.radius, GeoUnit::Kilometers)),
-            None,
-            Some(SortOrder::Asc),
-            None,
-            true,
-            true,
-            false,
-        )
-        .await
-        .unwrap();
-    let mut resp_vec: Vec<(f64, f64, String)> = Vec::new();
-    for item in resp {
-        if let RedisValue::String(driver_id) = item.member {
-            let pos = item.position.unwrap();
-            resp_vec.push((pos.longitude, pos.latitude, driver_id.to_string()));
+    let mut resp_vec: Vec<DriverLocation> = Vec::new();
+
+    if body.vehicle_type == "" {
+        let mut redis = data.redis.lock().unwrap();
+        let x = driver_loc_bucket_keys_with_all_vt(&body.merchant_id, &city, &current_bucket).await;
+        let all_keys = redis.keys::<_, Vec<String>>(x).unwrap();
+        drop(redis);
+
+        for key in all_keys {
+            let redis_pool = data.redis_pool.lock().unwrap();
+            let resp = redis_pool
+                .geo_search(
+                    &key,
+                    None,
+                    Some(GeoPosition::from((body.lon, body.lat))),
+                    Some((body.radius, GeoUnit::Kilometers)),
+                    None,
+                    Some(SortOrder::Asc),
+                    None,
+                    true,
+                    true,
+                    false,
+                )
+                .await
+                .unwrap();
+
+            for item in resp {
+                if let RedisValue::String(driver_id) = item.member {
+                    let pos = item.position.unwrap();
+                    let key = driver_loc_ts_key(&driver_id.to_string()).await;
+                    let timestamp: String = redis_pool.get_key(&key).await.unwrap();
+                    let timestamp = match DateTime::parse_from_rfc3339(&timestamp) {
+                        Ok(x) => x.with_timezone(&Utc),
+                        Err(_) => Utc::now(),
+                    };
+                    let driver_location = DriverLocation {
+                        driver_id: driver_id.to_string(),
+                        lon: pos.longitude,
+                        lat: pos.latitude,
+                        coordinates_calculated_at: timestamp.clone(),
+                        created_at: timestamp.clone(),
+                        updated_at: timestamp.clone(),
+                        merchant_id: body.merchant_id.clone(),
+                    };
+                    resp_vec.push(driver_location);
+                }
+            }
+        }
+    } else {
+        let redis_pool = data.redis_pool.lock().unwrap();
+        let resp = redis_pool
+            .geo_search(
+                &key,
+                None,
+                Some(GeoPosition::from((body.lon, body.lat))),
+                Some((body.radius, GeoUnit::Kilometers)),
+                None,
+                Some(SortOrder::Asc),
+                None,
+                true,
+                true,
+                false,
+            )
+            .await
+            .unwrap();
+        for item in resp {
+            if let RedisValue::String(driver_id) = item.member {
+                let pos = item.position.unwrap();
+                let key = driver_loc_ts_key(&driver_id.to_string()).await;
+                let timestamp: String = redis_pool.get_key(&key).await.unwrap();
+                let timestamp = match DateTime::parse_from_rfc3339(&timestamp) {
+                    Ok(x) => x.with_timezone(&Utc),
+                    Err(_) => Utc::now(),
+                };
+                let driver_location = DriverLocation {
+                    driver_id: driver_id.to_string(),
+                    lon: pos.longitude,
+                    lat: pos.latitude,
+                    coordinates_calculated_at: timestamp.clone(),
+                    created_at: timestamp.clone(),
+                    updated_at: timestamp.clone(),
+                    merchant_id: body.merchant_id.clone(),
+                };
+                resp_vec.push(driver_location);
+            }
         }
     }
-    let resp = NearbyDriverResp { resp: resp_vec };
+
+    let resp = resp_vec;
     let resp = serde_json::to_string(&resp).unwrap();
     // println!("{}", resp_vec);
     HttpResponse::Ok()
@@ -333,7 +485,7 @@ async fn ride_start(
     path: web::Path<String>,
 ) -> impl Responder {
     let body = param_obj.into_inner();
-    let json = serde_json::to_string(&body).unwrap();
+    let _json = serde_json::to_string(&body).unwrap();
 
     let ride_id = path.into_inner();
     info!("rideId: {ride_id}");
@@ -366,10 +518,7 @@ async fn ride_start(
     };
     let value = serde_json::to_string(&value).unwrap();
 
-    let key = format!(
-        "ds:on_ride:{}:{}:{}",
-        body.merchant_id, city, body.driver_id
-    );
+    let key = on_ride_key(&body.merchant_id, &city, &body.driver_id).await;
     println!("key: {}", key);
 
     let on_ride_expiry = var("ON_RIDE_EXPIRY")
@@ -389,7 +538,14 @@ async fn ride_start(
     // log::info!("driverId: {}", body.driver_id());
 
     // let redis_pool = data.redis_pool.lock();
-    HttpResponse::Ok().body(json)
+    // HttpResponse::Ok().body(json)
+    let response_data = ResponseData {
+        result: "Success".to_string(),
+    };
+    info!("response_data: {:?}", response_data);
+    HttpResponse::Ok()
+        .content_type("application/json")
+        .json(response_data)
 }
 
 #[post("/internal/ride/{rideId}/end")]
@@ -429,14 +585,11 @@ async fn ride_end(
 
     let value = RideId {
         on_ride: false,
-        ride_id,
+        ride_id: ride_id.clone(),
     };
     let value = serde_json::to_string(&value).unwrap();
 
-    let key = format!(
-        "ds:on_ride:{}:{}:{}",
-        body.merchant_id, city, body.driver_id
-    );
+    let key = on_ride_key(&body.merchant_id, &city, &body.driver_id).await;
     println!("key: {}", key);
 
     let on_ride_expiry = var("ON_RIDE_EXPIRY")
@@ -452,7 +605,7 @@ async fn ride_end(
         return HttpResponse::InternalServerError().body("Error");
     }
 
-    let key = format!("dl:loc:{}:{}:{}", body.merchant_id, city, body.driver_id);
+    let key = on_ride_loc_key(&body.merchant_id, &city, &body.driver_id).await;
 
     let RedisValue::Array(res) = redis_pool
         .zrange(&key, 0, -1, None, false, None, false)
@@ -476,20 +629,25 @@ async fn ride_end(
 
     drop(redis_pool);
 
-    let mut resp = Vec::new();
+    let mut loc: Vec<Point> = Vec::new();
     for item in res {
         let item = item.as_geo_position().unwrap().unwrap();
-        resp.push((item.longitude, item.latitude));
+        loc.push(Point {
+            lon: item.longitude,
+            lat: item.latitude,
+        });
     }
 
-    let data = DriverRideData { resp };
-
-    let resp = serde_json::to_string(&data).unwrap();
+    let json = RideEndRes {
+        ride_id: ride_id,
+        driver_id: body.driver_id,
+        loc: loc,
+    };
 
     // println!("resp: {:?}", resp);
     HttpResponse::Ok()
         .content_type("application/json")
-        .body(resp)
+        .body(serde_json::to_string(&json).unwrap())
 }
 
 // Just trying
