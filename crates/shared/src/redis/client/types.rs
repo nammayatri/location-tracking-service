@@ -77,8 +77,6 @@ pub struct RedisConfig {
     pub default_ttl: u32,                // time to live
     _default_stream_read_count: u64, // number of messages to read from a stream
     pub default_hash_ttl: u32,           // time to live for a hash
-    pub host: String,
-    pub port: u16,
 }
 
 impl From<&RedisSettings> for RedisConfig {
@@ -87,8 +85,6 @@ impl From<&RedisSettings> for RedisConfig {
             default_ttl: config.default_ttl,
             _default_stream_read_count: config.stream_read_count,
             default_hash_ttl: config.default_hash_ttl,
-            host: config.host.clone(),
-            port: config.port,
         }
     }
 }
