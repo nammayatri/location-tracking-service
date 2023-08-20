@@ -112,7 +112,7 @@ async fn run_scheduler(data: web::Data<AppState>) {
                 .collect();
             let multiple_geo_values: MultipleGeoValues = geo_values.into();
 
-            let key = format!("dl:loc:{merchant_id}:{city}:{vehicle_type}:{bucket}");
+            let key = driver_loc_bucket_key(merchant_id, city, &vehicle_type.to_string(), &bucket);
 
             if !entries.is_empty() {
                 let redis_pool = data.location_redis.lock().await;
