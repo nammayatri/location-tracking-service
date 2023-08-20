@@ -4,8 +4,24 @@ use serde::{Deserialize, Serialize};
 use shared::redis::interface::types::RedisConnectionPool;
 use shared::utils::logger::*;
 use std::{collections::HashMap, sync::{Arc, Mutex}, time::{UNIX_EPOCH, SystemTime}};
+use strum_macros::{EnumString, Display};
 
-pub type VehicleType = String;
+#[derive(Clone, EnumString, Display, Serialize, Deserialize, Eq, Hash, PartialEq)]
+pub enum VehicleType {
+    #[strum(serialize = "AUTO_RICKSHAW")]
+    #[serde(rename = "AUTO_RICKSHAW")]
+    AutoRickshaw,
+    #[strum(serialize = "SEDAN")]
+    #[serde(rename = "SEDAN")]
+    Sedan,
+    #[strum(serialize = "SUV")]
+    #[serde(rename = "SUV")]
+    SUV,
+    #[strum(serialize = "HATCHBACK")]
+    #[serde(rename = "HATCHBACK")]
+    Hatchback,
+}
+
 pub type DriverId = String;
 pub type MerchantId = String;
 pub type Latitude = f64;
@@ -37,8 +53,8 @@ pub struct Point {
 
 #[derive(Clone)]
 pub struct AppState {
-    pub redis_pool: Arc<Mutex<RedisConnectionPool>>,
-    pub redis: Arc<Mutex<redis::Connection>>,
+    pub location_redis: Arc<Mutex<RedisConnectionPool>>,
+    pub generic_redis: Arc<Mutex<RedisConnectionPool>>,
     pub entries: Arc<
         Mutex<
             HashMap<
@@ -167,12 +183,4 @@ pub async fn driver_loc_bucket_key(
     bucket: &u64,
 ) -> String {
     format!("dl:loc:{merchant_id}:{city}:{vehicle_type}:{bucket}")
-}
-
-pub async fn driver_loc_bucket_keys_with_all_vt(
-    merchant_id: &String,
-    city: &String,
-    bucket: &u64,
-) -> String {
-    format!("dl:loc:{merchant_id}:{city}:*:{bucket}")
 }

@@ -1,12 +1,14 @@
-use std::{time::{SystemTime, Duration, UNIX_EPOCH}, env::var};
+use std::{
+    env::var,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 use actix_web::{web::Data, HttpResponse};
 use chrono::{DateTime, Utc};
-use fred::types::{GeoPosition, RedisValue, GeoUnit, SortOrder};
-use geo::{Intersects, point};
-use redis::Commands;
+use fred::types::{GeoPosition, GeoUnit, RedisValue, SortOrder};
+use geo::{point, Intersects};
 
-use crate::{domain::types::internal::location::*, common::types::*};
+use crate::{common::types::*, domain::types::internal::location::*};
 
 pub async fn get_nearby_drivers(
     data: Data<AppState>,
@@ -38,99 +40,51 @@ pub async fn get_nearby_drivers(
     let key = driver_loc_bucket_key(
         &request_body.merchant_id,
         &city,
-        &request_body.vehicle_type,
+        &request_body.vehicle_type.to_string(),
         &current_bucket,
     )
     .await;
 
     let mut resp_vec: Vec<DriverLocation> = Vec::new();
 
-    if request_body.vehicle_type == "" {
-        let mut redis = data.redis.lock().unwrap();
-        let x = driver_loc_bucket_keys_with_all_vt(&request_body.merchant_id, &city, &current_bucket).await;
-        let all_keys = redis.keys::<_, Vec<String>>(x).unwrap();
-        drop(redis);
-
-        for key in all_keys {
-            let redis_pool = data.redis_pool.lock().unwrap();
-            let resp = redis_pool
-                .geo_search(
-                    &key,
-                    None,
-                    Some(GeoPosition::from((request_body.lon, request_body.lat))),
-                    Some((request_body.radius, GeoUnit::Kilometers)),
-                    None,
-                    Some(SortOrder::Asc),
-                    None,
-                    true,
-                    true,
-                    false,
-                )
-                .await
-                .unwrap();
-
-            for item in resp {
-                if let RedisValue::String(driver_id) = item.member {
-                    let pos = item.position.unwrap();
-                    let key = driver_loc_ts_key(&driver_id.to_string()).await;
-                    let timestamp: String = redis_pool.get_key(&key).await.unwrap();
-                    let timestamp = match DateTime::parse_from_rfc3339(&timestamp) {
-                        Ok(x) => x.with_timezone(&Utc),
-                        Err(_) => Utc::now(),
-                    };
-                    let driver_location = DriverLocation {
-                        driver_id: driver_id.to_string(),
-                        lon: pos.longitude,
-                        lat: pos.latitude,
-                        coordinates_calculated_at: timestamp.clone(),
-                        created_at: timestamp.clone(),
-                        updated_at: timestamp.clone(),
-                        merchant_id: request_body.merchant_id.clone(),
-                    };
-                    resp_vec.push(driver_location);
-                }
-            }
-        }
-    } else {
-        let redis_pool = data.redis_pool.lock().unwrap();
-        let resp = redis_pool
-            .geo_search(
-                &key,
-                None,
-                Some(GeoPosition::from((request_body.lon, request_body.lat))),
-                Some((request_body.radius, GeoUnit::Kilometers)),
-                None,
-                Some(SortOrder::Asc),
-                None,
-                true,
-                true,
-                false,
-            )
-            .await
-            .unwrap();
-        for item in resp {
-            if let RedisValue::String(driver_id) = item.member {
-                let pos = item.position.unwrap();
-                let key = driver_loc_ts_key(&driver_id.to_string()).await;
-                let timestamp: String = redis_pool.get_key(&key).await.unwrap();
-                let timestamp = match DateTime::parse_from_rfc3339(&timestamp) {
-                    Ok(x) => x.with_timezone(&Utc),
-                    Err(_) => Utc::now(),
-                };
-                let driver_location = DriverLocation {
-                    driver_id: driver_id.to_string(),
-                    lon: pos.longitude,
-                    lat: pos.latitude,
-                    coordinates_calculated_at: timestamp.clone(),
-                    created_at: timestamp.clone(),
-                    updated_at: timestamp.clone(),
-                    merchant_id: request_body.merchant_id.clone(),
-                };
-                resp_vec.push(driver_location);
-            }
+    let redis_pool = data.location_redis.lock().unwrap();
+    let resp = redis_pool
+        .geo_search(
+            &key,
+            None,
+            Some(GeoPosition::from((request_body.lon, request_body.lat))),
+            Some((request_body.radius, GeoUnit::Kilometers)),
+            None,
+            Some(SortOrder::Asc),
+            None,
+            true,
+            true,
+            false,
+        )
+        .await
+        .unwrap();
+    for item in resp {
+        if let RedisValue::String(driver_id) = item.member {
+            let pos = item.position.unwrap();
+            let key = driver_loc_ts_key(&driver_id.to_string()).await;
+            let timestamp: String = redis_pool.get_key(&key).await.unwrap();
+            let timestamp = match DateTime::parse_from_rfc3339(&timestamp) {
+                Ok(x) => x.with_timezone(&Utc),
+                Err(_) => Utc::now(),
+            };
+            let driver_location = DriverLocation {
+                driver_id: driver_id.to_string(),
+                lon: pos.longitude,
+                lat: pos.latitude,
+                coordinates_calculated_at: timestamp.clone(),
+                created_at: timestamp.clone(),
+                updated_at: timestamp.clone(),
+                merchant_id: request_body.merchant_id.clone(),
+            };
+            resp_vec.push(driver_location);
         }
     }
-    
+
     let resp = serde_json::to_string(&resp_vec).unwrap();
     HttpResponse::Ok()
         .content_type("application/json")

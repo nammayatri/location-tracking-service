@@ -60,7 +60,7 @@ pub async fn update_driver_location(
 
     let client = reqwest::Client::new();
     let nil_string = String::from("nil");
-    let redis_pool = data.redis_pool.lock().unwrap();
+    let redis_pool = data.location_redis.lock().unwrap();
 
     info!("token: {}", token);
     let x = redis_pool.get_key::<Key>(&token).await.unwrap();

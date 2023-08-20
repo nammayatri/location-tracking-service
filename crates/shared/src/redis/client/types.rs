@@ -4,8 +4,9 @@ use error_stack::{IntoReport, ResultExt};
 use fred::interfaces::ClientLike;
 use crate::utils::logger;
 use crate::tools::error;
+use serde::Deserialize;
 
-#[derive(Debug, serde::Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone)]
 #[serde(default)]
 pub struct RedisSettings {
     pub host: String,
@@ -26,18 +27,36 @@ pub struct RedisSettings {
 
 impl Default for RedisSettings {
     fn default() -> Self {
-        Self {
-            host: "127.0.0.1".to_string(),
+        RedisSettings {
+            host: String::from("localhost"),
             port: 6379,
             cluster_enabled: false,
-            cluster_urls: vec![],
+            cluster_urls: Vec::new(),
             use_legacy_version: false,
-            pool_size: 5,
+            pool_size: 10,
             reconnect_max_attempts: 5,
-            reconnect_delay: 5,
-            default_ttl: 300,
-            stream_read_count: 1,
-            default_hash_ttl: 900,
+            reconnect_delay: 1000,
+            default_ttl: 3600,
+            default_hash_ttl: 3600,
+            stream_read_count: 100,
+        }
+    }
+}
+
+impl RedisSettings {
+    pub fn new(host:String, port:u16) -> Self {
+        RedisSettings {
+            host,
+            port,
+            cluster_enabled: false,
+            cluster_urls: Vec::new(),
+            use_legacy_version: false,
+            pool_size: 10,
+            reconnect_max_attempts: 5,
+            reconnect_delay: 1000,
+            default_ttl: 3600,
+            default_hash_ttl: 3600,
+            stream_read_count: 100,
         }
     }
 }
@@ -58,6 +77,8 @@ pub struct RedisConfig {
     pub default_ttl: u32,                // time to live
     _default_stream_read_count: u64, // number of messages to read from a stream
     pub default_hash_ttl: u32,           // time to live for a hash
+    pub host: String,
+    pub port: u16,
 }
 
 impl From<&RedisSettings> for RedisConfig {
@@ -66,6 +87,8 @@ impl From<&RedisSettings> for RedisConfig {
             default_ttl: config.default_ttl,
             _default_stream_read_count: config.stream_read_count,
             default_hash_ttl: config.default_hash_ttl,
+            host: config.host.clone(),
+            port: config.port,
         }
     }
 }

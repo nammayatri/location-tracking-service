@@ -1,9 +1,8 @@
 use actix_web::middleware::Logger;
 use actix_web::{web, App, HttpServer};
 use env_logger::Env;
-use redis::Commands;
-use shared::redis::interface::types::{RedisConnectionPool, RedisSettings};
 use shared::utils::logger::*;
+use shared::redis::interface::types::{RedisConnectionPool, RedisSettings};
 use std::env::var;
 use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -26,7 +25,8 @@ use serde::Deserialize;
 #[derive(Debug, Deserialize, Clone)]
 pub struct AppConfig {
     pub port: u16,
-    pub redis_cfg: RedisConfig,
+    pub location_redis_cfg: RedisConfig,
+    pub generic_redis_cfg: RedisConfig,
     pub auth_url: String,
     pub token_expiry: u64,
     pub location_expiry: u64,
@@ -51,36 +51,24 @@ pub fn read_dhall_config(config_path: &str) -> Result<AppConfig, String> {
 }
 
 pub async fn make_app_state(app_config: AppConfig) -> AppState {
-    // Connect to Redis
-    let redis_conn_url = format!(
-        "redis://{}:{}",
-        app_config.redis_cfg.redis_host, app_config.redis_cfg.redis_port
-    );
-
-    println!("Connecting to Redis {}", redis_conn_url);
-
-    let redis_conn: redis::Connection = redis::Client::open(redis_conn_url)
-        .expect("Invalid connection URL")
-        .get_connection()
-        .expect("failed to connect to Redis");
-
-    let redis_pool = Arc::new(Mutex::new(
-        RedisConnectionPool::new(&RedisSettings::default())
+    let location_redis = Arc::new(Mutex::new(
+        RedisConnectionPool::new(&RedisSettings::new(app_config.location_redis_cfg.redis_host, app_config.location_redis_cfg.redis_port))
             .await
-            .expect("Failed to create Redis connection pool"),
+            .expect("Failed to create Critical Redis connection pool"),
     ));
 
-    let redis = Arc::new(Mutex::new(redis_conn));
+    let generic_redis = Arc::new(Mutex::new(
+        RedisConnectionPool::new(&RedisSettings::new(app_config.generic_redis_cfg.redis_host, app_config.generic_redis_cfg.redis_port))
+            .await
+            .expect("Failed to create Non Critical Redis connection pool"),
+    ));
 
-    // Create a hashmap to store the entries
     let entries = Arc::new(Mutex::new(HashMap::new()));
-
-    // Read the geo polygons
     let polygons = read_geo_polygon("./config").expect("Failed to read geoJSON");
 
     AppState {
-        redis_pool,
-        redis,
+        location_redis,
+        generic_redis,
         entries,
         polygon: polygons,
         auth_url: app_config.auth_url,
@@ -125,14 +113,14 @@ pub async fn start_server() -> std::io::Result<()> {
                     let key = format!("dl:loc:{merchant_id}:{city}:{vehicle_type}:{bucket}");
 
                     if !entries.is_empty() {
-                        let mut redis = thread_data.redis.lock().unwrap();
-                        let num = redis.zcard::<_, u64>(&key).expect("unable to zcard");
+                        let redis = thread_data.location_redis.lock().unwrap();
+                        let num = redis.zcard_sync(&key).expect("unable to zcard");
                         let _: () = redis
-                            .geo_add(&key, entries.to_vec())
+                            .geo_add_sync(&key, entries.to_vec())
                             .expect("Couldn't add to redis");
                         if num == 0 {
                             let _: () = redis
-                                .expire(&key, test_loc_expiry_in_sec)
+                                .set_expiry_sync(&key, test_loc_expiry_in_sec)
                                 .expect("Unable to set expiry");
                         }
                         info!("Entries: {:?}\nSending to redis server", entries);

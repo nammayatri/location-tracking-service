@@ -1,10 +1,16 @@
-let redisCfg = {
+let location_redis_cfg = {
     redis_host = "localhost",
     redis_port = 6379,
 }
 
+let generic_redis_cfg = {
+    redis_host = "localhost",
+    redis_port = 6380,
+}
+
 in {
-    redis_cfg = redisCfg,
+    location_redis_cfg,
+    generic_redis_cfg,
     port = 9090,
     auth_url = "",
     token_expiry = 86400,

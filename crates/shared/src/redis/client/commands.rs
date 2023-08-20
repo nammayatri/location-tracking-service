@@ -10,6 +10,7 @@ use fred::{
     },
 };
 use std::fmt::Debug;
+use redis::Commands;
 
 impl RedisConnectionPool {
     // set key
@@ -100,6 +101,34 @@ impl RedisConnectionPool {
         let output: Result<(), _> = self.pool
             .expire(key, seconds)
             .await
+            .into_report()
+            .change_context(error::RedisError::SetExpiryFailed);
+
+        if !output.is_ok() {
+            return Err(error::RedisError::SetExpiryFailed.into());
+        }
+
+        Ok(())
+    }
+
+    #[instrument(level = "DEBUG", skip(self))]
+    pub fn set_expiry_sync(
+        &self,
+        key: &str,
+        seconds: usize,
+    ) -> Result<(), error::RedisError> {
+        let redis_conn_url = format!(
+            "redis://{}:{}",
+            self.config.host, self.config.port
+        );
+    
+        let mut redis_conn: redis::Connection = redis::Client::open(redis_conn_url)
+            .expect("Invalid connection URL")
+            .get_connection()
+            .expect("failed to connect to Redis");
+
+        let output: Result<(), _> = redis_conn
+            .expire(key, seconds)
             .into_report()
             .change_context(error::RedisError::SetExpiryFailed);
 
@@ -212,6 +241,37 @@ impl RedisConnectionPool {
         let output: Result<(), _> = self.pool
             .geoadd(key, options, changed, values)
             .await
+            .into_report()
+            .change_context(error::RedisError::GeoAddFailed);
+
+        if !output.is_ok() {
+            return Err(error::RedisError::GeoAddFailed.into());
+        }
+
+        Ok(())
+    }
+
+    #[instrument(level = "DEBUG", skip(self))]
+    pub fn geo_add_sync<V>(
+        &self,
+        key: &str,
+        values: V
+    ) -> Result<(), error::RedisError>
+    where
+        V: redis::ToRedisArgs + Send + Debug,
+    {
+        let redis_conn_url = format!(
+            "redis://{}:{}",
+            self.config.host, self.config.port
+        );
+    
+        let mut redis_conn: redis::Connection = redis::Client::open(redis_conn_url)
+            .expect("Invalid connection URL")
+            .get_connection()
+            .expect("failed to connect to Redis");
+
+        let output: Result<(), _> = redis_conn
+            .geo_add(key, values)
             .into_report()
             .change_context(error::RedisError::GeoAddFailed);
 
@@ -336,6 +396,30 @@ impl RedisConnectionPool {
 
         if !output.is_ok() {
             return Err(error::RedisError::ZCardFailed.into());
+        }
+
+        Ok(output.unwrap())
+    }
+
+    #[instrument(level = "DEBUG", skip(self))]
+    pub fn zcard_sync(&self, key: &str) -> Result<u64, error::RedisError> {
+        let redis_conn_url = format!(
+            "redis://{}:{}",
+            self.config.host, self.config.port
+        );
+    
+        let mut redis_conn: redis::Connection = redis::Client::open(redis_conn_url)
+            .expect("Invalid connection URL")
+            .get_connection()
+            .expect("failed to connect to Redis");
+
+        let output: Result<u64, _> = redis_conn
+            .zcard(key)
+            .into_report()
+            .change_context(error::RedisError::ZCardFailed);
+
+        if !output.is_ok() {
+            return Err(error::RedisError::GetFailed.into());
         }
 
         Ok(output.unwrap())

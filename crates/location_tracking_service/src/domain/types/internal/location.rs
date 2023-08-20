@@ -1,5 +1,4 @@
 use chrono::{DateTime, Utc};
-use geo::Point;
 use serde::{Serialize, Deserialize};
 
 use crate::common::types::*;

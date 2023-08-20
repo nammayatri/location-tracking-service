@@ -44,7 +44,7 @@ pub async fn ride_start(
         .parse::<u32>()
         .unwrap();
 
-    if let Ok(redis_pool) = data.redis_pool.lock() {
+    if let Ok(redis_pool) = data.generic_redis.lock() {
         let result = redis_pool
             .set_with_expiry(&key, value, on_ride_expiry)
             .await;
@@ -52,9 +52,6 @@ pub async fn ride_start(
             return HttpResponse::InternalServerError().body("Error");
         }
     }
-
-    let data = DriverRideResponse { resp : Vec::new() };
-    let resp = serde_json::to_string(&data).unwrap();
 
     let response_data = ResponseData {
         result: "Success".to_string(),
@@ -102,7 +99,7 @@ pub async fn ride_end(
         .parse::<u32>()
         .unwrap();
 
-    let redis_pool = data.redis_pool.lock().unwrap();
+    let redis_pool = data.generic_redis.lock().unwrap();
     let result = redis_pool
         .set_with_expiry(&key, value, on_ride_expiry)
         .await;

@@ -1,6 +1,15 @@
-use actix_web::{HttpRequest, web::{Data, Json}, post, HttpResponse};
+use std::str::FromStr;
 
-use crate::{domain::{action::ui::location, types::ui::location::UpdateDriverLocationRequest}, common::types::*};
+use actix_web::{
+    post,
+    web::{Data, Json},
+    HttpRequest, HttpResponse,
+};
+
+use crate::{
+    common::types::*,
+    domain::{action::ui::location, types::ui::location::UpdateDriverLocationRequest},
+};
 
 #[post("/ui/driver/location")]
 pub async fn update_driver_location(
@@ -26,13 +35,8 @@ pub async fn update_driver_location(
         .unwrap()
         .to_owned();
 
-    let vehicle_type: VehicleType = req
-        .headers()
-        .get("vt")
-        .unwrap()
-        .to_str()
-        .unwrap()
-        .to_owned();
+    let vehicle_type: VehicleType =
+        VehicleType::from_str(req.headers().get("vt").unwrap().to_str().unwrap()).unwrap();
 
     location::update_driver_location(token, merchant_id, vehicle_type, data, request_body).await
 }
