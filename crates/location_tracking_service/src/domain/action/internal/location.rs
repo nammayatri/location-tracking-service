@@ -42,12 +42,11 @@ pub async fn get_nearby_drivers(
         &city,
         &request_body.vehicle_type.to_string(),
         &current_bucket,
-    )
-    .await;
+    );
 
     let mut resp_vec: Vec<DriverLocation> = Vec::new();
 
-    let redis_pool = data.location_redis.lock().unwrap();
+    let redis_pool = data.location_redis.lock().await;
     let resp = redis_pool
         .geo_search(
             &key,
@@ -66,7 +65,7 @@ pub async fn get_nearby_drivers(
     for item in resp {
         if let RedisValue::String(driver_id) = item.member {
             let pos = item.position.unwrap();
-            let key = driver_loc_ts_key(&driver_id.to_string()).await;
+            let key = driver_loc_ts_key(&driver_id.to_string());
             let timestamp: String = redis_pool.get_key(&key).await.unwrap();
             let timestamp = match DateTime::parse_from_rfc3339(&timestamp) {
                 Ok(x) => x.with_timezone(&Utc),

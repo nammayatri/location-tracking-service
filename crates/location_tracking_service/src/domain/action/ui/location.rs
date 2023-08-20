@@ -1,16 +1,15 @@
-use std::collections::HashMap;
 use std::env::var;
 use std::time::Instant;
 
 use crate::common::types::*;
 use crate::domain::types::ui::location::*;
+use actix_web::{web::Data, HttpResponse};
 use chrono::Utc;
 use fred::types::{GeoPosition, GeoValue, RedisValue};
-use reqwest::header::CONTENT_TYPE;
-use shared::utils::logger::*;
-use actix_web::{web::Data, HttpResponse};
 use geo::{point, Intersects};
+use reqwest::header::CONTENT_TYPE;
 use serde::{Deserialize, Serialize};
+use shared::utils::logger::*;
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -60,7 +59,7 @@ pub async fn update_driver_location(
 
     let client = reqwest::Client::new();
     let nil_string = String::from("nil");
-    let redis_pool = data.location_redis.lock().unwrap();
+    let redis_pool = data.location_redis.lock().await;
 
     info!("token: {}", token);
     let x = redis_pool.get_key::<Key>(&token).await.unwrap();
@@ -111,7 +110,7 @@ pub async fn update_driver_location(
         return HttpResponse::TooManyRequests().into();
     }
 
-    let on_ride_key = on_ride_key(&merchant_id, &city, &response_data.driver_id.clone()).await;
+    let on_ride_key = on_ride_key(&merchant_id, &city, &response_data.driver_id.clone());
     let on_ride_resp = redis_pool.get_key::<String>(&on_ride_key).await.unwrap();
 
     match serde_json::from_str::<RideId>(&on_ride_resp) {
@@ -121,7 +120,8 @@ pub async fn update_driver_location(
         }) => {
             for loc in request_body {
                 info!("member: {}", loc.ts.to_rfc3339());
-                let on_ride_loc_key = on_ride_loc_key(&merchant_id, &city, &response_data.driver_id.clone()).await;
+                let on_ride_loc_key =
+                    on_ride_loc_key(&merchant_id, &city, &response_data.driver_id.clone());
                 let _: () = redis_pool
                     .geo_add(
                         &on_ride_loc_key,
@@ -138,7 +138,7 @@ pub async fn update_driver_location(
                     .await
                     .unwrap();
 
-                    let num = redis_pool
+                let num = redis_pool
                     .zcard(&on_ride_loc_key)
                     .await
                     .expect("unable to zcard");
@@ -217,59 +217,27 @@ pub async fn update_driver_location(
             }
         }
         _ => {
-            let key = driver_loc_ts_key(&response_data.driver_id.clone()).await;
+            let key = driver_loc_ts_key(&response_data.driver_id.clone());
             let utc_now_str = (Utc::now()).to_rfc3339();
             let _ = redis_pool.set_with_expiry(&key, utc_now_str, 90);
-            drop(redis_pool);
+
             let mut entries = data
                 .entries
                 .lock()
-                .expect("Couldn't unwrap entries in /location");
-
-            if !entries
-                .keys()
-                .map(|x| x.to_owned())
-                .collect::<Vec<MerchantId>>()
-                .contains(&merchant_id)
-            {
-                entries.insert(merchant_id.clone(), HashMap::new());
-            }
-
-            if !entries[&merchant_id]
-                .keys()
-                .map(|x| x.to_owned())
-                .collect::<Vec<CityName>>()
-                .contains(&city)
-            {
-                entries
-                    .get_mut(&merchant_id)
-                    .unwrap()
-                    .insert(city.clone(), HashMap::new());
-            }
-
-            if !entries[&merchant_id][&city]
-                .keys()
-                .map(|x| x.to_owned())
-                .collect::<Vec<VehicleType>>()
-                .contains(&vehicle_type)
-            {
-                entries
-                    .get_mut(&merchant_id)
-                    .unwrap()
-                    .get_mut(&city)
-                    .unwrap()
-                    .insert(vehicle_type.clone(), Vec::new());
-            }
+                .await;
 
             for loc in request_body {
-                entries
-                    .get_mut(&merchant_id)
-                    .expect("no merchant id")
-                    .get_mut(&city)
-                    .expect("no city")
-                    .get_mut(&vehicle_type)
-                    .expect("no vehicle type")
-                    .push((loc.pt.lon, loc.pt.lat, response_data.driver_id.clone()));
+                let dimensions = Dimensions {
+                    merchant_id : merchant_id.clone(),
+                    city : city.clone(),
+                    vehicle_type : vehicle_type.clone(),
+                };
+
+                entries.entry(dimensions).or_insert_with(Vec::new).push((
+                    loc.pt.lon,
+                    loc.pt.lat,
+                    response_data.driver_id.clone(),
+                ));
             }
         }
     }

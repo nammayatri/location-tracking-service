@@ -36,7 +36,7 @@ pub async fn ride_start(
     };
     let value = serde_json::to_string(&value).unwrap();
 
-    let key = on_ride_key(&request_body.merchant_id, &city, &request_body.driver_id).await;
+    let key = on_ride_key(&request_body.merchant_id, &city, &request_body.driver_id);
     println!("key: {}", key);
 
     let on_ride_expiry = var("ON_RIDE_EXPIRY")
@@ -44,14 +44,10 @@ pub async fn ride_start(
         .parse::<u32>()
         .unwrap();
 
-    if let Ok(redis_pool) = data.generic_redis.lock() {
-        let result = redis_pool
-            .set_with_expiry(&key, value, on_ride_expiry)
-            .await;
-        if result.is_err() {
-            return HttpResponse::InternalServerError().body("Error");
-        }
-    }
+    let redis_pool = data.generic_redis.lock().await;
+    let _ = redis_pool
+        .set_with_expiry(&key, value, on_ride_expiry)
+        .await;
 
     let response_data = ResponseData {
         result: "Success".to_string(),
@@ -91,7 +87,7 @@ pub async fn ride_end(
     };
     let value = serde_json::to_string(&value).unwrap();
 
-    let key = on_ride_key(&request_body.merchant_id, &city, &request_body.driver_id).await;
+    let key = on_ride_key(&request_body.merchant_id, &city, &request_body.driver_id);
     println!("key: {}", key);
 
     let on_ride_expiry = var("ON_RIDE_EXPIRY")
@@ -99,7 +95,7 @@ pub async fn ride_end(
         .parse::<u32>()
         .unwrap();
 
-    let redis_pool = data.generic_redis.lock().unwrap();
+    let redis_pool = data.generic_redis.lock().await;
     let result = redis_pool
         .set_with_expiry(&key, value, on_ride_expiry)
         .await;
@@ -107,7 +103,7 @@ pub async fn ride_end(
         return HttpResponse::InternalServerError().body("Error");
     }
 
-    let key = on_ride_loc_key(&request_body.merchant_id, &city, &request_body.driver_id).await;
+    let key = on_ride_loc_key(&request_body.merchant_id, &city, &request_body.driver_id);
 
     let RedisValue::Array(res) = redis_pool
         .zrange(&key, 0, -1, None, false, None, false)
@@ -129,7 +125,6 @@ pub async fn ride_end(
     let RedisValue::Array(res) = redis_pool.geopos(&key, res).await.unwrap() else {todo!()};
     let _: () = redis_pool.delete_key(&key).await.unwrap();
 
-    drop(redis_pool);
 
     let mut loc: Vec<Point> = Vec::new();
     for item in res {

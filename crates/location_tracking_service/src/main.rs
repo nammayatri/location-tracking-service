@@ -1,16 +1,17 @@
 use actix_web::middleware::Logger;
 use actix_web::{web, App, HttpServer};
 use env_logger::Env;
-use shared::utils::logger::*;
+use fred::types::{GeoPosition, GeoValue, MultipleGeoValues};
 use shared::redis::interface::types::{RedisConnectionPool, RedisSettings};
+use shared::utils::logger::*;
 use std::env::var;
 use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tokio::time::Duration;
+use tokio::{time::Duration, spawn, sync::Mutex};
 
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex},
+    sync::Arc,
 };
 
 mod common;
@@ -52,15 +53,21 @@ pub fn read_dhall_config(config_path: &str) -> Result<AppConfig, String> {
 
 pub async fn make_app_state(app_config: AppConfig) -> AppState {
     let location_redis = Arc::new(Mutex::new(
-        RedisConnectionPool::new(&RedisSettings::new(app_config.location_redis_cfg.redis_host, app_config.location_redis_cfg.redis_port))
-            .await
-            .expect("Failed to create Critical Redis connection pool"),
+        RedisConnectionPool::new(&RedisSettings::new(
+            app_config.location_redis_cfg.redis_host,
+            app_config.location_redis_cfg.redis_port,
+        ))
+        .await
+        .expect("Failed to create Critical Redis connection pool"),
     ));
 
     let generic_redis = Arc::new(Mutex::new(
-        RedisConnectionPool::new(&RedisSettings::new(app_config.generic_redis_cfg.redis_host, app_config.generic_redis_cfg.redis_port))
-            .await
-            .expect("Failed to create Non Critical Redis connection pool"),
+        RedisConnectionPool::new(&RedisSettings::new(
+            app_config.generic_redis_cfg.redis_host,
+            app_config.generic_redis_cfg.redis_port,
+        ))
+        .await
+        .expect("Failed to create Non Critical Redis connection pool"),
     ));
 
     let entries = Arc::new(Mutex::new(HashMap::new()));
@@ -77,12 +84,59 @@ pub async fn make_app_state(app_config: AppConfig) -> AppState {
         on_ride_expiry: app_config.on_ride_expiry,
         test_location_expiry: app_config.test_location_expiry,
         location_update_limit: app_config.location_update_limit,
-        location_update_interval: app_config.location_update_interval
+        location_update_interval: app_config.location_update_interval,
+    }
+}
+
+async fn run_scheduler(data: web::Data<AppState>) {
+    loop {
+        thread::sleep(Duration::from_secs(10));
+        let bucket =
+            Duration::as_secs(&SystemTime::elapsed(&UNIX_EPOCH).unwrap()) / data.location_expiry;
+        let mut entries = data.entries.lock().await;
+
+        for (dimensions, entries) in entries.iter_mut() {
+            let merchant_id = &dimensions.merchant_id;
+            let city = &dimensions.city;
+            let vehicle_type = &dimensions.vehicle_type;
+        
+            let geo_values: Vec<GeoValue> = entries.to_owned()
+                .into_iter()
+                .map(|(lon, lat, name)| GeoValue {
+                    coordinates: GeoPosition {
+                        longitude: lon,
+                        latitude: lat,
+                    },
+                    member: name.into(),
+                })
+                .collect();
+            let multiple_geo_values: MultipleGeoValues = geo_values.into();
+
+            let key = format!("dl:loc:{merchant_id}:{city}:{vehicle_type}:{bucket}");
+
+            if !entries.is_empty() {
+                let redis_pool = data.location_redis.lock().await;
+                let num = redis_pool.zcard(&key).await.expect("unable to zcard");
+                let _: () = redis_pool
+                    .geo_add(&key, multiple_geo_values, None, false)
+                    .await
+                    .expect("Couldn't add to redis");
+                if num == 0 {
+                    let _: () = redis_pool
+                        .set_expiry(&key, data.test_location_expiry.try_into().unwrap())
+                        .await
+                        .expect("Unable to set expiry");
+                }
+                info!("Entries: {:?}\nSending to redis server", entries);
+                info!("^ Merchant id: {merchant_id}, City: {city}, Vt: {vehicle_type}, key: {key}\n");
+            }
+        }
+        entries.clear();
     }
 }
 
 #[actix_web::main]
-pub async fn start_server() -> std::io::Result<()> {
+async fn start_server() -> std::io::Result<()> {
     env_logger::init_from_env(Env::default().default_filter_or("info"));
 
     let dhall_config_path =
@@ -93,44 +147,8 @@ pub async fn start_server() -> std::io::Result<()> {
 
     let data = web::Data::new(app_state.clone());
 
-    let location_expiry_in_sec = app_state.location_expiry;
-
-    let test_loc_expiry_in_sec = app_state.test_location_expiry;
-
     let thread_data = data.clone();
-    thread::spawn(move || loop {
-        thread::sleep(Duration::from_secs(10));
-        let bucket =
-            Duration::as_secs(&SystemTime::elapsed(&UNIX_EPOCH).unwrap()) / location_expiry_in_sec;
-        let mut entries = thread_data.entries.lock().unwrap();
-        for merchant_id in entries.keys() {
-            let entries = entries[merchant_id].to_owned();
-            for city in entries.keys() {
-                let entries = entries[city].to_owned();
-                for vehicle_type in entries.keys() {
-                    let entries = entries[vehicle_type].to_owned();
-
-                    let key = format!("dl:loc:{merchant_id}:{city}:{vehicle_type}:{bucket}");
-
-                    if !entries.is_empty() {
-                        let redis = thread_data.location_redis.lock().unwrap();
-                        let num = redis.zcard_sync(&key).expect("unable to zcard");
-                        let _: () = redis
-                            .geo_add_sync(&key, entries.to_vec())
-                            .expect("Couldn't add to redis");
-                        if num == 0 {
-                            let _: () = redis
-                                .set_expiry_sync(&key, test_loc_expiry_in_sec)
-                                .expect("Unable to set expiry");
-                        }
-                        info!("Entries: {:?}\nSending to redis server", entries);
-                        info!("^ Merchant id: {merchant_id}, City: {city}, Vt: {vehicle_type}, key: {key}\n");
-                    }
-                }
-            }
-        }
-        entries.clear();
-    });
+    spawn(async move { run_scheduler(thread_data).await });
 
     HttpServer::new(move || {
         App::new()

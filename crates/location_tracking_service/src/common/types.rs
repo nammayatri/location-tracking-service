@@ -3,10 +3,11 @@ use geo::MultiPolygon;
 use serde::{Deserialize, Serialize};
 use shared::redis::interface::types::RedisConnectionPool;
 use shared::utils::logger::*;
-use std::{collections::HashMap, sync::{Arc, Mutex}, time::{UNIX_EPOCH, SystemTime}};
+use tokio::sync::Mutex;
+use std::{collections::HashMap, sync::Arc, time::{UNIX_EPOCH, SystemTime}};
 use strum_macros::{EnumString, Display};
 
-#[derive(Clone, EnumString, Display, Serialize, Deserialize, Eq, Hash, PartialEq)]
+#[derive(Debug, Clone, EnumString, Display, Serialize, Deserialize, Eq, Hash, PartialEq)]
 pub enum VehicleType {
     #[strum(serialize = "AUTO_RICKSHAW")]
     #[serde(rename = "AUTO_RICKSHAW")]
@@ -51,16 +52,20 @@ pub struct Point {
     pub lon: Longitude,
 }
 
+#[derive(Debug, Clone, Hash, Eq, PartialEq)]
+pub struct Dimensions {
+    pub merchant_id: MerchantId,
+    pub city: CityName,
+    pub vehicle_type: VehicleType,
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub location_redis: Arc<Mutex<RedisConnectionPool>>,
     pub generic_redis: Arc<Mutex<RedisConnectionPool>>,
     pub entries: Arc<
         Mutex<
-            HashMap<
-                MerchantId,
-                HashMap<CityName, HashMap<VehicleType, Vec<(Longitude, Latitude, DriverId)>>>,
-            >,
+            HashMap<Dimensions, Vec<(Longitude, Latitude, DriverId)>>
         >,
     >,
     pub polygon: Vec<MultiPolygonBody>,
@@ -79,7 +84,7 @@ impl AppState {
         key: &str,
         frame_hits_lim: usize,
         frame_len: u32,
-        redis_pool: &std::sync::MutexGuard<'_, RedisConnectionPool>,
+        redis_pool: &tokio::sync::MutexGuard<'_, RedisConnectionPool>,
     ) -> (Vec<i64>, bool) {
         let curr_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -103,8 +108,6 @@ impl AppState {
             let filt_hits = serde_json::to_string(&filt_hits).unwrap();
             let _ = redis_pool.set_with_expiry(key, filt_hits, frame_len).await;
         }
-
-        drop(redis_pool);
 
         (filt_hits, ret)
     }
@@ -164,19 +167,19 @@ impl AppState {
     }
 }
 
-pub async fn on_ride_key(merchant_id: &String, city: &String, driver_id: &String) -> String {
+pub fn on_ride_key(merchant_id: &String, city: &String, driver_id: &String) -> String {
     format!("ds:on_ride:{merchant_id}:{city}:{driver_id}")
 }
 
-pub async fn on_ride_loc_key(merchant_id: &String, city: &String, driver_id: &String) -> String {
+pub fn on_ride_loc_key(merchant_id: &String, city: &String, driver_id: &String) -> String {
     format!("dl:loc:{merchant_id}:{city}:{driver_id}")
 }
 
-pub async fn driver_loc_ts_key(driver_id: &String) -> String {
+pub fn driver_loc_ts_key(driver_id: &String) -> String {
     format!("dl:ts:{}", driver_id)
 }
 
-pub async fn driver_loc_bucket_key(
+pub fn driver_loc_bucket_key(
     merchant_id: &String,
     city: &String,
     vehicle_type: &String,
