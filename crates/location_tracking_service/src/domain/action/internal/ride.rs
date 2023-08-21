@@ -1,17 +1,16 @@
 use std::env::var;
 
-use actix_web::{web::Data, HttpResponse};
+use actix_web::web::Data;
 use fred::types::RedisValue;
 use geo::{point, Intersects};
-use shared::utils::logger::*;
 
-use crate::{domain::types::internal::ride::*, common::types::*};
+use crate::{domain::types::internal::ride::*, common::{types::*, errors::AppError}};
 
 pub async fn ride_start(
     ride_id: String,
     data: Data<AppState>,
     request_body: RideStartRequest,
-) -> HttpResponse {
+) -> Result<APISuccess, AppError> {
     let mut city = String::new();
     let mut intersection = false;
     for multi_polygon_body in &data.polygon {
@@ -25,9 +24,7 @@ pub async fn ride_start(
     }
 
     if !intersection {
-        return HttpResponse::ServiceUnavailable()
-            .content_type("text")
-            .body("No service in region");
+        return Err(AppError::Unserviceable);
     }
 
     let value = RideId {
@@ -49,20 +46,14 @@ pub async fn ride_start(
         .set_with_expiry(&key, value, on_ride_expiry)
         .await;
 
-    let response_data = ResponseData {
-        result: "Success".to_string(),
-    };
-    info!("response_data: {:?}", response_data);
-    HttpResponse::Ok()
-        .content_type("application/json")
-        .json(response_data)
+    Ok(APISuccess::default())
 }
 
 pub async fn ride_end(
     ride_id: String,
     data: Data<AppState>,
     request_body: RideEndRequest,
-) -> HttpResponse {
+) -> Result<RideEndResponse, AppError> {
     let mut city = String::new();
     let mut intersection = false;
     for multi_polygon_body in &data.polygon {
@@ -76,9 +67,7 @@ pub async fn ride_end(
     }
 
     if !intersection {
-        return HttpResponse::ServiceUnavailable()
-            .content_type("text")
-            .body("No service in region");
+        return Err(AppError::Unserviceable);
     }
 
     let value = RideId {
@@ -96,12 +85,9 @@ pub async fn ride_end(
         .unwrap();
 
     let redis_pool = data.generic_redis.lock().await;
-    let result = redis_pool
+    let _ = redis_pool
         .set_with_expiry(&key, value, on_ride_expiry)
-        .await;
-    if result.is_err() {
-        return HttpResponse::InternalServerError().body("Error");
-    }
+        .await.unwrap();
 
     let key = on_ride_loc_key(&request_body.merchant_id, &city, &request_body.driver_id);
 
@@ -135,13 +121,9 @@ pub async fn ride_end(
         });
     }
 
-    let resp = RideEndResponse {
+    Ok(RideEndResponse {
         ride_id: ride_id,
         driver_id: request_body.driver_id,
         loc,
-    };
-
-    HttpResponse::Ok()
-        .content_type("application/json")
-        .body(serde_json::to_string(&resp).unwrap())
+    })
 }

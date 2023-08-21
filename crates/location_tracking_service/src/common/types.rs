@@ -6,6 +6,7 @@ use shared::utils::logger::*;
 use tokio::sync::Mutex;
 use std::{collections::HashMap, sync::Arc, time::{UNIX_EPOCH, SystemTime}};
 use strum_macros::{EnumString, Display};
+use super::errors::AppError;
 
 #[derive(Debug, Clone, EnumString, Display, Serialize, Deserialize, Eq, Hash, PartialEq)]
 pub enum VehicleType {
@@ -33,6 +34,17 @@ pub type Radius = f64;
 pub type Accuracy = i32;
 pub type Key = String;
 pub type Token = String;
+
+#[derive(Debug, Serialize)]
+pub struct APISuccess {
+    result : String
+}
+
+impl Default for APISuccess {
+    fn default() -> Self {
+        Self { result: "success".to_string() }
+    }
+}
 
 #[derive(Clone)]
 pub struct MultiPolygonBody {
@@ -85,7 +97,7 @@ impl AppState {
         frame_hits_lim: usize,
         frame_len: u32,
         redis_pool: &tokio::sync::MutexGuard<'_, RedisConnectionPool>,
-    ) -> (Vec<i64>, bool) {
+    ) -> Result<Vec<i64>, AppError> {
         let curr_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("Time went backwards")
@@ -104,12 +116,13 @@ impl AppState {
         let (filt_hits, ret) =
             Self::sliding_window_limiter_pure(curr_time, &hits, frame_hits_lim, frame_len);
 
-        if ret {
-            let filt_hits = serde_json::to_string(&filt_hits).unwrap();
-            let _ = redis_pool.set_with_expiry(key, filt_hits, frame_len).await;
+        if !ret {
+            return Err(AppError::HitsLimitExceeded);
         }
 
-        (filt_hits, ret)
+        let _ = redis_pool.set_with_expiry(key, serde_json::to_string(&filt_hits).unwrap(), frame_len).await;
+
+        Ok(filt_hits)
     }
 
     fn sliding_window_limiter_pure(

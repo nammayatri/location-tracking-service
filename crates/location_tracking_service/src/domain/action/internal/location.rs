@@ -3,17 +3,17 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use actix_web::{web::Data, HttpResponse};
+use actix_web::web::Data;
 use chrono::{DateTime, Utc};
 use fred::types::{GeoPosition, GeoUnit, RedisValue, SortOrder};
 use geo::{point, Intersects};
 
-use crate::{common::types::*, domain::types::internal::location::*};
+use crate::{common::{types::*, errors::AppError}, domain::types::internal::location::*};
 
 pub async fn get_nearby_drivers(
     data: Data<AppState>,
     request_body: NearbyDriversRequest,
-) -> HttpResponse {
+) -> Result<NearbyDriverResponse, AppError> {
     let location_expiry_in_seconds = var("LOCATION_EXPIRY")
         .expect("LOCATION_EXPIRY not found")
         .parse::<u64>()
@@ -33,9 +33,7 @@ pub async fn get_nearby_drivers(
     }
 
     if !intersection {
-        return HttpResponse::ServiceUnavailable()
-            .content_type("text")
-            .body("No service in region");
+        return Err(AppError::Unserviceable);
     }
     let key = driver_loc_bucket_key(
         &request_body.merchant_id,
@@ -84,8 +82,5 @@ pub async fn get_nearby_drivers(
         }
     }
 
-    let resp = serde_json::to_string(&resp_vec).unwrap();
-    HttpResponse::Ok()
-        .content_type("application/json")
-        .body(resp)
+    Ok(NearbyDriverResponse { resp : resp_vec })
 }

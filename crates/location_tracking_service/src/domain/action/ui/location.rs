@@ -1,9 +1,9 @@
 use std::env::var;
 use std::time::Instant;
 
-use crate::common::types::*;
+use crate::common::{types::*, errors::*};
 use crate::domain::types::ui::location::*;
-use actix_web::{web::Data, HttpResponse};
+use actix_web::web::Data;
 use chrono::Utc;
 use fred::types::{GeoPosition, GeoValue, RedisValue};
 use geo::{point, Intersects};
@@ -24,7 +24,7 @@ pub async fn update_driver_location(
     vehicle_type: VehicleType,
     data: Data<AppState>,
     request_body: Vec<UpdateDriverLocationRequest>,
-) -> HttpResponse {
+) -> Result<APISuccess, AppError> {
     let start = Instant::now();
 
     let token_expiry_in_sec = var("TOKEN_EXPIRY")
@@ -45,13 +45,7 @@ pub async fn update_driver_location(
     }
 
     if !intersection {
-        let duration_full = DurationStruct {
-            dur: start.elapsed(),
-        };
-        let duration = serde_json::to_string(&duration_full).unwrap();
-        return HttpResponse::ServiceUnavailable()
-            .content_type("application/json")
-            .body(duration);
+        return Err(AppError::Unserviceable);
     }
 
     let auth_url = var("AUTH_URL").expect("AUTH_URL not found");
@@ -77,13 +71,7 @@ pub async fn update_driver_location(
         let response_body = resp.text().await.unwrap();
 
         if status != 200 {
-            let duration_full = serde_json::to_string(&DurationStruct {
-                dur: start.elapsed(),
-            })
-            .unwrap();
-            return HttpResponse::InternalServerError()
-                .content_type("application/json")
-                .body(duration_full);
+            return Err(AppError::DriverAppAuthFailed(start.elapsed()));
         }
 
         let response = serde_json::from_str::<AuthResponseData>(&response_body).unwrap();
@@ -98,17 +86,14 @@ pub async fn update_driver_location(
         AuthResponseData { driver_id: x }
     };
 
-    let user_limit = data
+    let _ = data
         .sliding_window_limiter(
             &response_data.driver_id,
             data.location_update_limit,
             data.location_update_interval as u32,
             &redis_pool,
         )
-        .await;
-    if !user_limit.1 {
-        return HttpResponse::TooManyRequests().into();
-    }
+        .await?;
 
     let on_ride_key = on_ride_key(&merchant_id, &city, &response_data.driver_id.clone());
     let on_ride_resp = redis_pool.get_key::<String>(&on_ride_key).await.unwrap();
@@ -203,13 +188,7 @@ pub async fn update_driver_location(
                     let response_body = body.text().await.unwrap();
                     info!("response body: {}", response_body);
                     if status != 200 {
-                        let duration_full = serde_json::to_string(&DurationStruct {
-                            dur: start.elapsed(),
-                        })
-                        .unwrap();
-                        return HttpResponse::Ok()
-                            .content_type("application/json")
-                            .body(duration_full);
+                        return Err(AppError::DriverBulkLocationUpdateFailed)
                     }
 
                     let _: () = redis_pool.delete_key(&on_ride_loc_key).await.unwrap();
@@ -242,16 +221,5 @@ pub async fn update_driver_location(
         }
     }
 
-    let duration_full = serde_json::to_string(&DurationStruct {
-        dur: start.elapsed(),
-    })
-    .unwrap();
-
-    let response = {
-        let mut response = HttpResponse::Ok();
-        response.content_type("application/json");
-        response.body(duration_full)
-    };
-
-    response
+    Ok(APISuccess::default())
 }

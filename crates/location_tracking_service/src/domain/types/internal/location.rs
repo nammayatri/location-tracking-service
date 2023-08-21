@@ -15,7 +15,7 @@ pub struct NearbyDriversRequest {
 
 #[derive(Deserialize, Serialize, Debug)]
 pub struct NearbyDriverResponse {
-    pub resp: Vec<(Longitude, Latitude, DriverId)>,
+    pub resp: Vec<DriverLocation>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

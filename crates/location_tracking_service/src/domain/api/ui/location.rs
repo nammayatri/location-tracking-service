@@ -3,11 +3,12 @@ use std::str::FromStr;
 use actix_web::{
     post,
     web::{Data, Json},
-    HttpRequest, HttpResponse,
+    HttpRequest,
 };
 
 use crate::{
     common::types::*,
+    common::errors::AppError,
     domain::{action::ui::location, types::ui::location::UpdateDriverLocationRequest},
 };
 
@@ -16,7 +17,7 @@ pub async fn update_driver_location(
     data: Data<AppState>,
     param_obj: Json<Vec<UpdateDriverLocationRequest>>,
     req: HttpRequest,
-) -> HttpResponse {
+) -> Result<Json<APISuccess>, AppError> {
     let request_body = param_obj.into_inner();
 
     let token: Token = req
@@ -38,5 +39,5 @@ pub async fn update_driver_location(
     let vehicle_type: VehicleType =
         VehicleType::from_str(req.headers().get("vt").unwrap().to_str().unwrap()).unwrap();
 
-    location::update_driver_location(token, merchant_id, vehicle_type, data, request_body).await
+    Ok(Json(location::update_driver_location(token, merchant_id, vehicle_type, data, request_body).await?))
 }
