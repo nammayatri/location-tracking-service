@@ -6,13 +6,19 @@ let location_redis_cfg = {
 
 let generic_redis_cfg = {
     redis_host = "localhost",
-    redis_port = 6380,
+    redis_port = 6379,
     redis_pool_size = 10,
+}
+
+let kafakCfg = {
+    kafka_key = "bootstrap.servers",
+    kafka_host = "localhost:9092"
 }
 
 in {
     location_redis_cfg,
     generic_redis_cfg,
+    kafka_cfg = kafakCfg,
     port = 8081,
     auth_url = "http://127.0.0.1:8016/internal/auth",
     bulk_location_callback_url = "http://127.0.0.1:8016/internal/bulkLocUpdate",
@@ -22,4 +28,6 @@ in {
     test_location_expiry = 90,
     location_update_limit = 10,
     location_update_interval = 60,
+    driver_location_update_topic = "location-updates",
+    driver_location_update_key = "loc"
 }

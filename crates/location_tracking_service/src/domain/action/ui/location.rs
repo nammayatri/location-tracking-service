@@ -9,12 +9,44 @@ use geo::{point, Intersects};
 use reqwest::header::CONTENT_TYPE;
 use serde::{Deserialize, Serialize};
 use shared::utils::logger::*;
+use rdkafka::producer::{FutureProducer, FutureRecord};
+use rdkafka::util::Timeout;
+use std::time::Duration;
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AuthResponseData {
     #[serde(rename = "driverId")]
     pub driver_id: String,
+}
+
+async fn stream_updates(data: Data<AppState>, merchant_id:&String, ride_id:&String, loc:UpdateDriverLocationRequest){
+    let topic = &data.driver_location_update_topic;
+    let key = &data.driver_location_update_key;
+    let loc = LocationUpdate {
+        r_id: ride_id.to_string(),
+        m_id: merchant_id.to_string(),
+        ts: loc.ts,
+        st : Utc::now(),
+        pt: Point {
+            lat: loc.pt.lat,
+            lon: loc.pt.lon,
+        },
+        acc: loc.acc,
+        ride_status: "".to_string(),
+        da: true,
+        mode: "".to_string(),
+    };
+
+    let message = serde_json::to_string(&loc).unwrap();
+
+    let producer: FutureProducer = data.producer.clone();
+    _ = producer
+        .send(
+            FutureRecord::to(topic).key(key).payload(&message),
+            Timeout::After(Duration::from_secs(0)),
+        )
+        .await;
 }
 
 pub async fn update_driver_location(
@@ -184,6 +216,10 @@ pub async fn update_driver_location(
 
                     let _: () = redis_pool.delete_key(&on_ride_loc_key).await.unwrap();
                 }
+                let ride_id = serde_json::from_str::<RideId>(&on_ride_resp)
+                .unwrap()
+                .ride_id;
+                stream_updates(data.clone(), &merchant_id, &ride_id, loc).await;
             }
         }
         _ => {
@@ -208,6 +244,7 @@ pub async fn update_driver_location(
                     loc.pt.lat,
                     response_data.driver_id.clone(),
                 ));
+                stream_updates(data.clone(), &merchant_id, &"".to_string(), loc).await;
             }
         }
     }

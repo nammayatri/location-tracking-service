@@ -7,6 +7,7 @@ use tokio::sync::Mutex;
 use std::{collections::HashMap, sync::Arc, time::{UNIX_EPOCH, SystemTime}};
 use strum_macros::{EnumString, Display};
 use super::errors::AppError;
+use rdkafka::producer::FutureProducer;
 
 #[derive(Debug, Clone, EnumString, Display, Serialize, Deserialize, Eq, Hash, PartialEq)]
 pub enum VehicleType {
@@ -85,6 +86,9 @@ pub struct AppState {
     pub test_location_expiry: usize,
     pub location_update_limit: usize,
     pub location_update_interval: u64,
+    pub producer: FutureProducer,
+    pub driver_location_update_topic: String,
+    pub driver_location_update_key: String,
 }
 
 impl AppState {
