@@ -1,4 +1,3 @@
-use std::env::var;
 use std::time::Instant;
 
 use crate::common::{types::*, errors::*};
@@ -27,11 +26,6 @@ pub async fn update_driver_location(
 ) -> Result<APISuccess, AppError> {
     let start = Instant::now();
 
-    let token_expiry_in_sec = var("TOKEN_EXPIRY")
-        .expect("TOKEN_EXPIRY not found")
-        .parse::<u32>()
-        .unwrap();
-
     let mut city = String::new();
     let mut intersection = false;
     for multi_polygon_body in &data.polygon {
@@ -48,9 +42,6 @@ pub async fn update_driver_location(
         return Err(AppError::Unserviceable);
     }
 
-    let auth_url = var("AUTH_URL").expect("AUTH_URL not found");
-    let bulk_loc_update_url = var("BULK_LOC_UPDATE_URL").expect("BULK_LOC_UPDATE_URL not found");
-
     let client = reqwest::Client::new();
     let nil_string = String::from("nil");
     let redis_pool = data.location_redis.lock().await;
@@ -59,7 +50,7 @@ pub async fn update_driver_location(
     let x = redis_pool.get_key::<Key>(&token).await.unwrap();
     let response_data = if x == nil_string {
         let resp = client
-            .get(auth_url)
+            .get(&data.auth_url)
             .header("token", token.clone())
             .header("api-key", "ae288466-2add-11ee-be56-0242ac120002")
             .header("merchant-id", merchant_id.clone())
@@ -77,7 +68,7 @@ pub async fn update_driver_location(
         let response = serde_json::from_str::<AuthResponseData>(&response_body).unwrap();
 
         let _: () = redis_pool
-            .set_with_expiry(&token, &response.driver_id, token_expiry_in_sec)
+            .set_with_expiry(&token, &response.driver_id, data.token_expiry)
             .await
             .unwrap();
 
@@ -178,7 +169,7 @@ pub async fn update_driver_location(
                     info!("json: {:?}", json);
 
                     let body = client
-                        .post(&bulk_loc_update_url)
+                        .post(&data.bulk_location_callback_url)
                         .header(CONTENT_TYPE, "application/json")
                         .body(serde_json::to_string(&json).unwrap())
                         .send()

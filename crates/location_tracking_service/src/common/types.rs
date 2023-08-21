@@ -75,16 +75,13 @@ pub struct Dimensions {
 pub struct AppState {
     pub location_redis: Arc<Mutex<RedisConnectionPool>>,
     pub generic_redis: Arc<Mutex<RedisConnectionPool>>,
-    pub entries: Arc<
-        Mutex<
-            HashMap<Dimensions, Vec<(Longitude, Latitude, DriverId)>>
-        >,
-    >,
+    pub entries: Arc<Mutex<HashMap<Dimensions, Vec<(Longitude, Latitude, DriverId)>>>>,
     pub polygon: Vec<MultiPolygonBody>,
     pub auth_url: String,
-    pub token_expiry: u64,
+    pub bulk_location_callback_url: String,
+    pub token_expiry: u32,
     pub location_expiry: u64,
-    pub on_ride_expiry: u64,
+    pub on_ride_expiry: u32,
     pub test_location_expiry: usize,
     pub location_update_limit: usize,
     pub location_update_interval: u64,

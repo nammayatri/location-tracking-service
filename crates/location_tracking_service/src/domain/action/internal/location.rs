@@ -1,7 +1,4 @@
-use std::{
-    env::var,
-    time::{Duration, SystemTime, UNIX_EPOCH},
-};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use actix_web::web::Data;
 use chrono::{DateTime, Utc};
@@ -14,10 +11,7 @@ pub async fn get_nearby_drivers(
     data: Data<AppState>,
     request_body: NearbyDriversRequest,
 ) -> Result<NearbyDriverResponse, AppError> {
-    let location_expiry_in_seconds = var("LOCATION_EXPIRY")
-        .expect("LOCATION_EXPIRY not found")
-        .parse::<u64>()
-        .unwrap();
+    let location_expiry_in_seconds = data.location_expiry;
     let current_bucket =
         Duration::as_secs(&SystemTime::elapsed(&UNIX_EPOCH).unwrap()) / location_expiry_in_seconds;
     let mut city = String::new();

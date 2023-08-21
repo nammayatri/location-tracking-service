@@ -44,14 +44,14 @@ impl Default for RedisSettings {
 }
 
 impl RedisSettings {
-    pub fn new(host:String, port:u16) -> Self {
+    pub fn new(host:String, port:u16, pool_size: usize) -> Self {
         RedisSettings {
             host,
             port,
             cluster_enabled: false,
             cluster_urls: Vec::new(),
             use_legacy_version: false,
-            pool_size: 10,
+            pool_size,
             reconnect_max_attempts: 5,
             reconnect_delay: 1000,
             default_ttl: 3600,

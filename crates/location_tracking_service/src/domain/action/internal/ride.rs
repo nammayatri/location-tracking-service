@@ -1,5 +1,3 @@
-use std::env::var;
-
 use actix_web::web::Data;
 use fred::types::RedisValue;
 use geo::{point, Intersects};
@@ -36,14 +34,9 @@ pub async fn ride_start(
     let key = on_ride_key(&request_body.merchant_id, &city, &request_body.driver_id);
     println!("key: {}", key);
 
-    let on_ride_expiry = var("ON_RIDE_EXPIRY")
-        .expect("ON_RIDE_EXPIRY not found")
-        .parse::<u32>()
-        .unwrap();
-
     let redis_pool = data.generic_redis.lock().await;
     let _ = redis_pool
-        .set_with_expiry(&key, value, on_ride_expiry)
+        .set_with_expiry(&key, value, data.on_ride_expiry)
         .await;
 
     Ok(APISuccess::default())
@@ -79,14 +72,9 @@ pub async fn ride_end(
     let key = on_ride_key(&request_body.merchant_id, &city, &request_body.driver_id);
     println!("key: {}", key);
 
-    let on_ride_expiry = var("ON_RIDE_EXPIRY")
-        .expect("ON_RIDE_EXPIRY not found")
-        .parse::<u32>()
-        .unwrap();
-
     let redis_pool = data.generic_redis.lock().await;
     let _ = redis_pool
-        .set_with_expiry(&key, value, on_ride_expiry)
+        .set_with_expiry(&key, value, data.on_ride_expiry)
         .await.unwrap();
 
     let key = on_ride_loc_key(&request_body.merchant_id, &city, &request_body.driver_id);
