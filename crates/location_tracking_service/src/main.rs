@@ -18,6 +18,8 @@ mod domain;
 use domain::api;
 
 use serde::Deserialize;
+use rdkafka::config::ClientConfig;
+use rdkafka::producer::FutureProducer;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct AppConfig {
@@ -32,7 +34,17 @@ pub struct AppConfig {
     pub test_location_expiry: usize,
     pub location_update_limit: usize,
     pub location_update_interval: u64,
+    pub kafka_cfg: KafkaConfig,
+    pub driver_location_update_topic: String,
+    pub driver_location_update_key: String,
 }
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct KafkaConfig {
+    pub kafka_key: String,
+    pub kafka_host: String,
+}
+
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct RedisConfig {
@@ -73,6 +85,15 @@ pub async fn make_app_state(app_config: AppConfig) -> AppState {
     let entries = Arc::new(Mutex::new(HashMap::new()));
     let polygons = read_geo_polygon("./config").expect("Failed to read geoJSON");
 
+    let producer: FutureProducer = ClientConfig::new()
+    .set(
+        app_config.kafka_cfg.kafka_key,
+        app_config.kafka_cfg.kafka_host,
+    )
+    .set("compression.type", "lz4")
+    .create()
+    .expect("Producer creation error");
+
     AppState {
         location_redis,
         generic_redis,
@@ -86,6 +107,9 @@ pub async fn make_app_state(app_config: AppConfig) -> AppState {
         test_location_expiry: app_config.test_location_expiry,
         location_update_limit: app_config.location_update_limit,
         location_update_interval: app_config.location_update_interval,
+        producer,
+        driver_location_update_topic: app_config.driver_location_update_topic,
+        driver_location_update_key: app_config.driver_location_update_key,
     }
 }
 
