@@ -1,6 +1,6 @@
 use super::models::{
-    AuthResponseData, BulkDataReq, DriverLocation, DurationStruct, GetNearbyDriversRequest, Point,
-    ResponseData, RideEndRequest, RideEndRes, RideId, RideStartRequest,
+    AuthResponseData, BulkDataReq, DriverLocation, DurationStruct, GetNearbyDriversRequest,
+    LocationUpdate, Point, ResponseData, RideEndRequest, RideEndRes, RideId, RideStartRequest,
     UpdateDriverLocationRequest,
 };
 use crate::AppState;
@@ -10,6 +10,7 @@ use chrono::Utc;
 use fred::types::{GeoPosition, GeoUnit, GeoValue, RedisValue, SortOrder};
 use log::info;
 use rand::{thread_rng, Rng};
+use rdkafka::util::Timeout;
 use redis::Commands;
 use std::collections::HashMap;
 // use serde::{Deserialize, Serialize};
@@ -23,6 +24,8 @@ use geo::Intersects;
 use reqwest::header::CONTENT_TYPE;
 use std::env::var;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+use rdkafka::producer::{FutureProducer, FutureRecord};
 
 #[post("/ui/driver/location")]
 async fn update_driver_location(
@@ -256,6 +259,11 @@ async fn update_driver_location(
 
                     let _: () = redis_pool.delete_key(&on_ride_loc_key).await.unwrap();
                 }
+
+                let ride_id = serde_json::from_str::<RideId>(&on_ride_resp)
+                .unwrap()
+                .ride_id;
+                stream_updates(data.clone(), &merchant_id, &ride_id, loc).await;
             }
         }
         _ => {
@@ -315,6 +323,7 @@ async fn update_driver_location(
                 // println!("{:?}", entries);
 
                 // info!("{:?}", entries);
+                stream_updates(data.clone(), &merchant_id, &"".to_string(), loc).await;
             }
         }
     }
@@ -336,6 +345,35 @@ async fn update_driver_location(
     };
 
     response
+}
+
+async fn stream_updates(data: web::Data<AppState>, merchant_id:&String, ride_id:&String, loc:UpdateDriverLocationRequest){
+    let topic = &data.driver_location_update_topic;
+    let key = &data.driver_location_update_key;
+    let loc = LocationUpdate {
+        r_id: ride_id.to_string(),
+        m_id: merchant_id.to_string(),
+        ts: loc.ts,
+        st : Utc::now(),
+        pt: Point {
+            lat: loc.pt.lat,
+            lon: loc.pt.lon,
+        },
+        acc: loc.acc,
+        ride_status: "".to_string(),
+        da: true,
+        mode: "".to_string(),
+    };
+
+    let message = serde_json::to_string(&loc).unwrap();
+
+    let producer: FutureProducer = data.producer.clone();
+    _ = producer
+        .send(
+            FutureRecord::to(topic).key(key).payload(&message),
+            Timeout::After(Duration::from_secs(0)),
+        )
+        .await;
 }
 
 #[get("/internal/drivers/nearby")]
@@ -754,10 +792,32 @@ async fn location(
     response
 }
 
+#[get("/healthcheck")]
+async fn health_check(data: web::Data<AppState>) -> impl Responder {
+    let redis_pool = data.redis_pool.lock().unwrap();
+
+    let health_check_key = format!("health_check");
+    _ = redis_pool
+        .set_key(&health_check_key, "driver-location-service-health-check")
+        .await;
+    let health_check_resp = redis_pool
+        .get_key::<String>(&health_check_key)
+        .await
+        .unwrap();
+    let nil_string = String::from("nil");
+
+    if health_check_resp == nil_string {
+        return HttpResponse::InternalServerError().content_type("application/json").json(ResponseData{result: "Service Unavailable".to_string()});
+    }
+
+    HttpResponse::Ok().content_type("application/json").json(ResponseData{result :"Service Is Up".to_string()})
+}
+
 pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.service(update_driver_location)
         .service(get_nearby_drivers)
         .service(location)
         .service(ride_start)
-        .service(ride_end);
+        .service(ride_end)
+        .service(health_check);
 }

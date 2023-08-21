@@ -12,6 +12,8 @@ use crate::RedisConnectionPool;
 use crate::RedisSettings;
 use crate::VehicleType;
 use fred::tracing::info;
+use rdkafka::config::ClientConfig;
+use rdkafka::producer::FutureProducer;
 use serde::Deserialize;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -19,6 +21,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub struct AppConfig {
     pub port: u16,
     pub redis_cfg: RedisConfig,
+    pub kafka_cfg: KafkaConfig,
     pub auth_url: String,
     pub token_expiry: u64,
     pub location_expiry: u64,
@@ -26,12 +29,20 @@ pub struct AppConfig {
     pub test_location_expiry: usize,
     pub location_update_limit: usize,
     pub location_update_interval: u64,
+    pub driver_location_update_topic: String,
+    pub driver_location_update_key: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct RedisConfig {
     pub redis_host: String,
     pub redis_port: u16,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct KafkaConfig {
+    pub kafka_key: String,
+    pub kafka_host: String,
 }
 
 pub fn read_dhall_config(config_path: &str) -> Result<AppConfig, String> {
@@ -62,6 +73,9 @@ pub struct AppState {
     pub test_location_expiry: usize,
     pub location_update_limit: usize,
     pub location_update_interval: u64,
+    pub producer: FutureProducer,
+    pub driver_location_update_topic: String,
+    pub driver_location_update_key: String,
 }
 
 impl AppState {
@@ -175,6 +189,15 @@ pub async fn make_app_state(app_config: AppConfig) -> AppState {
             .expect("Failed to create Redis connection pool"),
     ));
 
+    let producer: FutureProducer = ClientConfig::new()
+        .set(
+            app_config.kafka_cfg.kafka_key,
+            app_config.kafka_cfg.kafka_host,
+        )
+        .set("compression.type", "lz4")
+        .create()
+        .expect("Producer creation error");
+
     let redis = Arc::new(Mutex::new(redis_conn));
 
     // Create a hashmap to store the entries
@@ -196,6 +219,9 @@ pub async fn make_app_state(app_config: AppConfig) -> AppState {
         test_location_expiry: app_config.test_location_expiry,
         location_update_limit: app_config.location_update_limit,
         location_update_interval: app_config.location_update_interval,
+        producer,
+        driver_location_update_topic: app_config.driver_location_update_topic,
+        driver_location_update_key: app_config.driver_location_update_key,
     }
 }
 

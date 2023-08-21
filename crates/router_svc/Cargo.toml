@@ -26,5 +26,6 @@ rand = "0.8.5"
 actix = "0.13.0"
 geo = "0.25.1"
 geojson = "0.24.1"
+rdkafka = "0.26"
 
 redis_interface = { version = "0.1.0", path = "../redis_interface" }
