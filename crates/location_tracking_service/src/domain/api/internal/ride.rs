@@ -25,3 +25,13 @@ async fn ride_end(
 
     Ok(Json(ride::ride_end(ride_id, data, request_body).await?))
 }
+
+#[post("/internal/ride/rideDetails")]
+async fn ride_details(
+    data: Data<AppState>,
+    param_obj: Json<RideDetailsRequest>,
+) -> Result<Json<APISuccess>, AppError> {
+    let request_body = param_obj.into_inner();
+
+    Ok(Json(ride::ride_details(data, request_body).await?))
+}

@@ -2,7 +2,7 @@ use actix_web::web::Data;
 use fred::types::RedisValue;
 use geo::{point, Intersects};
 
-use crate::{domain::types::internal::ride::*, common::{types::*, errors::AppError}};
+use crate::{domain::types::internal::ride::*, common::{types::*, errors::AppError, self}};
 
 pub async fn ride_start(
     ride_id: String,
@@ -25,8 +25,8 @@ pub async fn ride_start(
         return Err(AppError::Unserviceable);
     }
 
-    let value = RideId {
-        on_ride: true,
+    let value = RideDetails {
+        on_ride: common::types::RideStatus::INPROGRESS,
         ride_id,
     };
     let value = serde_json::to_string(&value).unwrap();
@@ -63,8 +63,8 @@ pub async fn ride_end(
         return Err(AppError::Unserviceable);
     }
 
-    let value = RideId {
-        on_ride: false,
+    let value = RideDetails {
+        on_ride: common::types::RideStatus::COMPLETED,
         ride_id: ride_id.clone(),
     };
     let value = serde_json::to_string(&value).unwrap();
@@ -114,4 +114,43 @@ pub async fn ride_end(
         driver_id: request_body.driver_id,
         loc,
     })
+}
+
+pub async fn ride_details(
+    data: Data<AppState>,
+    request_body: RideDetailsRequest,
+) -> Result<APISuccess, AppError> {
+    let mut city = String::new();
+    let mut intersection = false;
+    for multi_polygon_body in &data.polygon {
+        intersection = multi_polygon_body
+            .multipolygon
+            .intersects(&point!(x: request_body.lon, y: request_body.lat));
+        if intersection {
+            city = multi_polygon_body.region.clone();
+            break;
+        }
+    }
+
+    if !intersection {
+        return Err(AppError::Unserviceable);
+        
+    }
+
+    let key = on_ride_key(&request_body.merchant_id, &city, &request_body.driver_id);
+    let value = RideDetails {
+        on_ride: request_body.ride_status,
+        ride_id: request_body.ride_id
+    };
+    let value = serde_json::to_string(&value).unwrap();
+
+    let redis_pool = data.generic_redis.lock().await;
+    let result = redis_pool
+        .set_with_expiry(&key, value, data.on_ride_expiry)
+        .await;
+    if result.is_err() {
+        return Err(AppError::InternalServerError);
+    }
+    
+    Ok(APISuccess::default())
 }

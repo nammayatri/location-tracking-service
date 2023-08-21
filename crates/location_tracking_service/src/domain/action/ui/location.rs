@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use crate::common::{types::*, errors::*};
+use crate::common::{types::*, errors::*, self};
 use crate::domain::types::ui::location::*;
 use actix_web::web::Data;
 use chrono::Utc;
@@ -80,6 +80,7 @@ pub async fn update_driver_location(
 
     info!("token: {}", token);
     let x = redis_pool.get_key::<Key>(&token).await.unwrap();
+    info!("x: {:?}", x);
     let response_data = if x == nil_string {
         let resp = client
             .get(&data.auth_url)
@@ -121,9 +122,9 @@ pub async fn update_driver_location(
     let on_ride_key = on_ride_key(&merchant_id, &city, &response_data.driver_id.clone());
     let on_ride_resp = redis_pool.get_key::<String>(&on_ride_key).await.unwrap();
 
-    match serde_json::from_str::<RideId>(&on_ride_resp) {
-        Ok(RideId {
-            on_ride: true,
+    match serde_json::from_str::<RideDetails>(&on_ride_resp) {
+        Ok(RideDetails {
+            on_ride: common::types::RideStatus::INPROGRESS, 
             ride_id: _,
         }) => {
             for loc in request_body {
@@ -174,7 +175,7 @@ pub async fn update_driver_location(
 
                     let RedisValue::Array(res) = redis_pool.geopos(&on_ride_loc_key, res).await.unwrap() else {todo!()};
                     info!("New res: {:?}", res);
-                    let ride_id = serde_json::from_str::<RideId>(&on_ride_resp)
+                    let ride_id = serde_json::from_str::<RideDetails>(&on_ride_resp)
                         .unwrap()
                         .ride_id;
                     let loc: Vec<Point> = res
@@ -216,7 +217,7 @@ pub async fn update_driver_location(
 
                     let _: () = redis_pool.delete_key(&on_ride_loc_key).await.unwrap();
                 }
-                let ride_id = serde_json::from_str::<RideId>(&on_ride_resp)
+                let ride_id = serde_json::from_str::<RideDetails>(&on_ride_resp)
                 .unwrap()
                 .ride_id;
                 stream_updates(data.clone(), &merchant_id, &ride_id, loc).await;

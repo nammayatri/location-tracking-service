@@ -25,6 +25,21 @@ pub enum VehicleType {
     Hatchback,
 }
 
+#[derive(Debug, Clone, EnumString, Display, Serialize, Deserialize, Eq, Hash, PartialEq)]
+pub enum RideStatus {
+    NEW,
+    INPROGRESS,
+    COMPLETED,
+    CANCELLED,
+}
+
+#[derive(Debug, Clone, EnumString, Display, Serialize, Deserialize, Eq, Hash, PartialEq)]
+pub enum DriverMode {
+    ONLINE,
+    OFFLINE,
+    SILENT,
+}
+
 pub type DriverId = String;
 pub type MerchantId = String;
 pub type Latitude = f64;
@@ -53,10 +68,16 @@ pub struct MultiPolygonBody {
     pub multipolygon: MultiPolygon,
 }
 
-#[derive(Deserialize, Serialize, Clone, Debug)]
-pub struct RideId {
-    pub on_ride: bool,
+#[derive(Deserialize, Serialize, Clone, Debug, Eq, PartialEq)]
+pub struct RideDetails {
+    pub on_ride: RideStatus,
     pub ride_id: String,
+}
+
+#[derive(Deserialize, Serialize, Clone, Debug, Eq, PartialEq)]
+pub struct DriverDetails {
+    pub driver_id: DriverId,
+    pub driver_mode: DriverMode,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -183,6 +204,10 @@ impl AppState {
 
 pub fn on_ride_key(merchant_id: &String, city: &String, driver_id: &String) -> String {
     format!("ds:on_ride:{merchant_id}:{city}:{driver_id}")
+}
+
+pub fn driver_details_key(driver_id: &String) -> String {
+    format!("ds:driver_details:{driver_id}")
 }
 
 pub fn on_ride_loc_key(merchant_id: &String, city: &String, driver_id: &String) -> String {

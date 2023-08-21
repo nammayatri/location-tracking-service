@@ -365,3 +365,40 @@ impl RedisConnectionPool {
         Ok(output.unwrap())
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+    use crate::redis::client::types::{RedisConnectionPool, RedisSettings};
+    // use fred::types::{GeoPosition, GeoValue};
+    #[tokio::test]
+    async fn test_set_key() {
+        let is_success = tokio::task::spawn_blocking(move || {
+            futures::executor::block_on(async {
+                // Arrange
+                let pool = RedisConnectionPool::new(&RedisSettings::default())
+                    .await
+                    .expect("Failed to create Redis Connection Pool");
+                // Act
+                let result = pool.set_key("chakri", "value".to_string()).await;
+                print!("{:?}", pool.get_key::<String>("chakri").await);
+                // let result = pool
+                //     .geo_add(
+                //         "GeoAdd",
+                //         vec![GeoValue::new(GeoPosition::from((1.0, 2.0)), "value")],
+                //         None,
+                //         false,
+                //     )
+                //     .await;
+                // let result = pool.zremrange_by_rank("zremrange_by_rank_key", 0, 5).await;
+                // let result = pool.setnx_with_expiry("key", "value".to_string(), 40).await;
+                // Assert Setup
+                result.is_ok()
+            })
+        })
+        .await
+        .expect("Spawn block failure");
+        assert!(is_success);
+    }
+}
