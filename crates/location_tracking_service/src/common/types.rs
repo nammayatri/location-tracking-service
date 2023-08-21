@@ -14,14 +14,8 @@ pub enum VehicleType {
     #[strum(serialize = "AUTO_RICKSHAW")]
     #[serde(rename = "AUTO_RICKSHAW")]
     AutoRickshaw,
-    #[strum(serialize = "SEDAN")]
-    #[serde(rename = "SEDAN")]
     Sedan,
-    #[strum(serialize = "SUV")]
-    #[serde(rename = "SUV")]
     SUV,
-    #[strum(serialize = "HATCHBACK")]
-    #[serde(rename = "HATCHBACK")]
     Hatchback,
 }
 
@@ -48,7 +42,6 @@ pub type CityName = String;
 pub type TimeStamp = DateTime<Utc>;
 pub type Radius = f64;
 pub type Accuracy = i32;
-pub type Key = String;
 pub type Token = String;
 
 #[derive(Debug, Serialize)]
@@ -70,7 +63,7 @@ pub struct MultiPolygonBody {
 
 #[derive(Deserialize, Serialize, Clone, Debug, Eq, PartialEq)]
 pub struct RideDetails {
-    pub on_ride: RideStatus,
+    pub ride_status: RideStatus,
     pub ride_id: String,
 }
 
@@ -100,10 +93,12 @@ pub struct AppState {
     pub entries: Arc<Mutex<HashMap<Dimensions, Vec<(Longitude, Latitude, DriverId)>>>>,
     pub polygon: Vec<MultiPolygonBody>,
     pub auth_url: String,
+    pub auth_api_key: String,
     pub bulk_location_callback_url: String,
     pub token_expiry: u32,
     pub location_expiry: u64,
     pub on_ride_expiry: u32,
+    pub min_location_accuracy: u32,
     pub test_location_expiry: usize,
     pub location_update_limit: usize,
     pub location_update_interval: u64,
@@ -118,14 +113,14 @@ impl AppState {
         key: &str,
         frame_hits_lim: usize,
         frame_len: u32,
-        redis_pool: &tokio::sync::MutexGuard<'_, RedisConnectionPool>,
+        generic_redis_pool: &tokio::sync::MutexGuard<'_, RedisConnectionPool>,
     ) -> Result<Vec<i64>, AppError> {
         let curr_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("Time went backwards")
             .as_secs() as i64;
 
-        let hits = redis_pool.get_key::<String>(key).await.unwrap();
+        let hits = generic_redis_pool.get_key::<String>(key).await.unwrap();
         let nil_string = String::from("nil");
         let hits = if hits == nil_string {
             vec![]
@@ -142,7 +137,7 @@ impl AppState {
             return Err(AppError::HitsLimitExceeded);
         }
 
-        let _ = redis_pool.set_with_expiry(key, serde_json::to_string(&filt_hits).unwrap(), frame_len).await;
+        let _ = generic_redis_pool.set_with_expiry(key, serde_json::to_string(&filt_hits).unwrap(), frame_len).await;
 
         Ok(filt_hits)
     }
@@ -202,22 +197,27 @@ impl AppState {
     }
 }
 
+// Generic Redis
 pub fn on_ride_key(merchant_id: &String, city: &String, driver_id: &String) -> String {
     format!("ds:on_ride:{merchant_id}:{city}:{driver_id}")
 }
 
+// Generic Redis
 pub fn driver_details_key(driver_id: &String) -> String {
     format!("ds:driver_details:{driver_id}")
 }
 
-pub fn on_ride_loc_key(merchant_id: &String, city: &String, driver_id: &String) -> String {
-    format!("dl:loc:{merchant_id}:{city}:{driver_id}")
-}
-
+// Generic Redis
 pub fn driver_loc_ts_key(driver_id: &String) -> String {
     format!("dl:ts:{}", driver_id)
 }
 
+// Location Redis
+pub fn on_ride_loc_key(merchant_id: &String, city: &String, driver_id: &String) -> String {
+    format!("dl:loc:{merchant_id}:{city}:{driver_id}")
+}
+
+// Location Redis
 pub fn driver_loc_bucket_key(
     merchant_id: &String,
     city: &String,

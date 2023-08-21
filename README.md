@@ -52,3 +52,8 @@ Run `nix run nixpkgs#nixci` locally to make sure that the project builds. The CI
 4. **Main redis cache**: (dl:loc:merchant_id:city:vehicle_type:bucket, (driver_id, (longitude, latitude)))
 5. **Driver location ts**: (dl:ts:driver_id, timestamp)
 6. **redis keys of all vt**: (dl:loc:{merchant_id}:{city}:*:{bucket}, allVtKeys)
+
+# Start up redis
+
+1. **Start Location Redis** `redis-server --port 6380`
+2. **Start Generic Redis** `redis-server --port 6381`

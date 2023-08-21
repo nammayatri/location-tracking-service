@@ -1,42 +1,29 @@
 use actix_web::web::Data;
 use fred::types::RedisValue;
-use geo::{point, Intersects};
-
-use crate::{domain::types::internal::ride::*, common::{types::*, errors::AppError, self}};
+use crate::{domain::types::internal::ride::*, common::{types::*, utils::get_city, errors::AppError}};
 
 pub async fn ride_start(
     ride_id: String,
     data: Data<AppState>,
     request_body: RideStartRequest,
 ) -> Result<APISuccess, AppError> {
-    let mut city = String::new();
-    let mut intersection = false;
-    for multi_polygon_body in &data.polygon {
-        intersection = multi_polygon_body
-            .multipolygon
-            .intersects(&point!(x: request_body.lon, y: request_body.lat));
-        if intersection {
-            city = multi_polygon_body.region.clone();
-            break;
-        }
-    }
-
-    if !intersection {
-        return Err(AppError::Unserviceable);
-    }
+    let city = get_city(request_body.lat, request_body.lon, data.polygon.clone())?;
 
     let value = RideDetails {
-        on_ride: common::types::RideStatus::INPROGRESS,
+        ride_status: RideStatus::INPROGRESS,
         ride_id,
     };
     let value = serde_json::to_string(&value).unwrap();
 
-    let key = on_ride_key(&request_body.merchant_id, &city, &request_body.driver_id);
-    println!("key: {}", key);
-
-    let redis_pool = data.generic_redis.lock().await;
-    let _ = redis_pool
-        .set_with_expiry(&key, value, data.on_ride_expiry)
+    let _ = data
+        .generic_redis
+        .lock()
+        .await
+        .set_with_expiry(
+            &on_ride_key(&request_body.merchant_id, &city, &request_body.driver_id),
+            value,
+            data.on_ride_expiry,
+        )
         .await;
 
     Ok(APISuccess::default())
@@ -47,40 +34,28 @@ pub async fn ride_end(
     data: Data<AppState>,
     request_body: RideEndRequest,
 ) -> Result<RideEndResponse, AppError> {
-    let mut city = String::new();
-    let mut intersection = false;
-    for multi_polygon_body in &data.polygon {
-        intersection = multi_polygon_body
-            .multipolygon
-            .intersects(&point!(x: request_body.lon, y: request_body.lat));
-        if intersection {
-            city = multi_polygon_body.region.clone();
-            break;
-        }
-    }
-
-    if !intersection {
-        return Err(AppError::Unserviceable);
-    }
+    let city = get_city(request_body.lat, request_body.lon, data.polygon.clone())?;
 
     let value = RideDetails {
-        on_ride: common::types::RideStatus::COMPLETED,
+        ride_status: RideStatus::COMPLETED,
         ride_id: ride_id.clone(),
     };
     let value = serde_json::to_string(&value).unwrap();
 
-    let key = on_ride_key(&request_body.merchant_id, &city, &request_body.driver_id);
-    println!("key: {}", key);
+    let _ = data
+        .generic_redis
+        .lock()
+        .await
+        .set_with_expiry(
+            &on_ride_key(&request_body.merchant_id, &city, &request_body.driver_id),
+            value,
+            data.on_ride_expiry,
+        )
+        .await
+        .unwrap();
 
-    let redis_pool = data.generic_redis.lock().await;
-    let _ = redis_pool
-        .set_with_expiry(&key, value, data.on_ride_expiry)
-        .await.unwrap();
-
-    let key = on_ride_loc_key(&request_body.merchant_id, &city, &request_body.driver_id);
-
-    let RedisValue::Array(res) = redis_pool
-        .zrange(&key, 0, -1, None, false, None, false)
+    let RedisValue::Array(res) = data.location_redis.lock().await
+        .zrange(&on_ride_loc_key(&request_body.merchant_id, &city, &request_body.driver_id), 0, -1, None, false, None, false)
         .await
         .unwrap() else {todo!()};
 
@@ -94,11 +69,18 @@ pub async fn ride_end(
 
     res.sort();
 
-    println!("res: {:?}", res);
-
-    let RedisValue::Array(res) = redis_pool.geopos(&key, res).await.unwrap() else {todo!()};
-    let _: () = redis_pool.delete_key(&key).await.unwrap();
-
+    let RedisValue::Array(res) = data.location_redis.lock().await.geopos(&on_ride_loc_key(&request_body.merchant_id, &city, &request_body.driver_id), res).await.unwrap() else {todo!()};
+    let _: () = data
+        .location_redis
+        .lock()
+        .await
+        .delete_key(&on_ride_loc_key(
+            &request_body.merchant_id,
+            &city,
+            &request_body.driver_id,
+        ))
+        .await
+        .unwrap();
 
     let mut loc: Vec<Point> = Vec::new();
     for item in res {
@@ -120,33 +102,16 @@ pub async fn ride_details(
     data: Data<AppState>,
     request_body: RideDetailsRequest,
 ) -> Result<APISuccess, AppError> {
-    let mut city = String::new();
-    let mut intersection = false;
-    for multi_polygon_body in &data.polygon {
-        intersection = multi_polygon_body
-            .multipolygon
-            .intersects(&point!(x: request_body.lon, y: request_body.lat));
-        if intersection {
-            city = multi_polygon_body.region.clone();
-            break;
-        }
-    }
+    let city = get_city(request_body.lat, request_body.lon, data.polygon.clone())?;
 
-    if !intersection {
-        return Err(AppError::Unserviceable);
-        
-    }
-
-    let key = on_ride_key(&request_body.merchant_id, &city, &request_body.driver_id);
     let value = RideDetails {
-        on_ride: request_body.ride_status,
+        ride_status: request_body.ride_status,
         ride_id: request_body.ride_id
     };
     let value = serde_json::to_string(&value).unwrap();
 
-    let redis_pool = data.generic_redis.lock().await;
-    let result = redis_pool
-        .set_with_expiry(&key, value, data.on_ride_expiry)
+    let result = data.generic_redis.lock().await
+        .set_with_expiry(&on_ride_key(&request_body.merchant_id, &city, &request_body.driver_id), value, data.on_ride_expiry)
         .await;
     if result.is_err() {
         return Err(AppError::InternalServerError);

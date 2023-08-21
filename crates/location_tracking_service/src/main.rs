@@ -27,10 +27,12 @@ pub struct AppConfig {
     pub location_redis_cfg: RedisConfig,
     pub generic_redis_cfg: RedisConfig,
     pub auth_url: String,
+    pub auth_api_key: String,
     pub bulk_location_callback_url: String,
     pub token_expiry: u32,
     pub location_expiry: u64,
     pub on_ride_expiry: u32,
+    pub min_location_accuracy: u32,
     pub test_location_expiry: usize,
     pub location_update_limit: usize,
     pub location_update_interval: u64,
@@ -100,9 +102,11 @@ pub async fn make_app_state(app_config: AppConfig) -> AppState {
         entries,
         polygon: polygons,
         auth_url: app_config.auth_url,
+        auth_api_key: app_config.auth_api_key,
         bulk_location_callback_url: app_config.bulk_location_callback_url,
         token_expiry: app_config.token_expiry,
         location_expiry: app_config.location_expiry,
+        min_location_accuracy: app_config.min_location_accuracy,
         on_ride_expiry: app_config.on_ride_expiry,
         test_location_expiry: app_config.test_location_expiry,
         location_update_limit: app_config.location_update_limit,
@@ -138,18 +142,17 @@ async fn run_scheduler(data: web::Data<AppState>) {
         let key = driver_loc_bucket_key(merchant_id, city, &vehicle_type.to_string(), &bucket);
 
         if !entries.is_empty() {
-            let redis_pool = data.location_redis.lock().await;
-            let num = redis_pool.zcard(&key).await.expect("unable to zcard");
-            let _: () = redis_pool
+            // let num = data.location_redis.lock().await.zcard(&key).await.expect("unable to zcard");
+            let _: () = data.location_redis.lock().await
                 .geo_add(&key, multiple_geo_values, None, false)
                 .await
                 .expect("Couldn't add to redis");
-            if num == 0 {
-                let _: () = redis_pool
-                    .set_expiry(&key, data.test_location_expiry.try_into().unwrap())
-                    .await
-                    .expect("Unable to set expiry");
-            }
+            // if num == 0 {
+            //     let _: () = data.location_redis.lock()
+            //         .set_expiry(&key, data.test_location_expiry.try_into().unwrap())
+            //         .await
+            //         .expect("Unable to set expiry");
+            // }
             info!("Entries: {:?}\nSending to redis server", entries);
             info!("^ Merchant id: {merchant_id}, City: {city}, Vt: {vehicle_type}, key: {key}\n");
         }
