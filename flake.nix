@@ -42,8 +42,12 @@
               ]) ++ [
               pkgs.libiconv
               pkgs.openssl
+              pkgs.rdkafka
             ];
-            nativeBuildInputs = [ pkgs.pkg-config ];
+            nativeBuildInputs = [
+              pkgs.pkg-config
+              pkgs.cmake
+            ];
           };
         in
         {
