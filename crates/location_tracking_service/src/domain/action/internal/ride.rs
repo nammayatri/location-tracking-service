@@ -1,6 +1,10 @@
+use crate::{
+    common::{redis::*, types::*, utils::get_city},
+    domain::types::internal::ride::*,
+};
 use actix_web::web::Data;
 use fred::types::RedisValue;
-use crate::{domain::types::internal::ride::*, common::{types::*, utils::get_city, errors::AppError, redis::*}};
+use shared::tools::error::AppError;
 
 pub async fn ride_start(
     ride_id: String,
@@ -106,16 +110,23 @@ pub async fn ride_details(
 
     let value = RideDetails {
         ride_status: request_body.ride_status,
-        ride_id: request_body.ride_id
+        ride_id: request_body.ride_id,
     };
     let value = serde_json::to_string(&value).unwrap();
 
-    let result = data.generic_redis.lock().await
-        .set_with_expiry(&on_ride_key(&request_body.merchant_id, &city, &request_body.driver_id), value, data.on_ride_expiry)
+    let result = data
+        .generic_redis
+        .lock()
+        .await
+        .set_with_expiry(
+            &on_ride_key(&request_body.merchant_id, &city, &request_body.driver_id),
+            value,
+            data.on_ride_expiry,
+        )
         .await;
     if result.is_err() {
         return Err(AppError::InternalServerError);
     }
-    
+
     Ok(APISuccess::default())
 }

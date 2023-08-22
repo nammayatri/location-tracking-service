@@ -2,6 +2,7 @@ use actix_web::middleware::Logger;
 use actix_web::{web, App, HttpServer};
 use env_logger::Env;
 use fred::types::{GeoPosition, GeoValue, MultipleGeoValues};
+use rdkafka::error::KafkaError;
 use shared::redis::interface::types::{RedisConnectionPool, RedisSettings};
 use shared::utils::{logger::*, prometheus::*};
 use std::env::var;
@@ -86,14 +87,25 @@ pub async fn make_app_state(app_config: AppConfig) -> AppState {
     let entries = Arc::new(Mutex::new(HashMap::new()));
     let polygons = read_geo_polygon("./config").expect("Failed to read geoJSON");
 
-    let producer: FutureProducer = ClientConfig::new()
+    let producer: Option<FutureProducer>;
+
+    let result: Result<FutureProducer, KafkaError> = ClientConfig::new()
         .set(
             app_config.kafka_cfg.kafka_key,
             app_config.kafka_cfg.kafka_host,
         )
         .set("compression.type", "lz4")
-        .create()
-        .expect("Producer creation error");
+        .create();
+
+    match result {
+        Ok(val) => {
+            producer = Some(val);
+        }
+        Err(e) => {
+            producer = None;
+            info!("Error connecting to kafka config: {}", e);
+        }
+    }
 
     AppState {
         location_redis,

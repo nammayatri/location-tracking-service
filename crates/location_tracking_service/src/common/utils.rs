@@ -1,7 +1,12 @@
+use super::types::*;
 use geo::{point, Intersects};
-use super::{errors::AppError, types::*};
+use shared::tools::error::AppError;
 
-pub fn get_city(lat: Latitude, lon: Longitude, polygon: Vec<MultiPolygonBody>) -> Result<String, AppError> {
+pub fn get_city(
+    lat: Latitude,
+    lon: Longitude,
+    polygon: Vec<MultiPolygonBody>,
+) -> Result<String, AppError> {
     let mut city = String::new();
     let mut intersection = false;
 

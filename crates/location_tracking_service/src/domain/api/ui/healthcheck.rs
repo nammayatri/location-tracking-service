@@ -4,9 +4,11 @@ use actix_web::{
 };
 
 use crate::{
-    common::{errors::AppError, types::*, redis::*},
+    common::{redis::*, types::*},
     domain::types::internal::ride::ResponseData,
 };
+
+use shared::tools::error::AppError;
 
 #[get("/healthcheck")]
 async fn health_check(data: Data<AppState>) -> Result<Json<ResponseData>, AppError> {

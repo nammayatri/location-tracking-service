@@ -1,14 +1,17 @@
-use std::time::Instant;
+// use std::time::Instant;
 
-use crate::common::{errors::*, types::*, utils::get_city, redis::*};
+use crate::common::{redis::*, types::*, utils::get_city};
 use crate::domain::types::ui::location::*;
 use actix_web::web::Data;
 use chrono::{DateTime, Utc};
 use fred::types::{GeoPosition, GeoValue, RedisValue};
-use rdkafka::producer::{FutureProducer, FutureRecord};
+use rdkafka::producer::FutureRecord;
 use rdkafka::util::Timeout;
-use reqwest::header::CONTENT_TYPE;
+use reqwest::header::{HeaderMap, HeaderValue, CONTENT_TYPE};
+use reqwest::Method;
 use serde::{Deserialize, Serialize};
+use shared::tools::error::AppError;
+use shared::utils::callapi::*;
 use shared::utils::logger::*;
 use std::time::Duration;
 
@@ -44,13 +47,19 @@ async fn stream_updates(
 
     let message = serde_json::to_string(&loc).unwrap();
 
-    let producer: FutureProducer = data.producer.clone();
-    _ = producer
-        .send(
-            FutureRecord::to(topic).key(key).payload(&message),
-            Timeout::After(Duration::from_secs(0)),
-        )
-        .await;
+    match &data.producer {
+        Some(producer) => {
+            _ = producer
+                .send(
+                    FutureRecord::to(topic).key(key).payload(&message),
+                    Timeout::After(Duration::from_secs(0)),
+                )
+                .await;
+        }
+        None => {
+            info!("Producer is None, unable to send message");
+        }
+    }
 }
 
 pub async fn update_driver_location(
@@ -60,7 +69,7 @@ pub async fn update_driver_location(
     data: Data<AppState>,
     mut request_body: Vec<UpdateDriverLocationRequest>,
 ) -> Result<APISuccess, AppError> {
-    let start = Instant::now();
+    // let start = Instant::now();
     let city = get_city(
         request_body[0].pt.lat,
         request_body[0].pt.lon,
@@ -75,24 +84,36 @@ pub async fn update_driver_location(
         .await
         .unwrap();
 
-    if driver_id != "nil".to_string() {
-        let resp = reqwest::Client::new()
-            .get(&data.auth_url)
-            .header("token", token.clone())
-            .header("api-key", data.auth_api_key.as_str())
-            .header("merchant-id", merchant_id.clone())
-            .send()
-            .await
-            .expect("resp not received");
+    if driver_id == "nil".to_string() {
+        let mut headers = HeaderMap::new();
+        headers.insert("token", HeaderValue::from_str(&token).unwrap());
+        headers.insert(
+            "api-key",
+            HeaderValue::from_str(data.auth_api_key.as_str()).unwrap(),
+        );
+        headers.insert("merchant-id", HeaderValue::from_str(&merchant_id).unwrap());
 
-        let status = resp.status();
-        let response_body = resp.text().await.unwrap();
+        let response: AuthResponseData =
+            call_api(Method::GET, &data.auth_url, headers.clone(), None).await?;
 
-        if status != 200 {
-            return Err(AppError::DriverAppAuthFailed(start.elapsed()));
-        }
+        // let resp = reqwest::Client::new()
+        //     .get(&data.auth_url)
+        //     .header("token", token.clone())
+        //     .header("api-key", data.auth_api_key.as_str())
+        //     .header("merchant-id", merchant_id.clone())
+        //     .send()
+        //     .await
+        //     .expect("resp not received");
+        // print!("{}", resp);
 
-        let response = serde_json::from_str::<AuthResponseData>(&response_body).unwrap();
+        // let status = resp.status();
+        // let response_body = resp.text().await.unwrap();
+
+        // if status != 200 {
+        //     return Err(AppError::DriverAppAuthFailed(start.elapsed()));
+        // }
+
+        // let response = serde_json::from_str::<AuthResponseData>(&resp).unwrap();
 
         let _: () = data
             .generic_redis
@@ -185,7 +206,7 @@ pub async fn update_driver_location(
                 let RedisValue::Array(res) = data.location_redis.lock().await.geopos(&on_ride_loc_key(&merchant_id, &city, &driver_id), res).await.unwrap() else {todo!()};
                 info!("New res: {:?}", res);
 
-                stream_updates(data.clone(), &merchant_id, &on_ride_resp.ride_id, loc).await;
+                let _ = stream_updates(data.clone(), &merchant_id, &on_ride_resp.ride_id, loc);
 
                 let loc: Vec<Point> = res
                     .into_iter()
@@ -210,19 +231,33 @@ pub async fn update_driver_location(
 
                 info!("json: {:?}", json);
 
-                let body = reqwest::Client::new()
-                    .post(&data.bulk_location_callback_url)
-                    .header(CONTENT_TYPE, "application/json")
-                    .body(serde_json::to_string(&json).unwrap())
-                    .send()
-                    .await
-                    .unwrap();
-                let status = body.status();
-                let response_body = body.text().await.unwrap();
-                info!("response body: {}", response_body);
-                if status != 200 {
-                    return Err(AppError::DriverBulkLocationUpdateFailed);
-                }
+                let mut headers = HeaderMap::new();
+                headers.insert(
+                    CONTENT_TYPE,
+                    HeaderValue::from_str("application/json").unwrap(),
+                );
+
+                let _: APISuccess = call_api(
+                    Method::POST,
+                    &data.bulk_location_callback_url,
+                    headers.clone(),
+                    Some(&serde_json::to_string(&json).unwrap()),
+                )
+                .await?;
+
+                // let body = reqwest::Client::new()
+                //     .post(&data.bulk_location_callback_url)
+                //     .header(CONTENT_TYPE, "application/json")
+                //     .body(serde_json::to_string(&json).unwrap())
+                //     .send()
+                //     .await
+                //     .unwrap();
+                // let status = body.status();
+                // let response_body = body.text().await.unwrap();
+                // info!("response body: {}", response_body);
+                // if status != 200 {
+                //     return Err(AppError::DriverBulkLocationUpdateFailed);
+                // }
 
                 let _: () = data
                     .location_redis

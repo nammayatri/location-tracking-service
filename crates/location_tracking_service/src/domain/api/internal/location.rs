@@ -1,6 +1,14 @@
-use actix_web::{HttpRequest, web::{Data, Json}, get};
+use actix_web::{
+    get,
+    web::{Data, Json},
+    HttpRequest,
+};
 
-use crate::{common::{types::*, errors::AppError}, domain::{types::internal::location::*, action::internal::*}};
+use crate::{
+    common::types::*,
+    domain::{action::internal::*, types::internal::location::*},
+};
+use shared::tools::error::AppError;
 
 #[get("/internal/drivers/nearby")]
 async fn get_nearby_drivers(
@@ -10,5 +18,7 @@ async fn get_nearby_drivers(
 ) -> Result<Json<NearbyDriverResponse>, AppError> {
     let request_body = param_obj.into_inner();
 
-    Ok(Json(location::get_nearby_drivers(data, request_body).await?))
+    Ok(Json(
+        location::get_nearby_drivers(data, request_body).await?,
+    ))
 }

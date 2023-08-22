@@ -1,7 +1,7 @@
-pub mod ui;
 pub mod internal;
+pub mod ui;
 
-use actix_web::web::{ServiceConfig};
+use actix_web::web::ServiceConfig;
 
 pub fn handler(config: &mut ServiceConfig) {
     config
