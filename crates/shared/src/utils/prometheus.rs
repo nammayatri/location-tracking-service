@@ -1,21 +1,22 @@
-use prometheus::{HistogramVec, register_histogram_vec, opts};
-use actix_web_prom::{PrometheusMetricsBuilder, PrometheusMetrics};
+use actix_web_prom::{PrometheusMetrics, PrometheusMetricsBuilder};
+use prometheus::{opts, register_histogram_vec, HistogramVec};
 
 pub static INCOMING_API: once_cell::sync::Lazy<HistogramVec> = once_cell::sync::Lazy::new(|| {
     register_histogram_vec!(
         opts!("incoming_api", "Incoming API requests").into(),
         &["method", "endpoint", "status"]
     )
-    .expect("Failed to register incoming API metrics")  
+    .expect("Failed to register incoming API metrics")
 });
 
-pub static CALL_EXTERNAL_API: once_cell::sync::Lazy<HistogramVec> = once_cell::sync::Lazy::new(|| {
-    register_histogram_vec!(
-        opts!("call_external_api", "Call external API requests").into(),
-        &["method", "host", "endpoint", "status"]
-    )
-    .expect("Failed to register call external API metrics")  
-});
+pub static CALL_EXTERNAL_API: once_cell::sync::Lazy<HistogramVec> =
+    once_cell::sync::Lazy::new(|| {
+        register_histogram_vec!(
+            opts!("call_external_api", "Call external API requests").into(),
+            &["method", "host", "endpoint", "status"]
+        )
+        .expect("Failed to register call external API metrics")
+    });
 
 #[macro_export]
 macro_rules! incoming_api {

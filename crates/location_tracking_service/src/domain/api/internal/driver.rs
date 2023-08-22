@@ -1,6 +1,12 @@
-use actix_web::{web::{Data, Json}, post};
+use actix_web::{
+    post,
+    web::{Data, Json},
+};
 
-use crate::{common::{types::*, errors::AppError}, domain::{types::internal::driver::*, action::internal::*}};
+use crate::{
+    common::{errors::AppError, types::*},
+    domain::{action::internal::*, types::internal::driver::*},
+};
 
 #[post("/internal/driver/driverDetails")]
 async fn driver_details(

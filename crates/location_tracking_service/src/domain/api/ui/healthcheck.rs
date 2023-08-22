@@ -4,7 +4,7 @@ use actix_web::{
 };
 
 use crate::{
-    common::{errors::AppError, types::*, redis::*},
+    common::{errors::AppError, redis::*, types::*},
     domain::types::internal::ride::ResponseData,
 };
 

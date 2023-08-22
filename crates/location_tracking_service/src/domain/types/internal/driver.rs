@@ -1,5 +1,5 @@
-use serde::{Serialize, Deserialize};
 use crate::common::types::*;
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]

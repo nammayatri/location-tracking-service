@@ -1,6 +1,6 @@
 use crate::common::types::*;
-use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct UpdateDriverLocationRequest {

@@ -52,15 +52,3 @@ Run `nix run nixpkgs#nixci` locally to make sure that the project builds. The CI
 4. **Main redis cache**: (dl:loc:merchant_id:city:vehicle_type:bucket, (driver_id, (longitude, latitude)))
 5. **Driver location ts**: (dl:ts:driver_id, timestamp)
 6. **redis keys of all vt**: (dl:loc:{merchant_id}:{city}:*:{bucket}, allVtKeys)
-
-# Redis Setup
-
-1. **Install & Start Redis** `brew install redis && brew services start redis`
-2. **Start Location Redis** `redis-server --port 6380`
-3. **Start Generic Redis** `redis-server --port 6381`
-
-# Kafka Setup
-
-1. **Install & Start Kafka** `brew install kafka && brew services start kafka`
-2. **Start Zookeeper** `zookeeper-server-start`
-3. **Start Zookeeper** `zookeeper-server-start`

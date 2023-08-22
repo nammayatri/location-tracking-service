@@ -1,13 +1,14 @@
 use actix_web::web::Data;
 
-use crate::{domain::types::internal::driver::*, common::{types::*, errors::AppError, redis::*}};
-
+use crate::{
+    common::{errors::AppError, redis::*, types::*},
+    domain::types::internal::driver::*,
+};
 
 pub async fn driver_details(
     data: Data<AppState>,
     request_body: DriverDetailsRequest,
 ) -> Result<APISuccess, AppError> {
-
     let key = driver_details_key(&request_body.driver_id);
     let value = DriverDetails {
         driver_id: request_body.driver_id,
@@ -22,6 +23,6 @@ pub async fn driver_details(
     if result.is_err() {
         return Err(AppError::InternalServerError);
     }
-    
+
     Ok(APISuccess::default())
 }

@@ -1,5 +1,5 @@
+use crate::redis::client::{error, types::RedisConnectionPool};
 use crate::utils::logger::instrument;
-use crate::redis::client::{types::RedisConnectionPool, error};
 use error_stack::{IntoReport, ResultExt};
 use fred::{
     interfaces::{GeoInterface, HashesInterface, KeysInterface, SortedSetsInterface},
@@ -18,7 +18,8 @@ impl RedisConnectionPool {
         V: TryInto<RedisValue> + Debug + Send + Sync,
         V::Error: Into<fred::error::RedisError> + Send + Sync,
     {
-        let output: Result<(), _> = self.pool
+        let output: Result<(), _> = self
+            .pool
             .set(
                 key,
                 value,
@@ -49,7 +50,8 @@ impl RedisConnectionPool {
         V: TryInto<RedisValue> + Debug + Send + Sync,
         V::Error: Into<fred::error::RedisError> + Send + Sync,
     {
-        let output: Result<(), _> = self.pool
+        let output: Result<(), _> = self
+            .pool
             .set(key, value, Some(Expiration::EX(expiry.into())), None, false)
             .await
             .into_report()
@@ -91,12 +93,9 @@ impl RedisConnectionPool {
     }
 
     #[instrument(level = "DEBUG", skip(self))]
-    pub async fn set_expiry(
-        &self,
-        key: &str,
-        seconds: i64,
-    ) -> Result<(), error::RedisError> {
-        let output: Result<(), _> = self.pool
+    pub async fn set_expiry(&self, key: &str, seconds: i64) -> Result<(), error::RedisError> {
+        let output: Result<(), _> = self
+            .pool
             .expire(key, seconds)
             .await
             .into_report()
@@ -115,7 +114,8 @@ impl RedisConnectionPool {
     where
         V: FromRedis + Unpin + Send + 'static,
     {
-        let output: Result<V, _> = self.pool
+        let output: Result<V, _> = self
+            .pool
             .get(key)
             .await
             .into_report()
@@ -131,7 +131,8 @@ impl RedisConnectionPool {
     // delete key
     #[instrument(level = "DEBUG", skip(self))]
     pub async fn delete_key(&self, key: &str) -> Result<(), error::RedisError> {
-        let output: Result<(), _> = self.pool
+        let output: Result<(), _> = self
+            .pool
             .del(key)
             .await
             .into_report()
@@ -146,11 +147,7 @@ impl RedisConnectionPool {
 
     //HSET
     #[instrument(level = "DEBUG", skip(self))]
-    pub async fn set_hash_fields<V>(
-        &self,
-        key: &str,
-        values: V,
-    ) -> Result<(), error::RedisError>
+    pub async fn set_hash_fields<V>(&self, key: &str, values: V) -> Result<(), error::RedisError>
     where
         V: TryInto<RedisMap> + Debug + Send + Sync,
         V::Error: Into<fred::error::RedisError> + Send + Sync,
@@ -175,15 +172,12 @@ impl RedisConnectionPool {
 
     //HGET
     #[instrument(level = "DEBUG", skip(self))]
-    pub async fn get_hash_field<V>(
-        &self,
-        key: &str,
-        field: &str,
-    ) -> Result<V, error::RedisError>
+    pub async fn get_hash_field<V>(&self, key: &str, field: &str) -> Result<V, error::RedisError>
     where
         V: FromRedis + Unpin + Send + 'static,
     {
-        let output: Result<V, _> = self.pool
+        let output: Result<V, _> = self
+            .pool
             .hget(key, field)
             .await
             .into_report()
@@ -208,7 +202,8 @@ impl RedisConnectionPool {
     where
         V: Into<MultipleGeoValues> + Send + Debug,
     {
-        let output: Result<(), _> = self.pool
+        let output: Result<(), _> = self
+            .pool
             .geoadd(key, options, changed, values)
             .await
             .into_report()
@@ -236,7 +231,8 @@ impl RedisConnectionPool {
         withdist: bool,
         withhash: bool,
     ) -> Result<Vec<GeoRadiusInfo>, error::RedisError> {
-        let output: Result<Vec<GeoRadiusInfo>, _> = self.pool
+        let output: Result<Vec<GeoRadiusInfo>, _> = self
+            .pool
             .geosearch(
                 key,
                 from_member,
@@ -266,7 +262,8 @@ impl RedisConnectionPool {
         key: &str,
         members: Vec<String>,
     ) -> Result<RedisValue, error::RedisError> {
-        let output: Result<RedisValue, _> = self.pool
+        let output: Result<RedisValue, _> = self
+            .pool
             .geopos(key, members)
             .await
             .into_report()
@@ -287,7 +284,8 @@ impl RedisConnectionPool {
         start: i64,
         stop: i64,
     ) -> Result<(), error::RedisError> {
-        let output: Result<(), _> = self.pool
+        let output: Result<(), _> = self
+            .pool
             .zremrangebyrank(key, start, stop)
             .await
             .into_report()
@@ -311,7 +309,8 @@ impl RedisConnectionPool {
         incr: bool,
         values: Vec<(f64, &str)>,
     ) -> Result<(), error::RedisError> {
-        let output: Result<(), _> = self.pool
+        let output: Result<(), _> = self
+            .pool
             .zadd(key, options, ordering, changed, incr, values)
             .await
             .into_report()
@@ -327,7 +326,8 @@ impl RedisConnectionPool {
     //ZCARD
     #[instrument(level = "DEBUG", skip(self))]
     pub async fn zcard(&self, key: &str) -> Result<u64, error::RedisError> {
-        let output: Result<u64, _> = self.pool
+        let output: Result<u64, _> = self
+            .pool
             .zcard(key)
             .await
             .into_report()
@@ -351,7 +351,8 @@ impl RedisConnectionPool {
         limit: Option<Limit>,
         withscores: bool,
     ) -> Result<RedisValue, error::RedisError> {
-        let output: Result<RedisValue, _> = self.pool
+        let output: Result<RedisValue, _> = self
+            .pool
             .zrange(key, min, max, sort, rev, limit, withscores)
             .await
             .into_report()
@@ -364,7 +365,6 @@ impl RedisConnectionPool {
         Ok(output.unwrap())
     }
 }
-
 
 #[cfg(test)]
 mod tests {

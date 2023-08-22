@@ -7,8 +7,8 @@ use actix_web::{
 };
 
 use crate::{
-    common::types::*,
     common::errors::AppError,
+    common::types::*,
     domain::{action::ui::location, types::ui::location::UpdateDriverLocationRequest},
 };
 
@@ -39,5 +39,8 @@ pub async fn update_driver_location(
     let vehicle_type: VehicleType =
         VehicleType::from_str(req.headers().get("vt").unwrap().to_str().unwrap()).unwrap();
 
-    Ok(Json(location::update_driver_location(token, merchant_id, vehicle_type, data, request_body).await?))
+    Ok(Json(
+        location::update_driver_location(token, merchant_id, vehicle_type, data, request_body)
+            .await?,
+    ))
 }

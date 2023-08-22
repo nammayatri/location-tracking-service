@@ -28,6 +28,6 @@ geojson = "0.24.1"
 strum = "0.24.0"
 strum_macros = "0.24.0"
 enum-iterator = "1.4.0"
-rdkafka = "0.26"
+rdkafka = {version = "0.33.2", features = ["cmake-build"] }
 
 shared = { version = "0.1.0", path = "../shared" }

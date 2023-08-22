@@ -1,13 +1,17 @@
+use super::errors::AppError;
 use chrono::{DateTime, Utc};
 use geo::MultiPolygon;
+use rdkafka::producer::FutureProducer;
 use serde::{Deserialize, Serialize};
 use shared::redis::interface::types::RedisConnectionPool;
 use shared::utils::logger::*;
+use std::{
+    collections::HashMap,
+    sync::Arc,
+    time::{SystemTime, UNIX_EPOCH},
+};
+use strum_macros::{Display, EnumString};
 use tokio::sync::Mutex;
-use std::{collections::HashMap, sync::Arc, time::{UNIX_EPOCH, SystemTime}};
-use strum_macros::{EnumString, Display};
-use super::errors::AppError;
-use rdkafka::producer::FutureProducer;
 
 #[derive(Debug, Clone, EnumString, Display, Serialize, Deserialize, Eq, Hash, PartialEq)]
 pub enum VehicleType {
@@ -46,12 +50,14 @@ pub type Token = String;
 
 #[derive(Debug, Serialize)]
 pub struct APISuccess {
-    result : String
+    result: String,
 }
 
 impl Default for APISuccess {
     fn default() -> Self {
-        Self { result: "success".to_string() }
+        Self {
+            result: "success".to_string(),
+        }
     }
 }
 
@@ -137,7 +143,9 @@ impl AppState {
             return Err(AppError::HitsLimitExceeded);
         }
 
-        let _ = generic_redis_pool.set_with_expiry(key, serde_json::to_string(&filt_hits).unwrap(), frame_len).await;
+        let _ = generic_redis_pool
+            .set_with_expiry(key, serde_json::to_string(&filt_hits).unwrap(), frame_len)
+            .await;
 
         Ok(filt_hits)
     }
