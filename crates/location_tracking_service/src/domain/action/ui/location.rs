@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use crate::common::{errors::*, types::*, utils::get_city};
+use crate::common::{errors::*, types::*, utils::get_city, redis::*};
 use crate::domain::types::ui::location::*;
 use actix_web::web::Data;
 use chrono::{DateTime, Utc};
@@ -257,7 +257,7 @@ pub async fn update_driver_location(
         let _ = data.generic_redis.lock().await.set_with_expiry(
             &driver_loc_ts_key(&driver_id),
             (Utc::now()).to_rfc3339(), // Should be timestamp of last driver location
-            data.test_location_expiry.try_into().unwrap(),
+            data.redis_expiry.try_into().unwrap(),
         );
 
         let mut entries = data.entries.lock().await;

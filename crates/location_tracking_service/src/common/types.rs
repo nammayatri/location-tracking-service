@@ -96,10 +96,10 @@ pub struct AppState {
     pub auth_api_key: String,
     pub bulk_location_callback_url: String,
     pub token_expiry: u32,
-    pub location_expiry: u64,
+    pub bucket_expiry: u64,
     pub on_ride_expiry: u32,
     pub min_location_accuracy: u32,
-    pub test_location_expiry: usize,
+    pub redis_expiry: usize,
     pub location_update_limit: usize,
     pub location_update_interval: u64,
     pub producer: FutureProducer,
@@ -195,34 +195,4 @@ impl AppState {
     fn curr_frame_hits_filter(curr_frame: i64, time_frame: i64) -> bool {
         time_frame == curr_frame
     }
-}
-
-// Generic Redis
-pub fn on_ride_key(merchant_id: &String, city: &String, driver_id: &String) -> String {
-    format!("ds:on_ride:{merchant_id}:{city}:{driver_id}")
-}
-
-// Generic Redis
-pub fn driver_details_key(driver_id: &String) -> String {
-    format!("ds:driver_details:{driver_id}")
-}
-
-// Generic Redis
-pub fn driver_loc_ts_key(driver_id: &String) -> String {
-    format!("dl:ts:{}", driver_id)
-}
-
-// Location Redis
-pub fn on_ride_loc_key(merchant_id: &String, city: &String, driver_id: &String) -> String {
-    format!("dl:loc:{merchant_id}:{city}:{driver_id}")
-}
-
-// Location Redis
-pub fn driver_loc_bucket_key(
-    merchant_id: &String,
-    city: &String,
-    vehicle_type: &String,
-    bucket: &u64,
-) -> String {
-    format!("dl:loc:{merchant_id}:{city}:{vehicle_type}:{bucket}")
 }

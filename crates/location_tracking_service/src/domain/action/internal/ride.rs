@@ -1,6 +1,6 @@
 use actix_web::web::Data;
 use fred::types::RedisValue;
-use crate::{domain::types::internal::ride::*, common::{types::*, utils::get_city, errors::AppError}};
+use crate::{domain::types::internal::ride::*, common::{types::*, utils::get_city, errors::AppError, redis::*}};
 
 pub async fn ride_start(
     ride_id: String,

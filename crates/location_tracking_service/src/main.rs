@@ -12,7 +12,7 @@ use std::{collections::HashMap, sync::Arc};
 
 mod common;
 use common::geo_polygon::read_geo_polygon;
-use common::types::*;
+use common::{types::*, redis::*};
 
 mod domain;
 use domain::api;
@@ -30,10 +30,10 @@ pub struct AppConfig {
     pub auth_api_key: String,
     pub bulk_location_callback_url: String,
     pub token_expiry: u32,
-    pub location_expiry: u64,
+    pub bucket_expiry: u64,
     pub on_ride_expiry: u32,
     pub min_location_accuracy: u32,
-    pub test_location_expiry: usize,
+    pub redis_expiry: usize,
     pub location_update_limit: usize,
     pub location_update_interval: u64,
     pub kafka_cfg: KafkaConfig,
@@ -105,10 +105,10 @@ pub async fn make_app_state(app_config: AppConfig) -> AppState {
         auth_api_key: app_config.auth_api_key,
         bulk_location_callback_url: app_config.bulk_location_callback_url,
         token_expiry: app_config.token_expiry,
-        location_expiry: app_config.location_expiry,
+        bucket_expiry: app_config.bucket_expiry,
         min_location_accuracy: app_config.min_location_accuracy,
         on_ride_expiry: app_config.on_ride_expiry,
-        test_location_expiry: app_config.test_location_expiry,
+        redis_expiry: app_config.redis_expiry,
         location_update_limit: app_config.location_update_limit,
         location_update_interval: app_config.location_update_interval,
         producer,
@@ -119,7 +119,7 @@ pub async fn make_app_state(app_config: AppConfig) -> AppState {
 
 async fn run_scheduler(data: web::Data<AppState>) {
     let bucket =
-        Duration::as_secs(&SystemTime::elapsed(&UNIX_EPOCH).unwrap()) / data.location_expiry;
+        Duration::as_secs(&SystemTime::elapsed(&UNIX_EPOCH).unwrap()) / data.bucket_expiry;
     let mut entries = data.entries.lock().await;
 
     for (dimensions, entries) in entries.iter_mut() {
@@ -149,7 +149,7 @@ async fn run_scheduler(data: web::Data<AppState>) {
                 .expect("Couldn't add to redis");
             // if num == 0 {
             //     let _: () = data.location_redis.lock()
-            //         .set_expiry(&key, data.test_location_expiry.try_into().unwrap())
+            //         .set_expiry(&key, data.redis_expiry.try_into().unwrap())
             //         .await
             //         .expect("Unable to set expiry");
             // }

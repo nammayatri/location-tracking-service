@@ -1,31 +1,35 @@
-
 use actix_web::{
     get,
-    web::{Data,Json}
+    web::{Data, Json},
 };
 
 use crate::{
-    common::{types::*, errors::AppError},
+    common::{errors::AppError, types::*, redis::*},
     domain::types::internal::ride::ResponseData,
 };
 
 #[get("/healthcheck")]
 async fn health_check(data: Data<AppState>) -> Result<Json<ResponseData>, AppError> {
-    let redis_pool = data.generic_redis.lock().await;
-
-    let health_check_key = format!("health_check");
-    _ = redis_pool
-        .set_key(&health_check_key, "driver-location-service-health-check")
+    let _ = data
+        .generic_redis
+        .lock()
+        .await
+        .set_key(&health_check_key(), "driver-location-service-health-check")
         .await;
-    let health_check_resp = redis_pool
-        .get_key::<String>(&health_check_key)
+
+    let health_check_resp = data
+        .generic_redis
+        .lock()
+        .await
+        .get_key::<String>(&health_check_key())
         .await
         .unwrap();
-    let nil_string = String::from("nil");
 
-    if health_check_resp == nil_string {
+    if health_check_resp == String::from("nil") {
         return Err(AppError::InternalServerError);
     }
 
-   Ok(Json(ResponseData{result :"Service Is Up".to_string()}))
+    Ok(Json(ResponseData {
+        result: "Service Is Up".to_string(),
+    }))
 }

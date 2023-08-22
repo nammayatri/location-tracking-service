@@ -1,6 +1,6 @@
-use actix_web::{web::Data};
+use actix_web::web::Data;
 
-use crate::{domain::types::internal::driver::*, common::{types::*, errors::AppError}};
+use crate::{domain::types::internal::driver::*, common::{types::*, errors::AppError, redis::*}};
 
 
 pub async fn driver_details(

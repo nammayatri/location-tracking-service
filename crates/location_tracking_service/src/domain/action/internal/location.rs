@@ -5,7 +5,7 @@ use chrono::{DateTime, Utc};
 use fred::types::{GeoPosition, GeoUnit, RedisValue, SortOrder};
 
 use crate::{
-    common::{errors::AppError, types::*, utils::get_city},
+    common::{errors::AppError, types::*, utils::get_city, redis::*},
     domain::types::internal::location::*,
 };
 
@@ -13,7 +13,7 @@ pub async fn get_nearby_drivers(
     data: Data<AppState>,
     request_body: NearbyDriversRequest,
 ) -> Result<NearbyDriverResponse, AppError> {
-    let location_expiry_in_seconds = data.location_expiry;
+    let location_expiry_in_seconds = data.bucket_expiry;
     let current_bucket =
         Duration::as_secs(&SystemTime::elapsed(&UNIX_EPOCH).unwrap()) / location_expiry_in_seconds;
 
