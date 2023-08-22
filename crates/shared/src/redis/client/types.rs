@@ -3,7 +3,7 @@ use std::sync::{atomic, Arc};
 use error_stack::{IntoReport, ResultExt};
 use fred::interfaces::ClientLike;
 use crate::utils::logger;
-use crate::tools::error;
+use super::error;
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize, Clone)]

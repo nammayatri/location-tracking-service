@@ -1,6 +1,5 @@
-use crate::tools::error;
 use crate::utils::logger::instrument;
-use crate::redis::client::types::RedisConnectionPool;
+use crate::redis::client::{types::RedisConnectionPool, error};
 use error_stack::{IntoReport, ResultExt};
 use fred::{
     interfaces::{GeoInterface, HashesInterface, KeysInterface, SortedSetsInterface},

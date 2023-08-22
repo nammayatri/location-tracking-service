@@ -3,7 +3,7 @@ use actix_web::{web, App, HttpServer};
 use env_logger::Env;
 use fred::types::{GeoPosition, GeoValue, MultipleGeoValues};
 use shared::redis::interface::types::{RedisConnectionPool, RedisSettings};
-use shared::utils::logger::*;
+use shared::utils::{logger::*, prometheus::*};
 use std::env::var;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::{spawn, sync::Mutex, time::Duration};
@@ -12,14 +12,14 @@ use std::{collections::HashMap, sync::Arc};
 
 mod common;
 use common::geo_polygon::read_geo_polygon;
-use common::{types::*, redis::*};
+use common::{redis::*, types::*};
 
 mod domain;
 use domain::api;
 
-use serde::Deserialize;
 use rdkafka::config::ClientConfig;
 use rdkafka::producer::FutureProducer;
+use serde::Deserialize;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct AppConfig {
@@ -46,7 +46,6 @@ pub struct KafkaConfig {
     pub kafka_key: String,
     pub kafka_host: String,
 }
-
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct RedisConfig {
@@ -88,13 +87,13 @@ pub async fn make_app_state(app_config: AppConfig) -> AppState {
     let polygons = read_geo_polygon("./config").expect("Failed to read geoJSON");
 
     let producer: FutureProducer = ClientConfig::new()
-    .set(
-        app_config.kafka_cfg.kafka_key,
-        app_config.kafka_cfg.kafka_host,
-    )
-    .set("compression.type", "lz4")
-    .create()
-    .expect("Producer creation error");
+        .set(
+            app_config.kafka_cfg.kafka_key,
+            app_config.kafka_cfg.kafka_host,
+        )
+        .set("compression.type", "lz4")
+        .create()
+        .expect("Producer creation error");
 
     AppState {
         location_redis,
@@ -118,8 +117,7 @@ pub async fn make_app_state(app_config: AppConfig) -> AppState {
 }
 
 async fn run_scheduler(data: web::Data<AppState>) {
-    let bucket =
-        Duration::as_secs(&SystemTime::elapsed(&UNIX_EPOCH).unwrap()) / data.bucket_expiry;
+    let bucket = Duration::as_secs(&SystemTime::elapsed(&UNIX_EPOCH).unwrap()) / data.bucket_expiry;
     let mut entries = data.entries.lock().await;
 
     for (dimensions, entries) in entries.iter_mut() {
@@ -127,7 +125,8 @@ async fn run_scheduler(data: web::Data<AppState>) {
         let city = &dimensions.city;
         let vehicle_type = &dimensions.vehicle_type;
 
-        let geo_values: Vec<GeoValue> = entries.to_owned()
+        let geo_values: Vec<GeoValue> = entries
+            .to_owned()
             .into_iter()
             .map(|(lon, lat, name)| GeoValue {
                 coordinates: GeoPosition {
@@ -143,7 +142,10 @@ async fn run_scheduler(data: web::Data<AppState>) {
 
         if !entries.is_empty() {
             // let num = data.location_redis.lock().await.zcard(&key).await.expect("unable to zcard");
-            let _: () = data.location_redis.lock().await
+            let _: () = data
+                .location_redis
+                .lock()
+                .await
                 .geo_add(&key, multiple_geo_values, None, false)
                 .await
                 .expect("Couldn't add to redis");
@@ -185,6 +187,7 @@ async fn start_server() -> std::io::Result<()> {
         App::new()
             .app_data(data.clone())
             .wrap(Logger::default())
+            .wrap(prometheus_metrics())
             .configure(api::handler)
     })
     .bind(("127.0.0.1", app_config.port))?
