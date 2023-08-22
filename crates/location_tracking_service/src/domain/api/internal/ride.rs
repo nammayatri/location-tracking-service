@@ -4,9 +4,10 @@ use actix_web::{
 };
 
 use crate::{
-    common::{errors::AppError, types::*},
+    common::types::*,
     domain::{action::internal::*, types::internal::ride::*},
 };
+use shared::tools::error::AppError;
 
 #[post("/internal/ride/{rideId}/start")]
 async fn ride_start(

@@ -7,10 +7,11 @@ use actix_web::{
 };
 
 use crate::{
-    common::errors::AppError,
     common::types::*,
     domain::{action::ui::location, types::ui::location::UpdateDriverLocationRequest},
 };
+
+use shared::tools::error::AppError;
 
 #[post("/ui/driver/location")]
 pub async fn update_driver_location(

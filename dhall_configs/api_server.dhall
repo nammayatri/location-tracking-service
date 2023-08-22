@@ -6,7 +6,7 @@ let location_redis_cfg = {
 
 let generic_redis_cfg = {
     redis_host = "localhost",
-    redis_port = 6381,
+    redis_port = 6379,
     redis_pool_size = 10,
 }
 

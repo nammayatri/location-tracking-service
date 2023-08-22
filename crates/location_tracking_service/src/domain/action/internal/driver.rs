@@ -1,7 +1,8 @@
 use actix_web::web::Data;
+use shared::tools::error::AppError;
 
 use crate::{
-    common::{errors::AppError, redis::*, types::*},
+    common::{redis::*, types::*},
     domain::types::internal::driver::*,
 };
 
