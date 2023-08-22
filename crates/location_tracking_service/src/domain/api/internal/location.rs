@@ -5,9 +5,10 @@ use actix_web::{
 };
 
 use crate::{
-    common::{errors::AppError, types::*},
+    common::types::*,
     domain::{action::internal::*, types::internal::location::*},
 };
+use shared::tools::error::AppError;
 
 #[get("/internal/drivers/nearby")]
 async fn get_nearby_drivers(

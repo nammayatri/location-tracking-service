@@ -1,9 +1,10 @@
 use crate::{
-    common::{errors::AppError, redis::*, types::*, utils::get_city},
+    common::{redis::*, types::*, utils::get_city},
     domain::types::internal::ride::*,
 };
 use actix_web::web::Data;
 use fred::types::RedisValue;
+use shared::tools::error::AppError;
 
 pub async fn ride_start(
     ride_id: String,

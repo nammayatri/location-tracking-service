@@ -5,9 +5,10 @@ use chrono::{DateTime, Utc};
 use fred::types::{GeoPosition, GeoUnit, RedisValue, SortOrder};
 
 use crate::{
-    common::{errors::AppError, redis::*, types::*, utils::get_city},
+    common::{redis::*, types::*, utils::get_city},
     domain::types::internal::location::*,
 };
+use shared::tools::error::AppError;
 
 pub async fn get_nearby_drivers(
     data: Data<AppState>,
@@ -42,9 +43,8 @@ pub async fn get_nearby_drivers(
             true,
             false,
         )
-        .await
-        .unwrap();
-    for item in resp {
+        .await?;
+    for item in resp.unwrap() {
         if let RedisValue::String(driver_id) = item.member {
             let pos = item.position.unwrap();
             let timestamp: String = data

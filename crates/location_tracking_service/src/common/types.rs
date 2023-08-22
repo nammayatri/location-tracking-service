@@ -1,9 +1,9 @@
-use super::errors::AppError;
 use chrono::{DateTime, Utc};
 use geo::MultiPolygon;
 use rdkafka::producer::FutureProducer;
 use serde::{Deserialize, Serialize};
 use shared::redis::interface::types::RedisConnectionPool;
+use shared::tools::error::AppError;
 use shared::utils::logger::*;
 use std::{
     collections::HashMap,
@@ -48,7 +48,7 @@ pub type Radius = f64;
 pub type Accuracy = i32;
 pub type Token = String;
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct APISuccess {
     result: String,
 }
@@ -108,7 +108,7 @@ pub struct AppState {
     pub redis_expiry: usize,
     pub location_update_limit: usize,
     pub location_update_interval: u64,
-    pub producer: FutureProducer,
+    pub producer: Option<FutureProducer>,
     pub driver_location_update_topic: String,
     pub driver_location_update_key: String,
 }

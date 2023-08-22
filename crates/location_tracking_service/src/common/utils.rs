@@ -1,5 +1,6 @@
-use super::{errors::AppError, types::*};
+use super::types::*;
 use geo::{point, Intersects};
+use shared::tools::error::AppError;
 
 pub fn get_city(
     lat: Latitude,

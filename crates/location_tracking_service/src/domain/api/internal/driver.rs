@@ -4,9 +4,10 @@ use actix_web::{
 };
 
 use crate::{
-    common::{errors::AppError, types::*},
+    common::types::*,
     domain::{action::internal::*, types::internal::driver::*},
 };
+use shared::tools::error::AppError;
 
 #[post("/internal/driver/driverDetails")]
 async fn driver_details(
