@@ -11,11 +11,11 @@ use crate::common::types::MultiPolygonBody;
 
 pub fn read_geo_polygon(config_path: &str) -> Result<Vec<MultiPolygonBody>> {
     // Read files in the directory
-    let entries = fs::read_dir(config_path).expect("Failed to read config path");
+    let geometries = fs::read_dir(config_path).expect("Failed to read config path");
 
     let mut regions: Vec<MultiPolygonBody> = vec![];
 
-    for entry in entries {
+    for entry in geometries {
         let entry = entry?;
         let file_name = entry.file_name().to_string_lossy().to_string();
 

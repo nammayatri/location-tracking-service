@@ -17,6 +17,10 @@ struct ErrorBody {
 pub enum AppError {
     #[error("InternalServerError")]
     InternalServerError,
+    #[error("SerializationError: {0}")]
+    SerializationError(String),
+    #[error("DeserializationError: {0}")]
+    DeserializationError(String),
     #[error("Invalid Redis configuration")]
     DriverAppAuthFailed,
     #[error("Invalid Redis configuration")]
@@ -39,13 +43,13 @@ pub enum AppError {
     DeleteFailed,
     #[error("Failed to append entry to Redis stream")]
     StreamAppendFailed,
-    #[error("Failed to read entries from Redis stream")]
+    #[error("Failed to read queue from Redis stream")]
     StreamReadFailed,
     #[error("Failed to get stream length")]
     GetLengthFailed,
-    #[error("Failed to delete entries from Redis stream")]
+    #[error("Failed to delete queue from Redis stream")]
     StreamDeleteFailed,
-    #[error("Failed to trim entries from Redis stream")]
+    #[error("Failed to trim queue from Redis stream")]
     StreamTrimFailed,
     #[error("Failed to acknowledge Redis stream entry")]
     StreamAcknowledgeFailed,
