@@ -4,7 +4,10 @@ use env_logger::Env;
 use fred::types::{GeoPosition, GeoValue, MultipleGeoValues};
 use rdkafka::error::KafkaError;
 use shared::redis::interface::types::{RedisConnectionPool, RedisSettings};
-use shared::utils::{logger::*, prometheus::*};
+use shared::utils::{
+    logger::*,
+    prometheus::{self, *},
+};
 use std::env::var;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::{spawn, sync::Mutex, time::Duration};
@@ -84,7 +87,7 @@ pub async fn make_app_state(app_config: AppConfig) -> AppState {
         .expect("Failed to create Generic Redis connection pool"),
     ));
 
-    let entries = Arc::new(Mutex::new(HashMap::new()));
+    let queue = Arc::new(Mutex::new(HashMap::new()));
     let polygons = read_geo_polygon("./config").expect("Failed to read geoJSON");
 
     let producer: Option<FutureProducer>;
@@ -110,7 +113,7 @@ pub async fn make_app_state(app_config: AppConfig) -> AppState {
     AppState {
         location_redis,
         generic_redis,
-        entries,
+        queue,
         polygon: polygons,
         auth_url: app_config.auth_url,
         auth_api_key: app_config.auth_api_key,
@@ -128,31 +131,34 @@ pub async fn make_app_state(app_config: AppConfig) -> AppState {
     }
 }
 
-async fn run_scheduler(data: web::Data<AppState>) {
+async fn run_drainer(data: web::Data<AppState>) {
     let bucket = Duration::as_secs(&SystemTime::elapsed(&UNIX_EPOCH).unwrap()) / data.bucket_expiry;
-    let mut entries = data.entries.lock().await;
+    let mut queue = data.queue.lock().await;
 
-    for (dimensions, entries) in entries.iter_mut() {
+    for (dimensions, queue) in queue.iter_mut() {
         let merchant_id = &dimensions.merchant_id;
         let city = &dimensions.city;
         let vehicle_type = &dimensions.vehicle_type;
 
-        let geo_values: Vec<GeoValue> = entries
+        let geo_values: Vec<GeoValue> = queue
             .to_owned()
             .into_iter()
-            .map(|(lon, lat, name)| GeoValue {
-                coordinates: GeoPosition {
-                    longitude: lon,
-                    latitude: lat,
-                },
-                member: name.into(),
+            .map(|(lon, lat, driver_id)| {
+                prometheus::QUEUE_GUAGE.dec();
+                GeoValue {
+                    coordinates: GeoPosition {
+                        longitude: lon,
+                        latitude: lat,
+                    },
+                    member: driver_id.into(),
+                }
             })
             .collect();
         let multiple_geo_values: MultipleGeoValues = geo_values.into();
 
         let key = driver_loc_bucket_key(merchant_id, city, &vehicle_type.to_string(), &bucket);
 
-        if !entries.is_empty() {
+        if !queue.is_empty() {
             // let num = data.location_redis.lock().await.zcard(&key).await.expect("unable to zcard");
             let _: () = data
                 .location_redis
@@ -167,11 +173,11 @@ async fn run_scheduler(data: web::Data<AppState>) {
             //         .await
             //         .expect("Unable to set expiry");
             // }
-            info!("Entries: {:?}\nSending to redis server", entries);
+            info!("queue: {:?}\nSending to redis server", queue);
             info!("^ Merchant id: {merchant_id}, City: {city}, Vt: {vehicle_type}, key: {key}\n");
         }
     }
-    entries.clear();
+    queue.clear();
 }
 
 #[actix_web::main]
@@ -191,7 +197,7 @@ async fn start_server() -> std::io::Result<()> {
         loop {
             info!("scheduler executing...");
             let _ = tokio::time::sleep(Duration::from_secs(10)).await;
-            run_scheduler(thread_data.clone()).await
+            run_drainer(thread_data.clone()).await
         }
     });
 

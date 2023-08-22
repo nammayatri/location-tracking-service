@@ -96,7 +96,7 @@ pub struct Dimensions {
 pub struct AppState {
     pub location_redis: Arc<Mutex<RedisConnectionPool>>,
     pub generic_redis: Arc<Mutex<RedisConnectionPool>>,
-    pub entries: Arc<Mutex<HashMap<Dimensions, Vec<(Longitude, Latitude, DriverId)>>>>,
+    pub queue: Arc<Mutex<HashMap<Dimensions, Vec<(Longitude, Latitude, DriverId)>>>>,
     pub polygon: Vec<MultiPolygonBody>,
     pub auth_url: String,
     pub auth_api_key: String,

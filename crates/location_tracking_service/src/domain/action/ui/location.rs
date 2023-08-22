@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use shared::tools::error::AppError;
 use shared::utils::callapi::*;
 use shared::utils::logger::*;
+use shared::utils::prometheus;
 use std::time::Duration;
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -69,7 +70,6 @@ pub async fn update_driver_location(
     data: Data<AppState>,
     mut request_body: Vec<UpdateDriverLocationRequest>,
 ) -> Result<APISuccess, AppError> {
-    // let start = Instant::now();
     let city = get_city(
         request_body[0].pt.lat,
         request_body[0].pt.lon,
@@ -93,27 +93,13 @@ pub async fn update_driver_location(
         );
         headers.insert("merchant-id", HeaderValue::from_str(&merchant_id).unwrap());
 
-        let response: AuthResponseData =
-            call_api(Method::GET, &data.auth_url, headers.clone(), None).await?;
-
-        // let resp = reqwest::Client::new()
-        //     .get(&data.auth_url)
-        //     .header("token", token.clone())
-        //     .header("api-key", data.auth_api_key.as_str())
-        //     .header("merchant-id", merchant_id.clone())
-        //     .send()
-        //     .await
-        //     .expect("resp not received");
-        // print!("{}", resp);
-
-        // let status = resp.status();
-        // let response_body = resp.text().await.unwrap();
-
-        // if status != 200 {
-        //     return Err(AppError::DriverAppAuthFailed(start.elapsed()));
-        // }
-
-        // let response = serde_json::from_str::<AuthResponseData>(&resp).unwrap();
+        let response = call_api::<AuthResponseData, String>(
+            Method::GET,
+            &data.auth_url,
+            headers.clone(),
+            None,
+        )
+        .await?;
 
         let _: () = data
             .generic_redis
@@ -223,14 +209,6 @@ pub async fn update_driver_location(
                     })
                     .collect::<Vec<Point>>();
 
-                let json = BulkDataReq {
-                    ride_id: on_ride_resp.ride_id.clone(),
-                    driver_id: driver_id.clone(),
-                    loc: loc,
-                };
-
-                info!("json: {:?}", json);
-
                 let mut headers = HeaderMap::new();
                 headers.insert(
                     CONTENT_TYPE,
@@ -241,23 +219,13 @@ pub async fn update_driver_location(
                     Method::POST,
                     &data.bulk_location_callback_url,
                     headers.clone(),
-                    Some(&serde_json::to_string(&json).unwrap()),
+                    Some(BulkDataReq {
+                        ride_id: on_ride_resp.ride_id.clone(),
+                        driver_id: driver_id.clone(),
+                        loc: loc,
+                    }),
                 )
                 .await?;
-
-                // let body = reqwest::Client::new()
-                //     .post(&data.bulk_location_callback_url)
-                //     .header(CONTENT_TYPE, "application/json")
-                //     .body(serde_json::to_string(&json).unwrap())
-                //     .send()
-                //     .await
-                //     .unwrap();
-                // let status = body.status();
-                // let response_body = body.text().await.unwrap();
-                // info!("response body: {}", response_body);
-                // if status != 200 {
-                //     return Err(AppError::DriverBulkLocationUpdateFailed);
-                // }
 
                 let _: () = data
                     .location_redis
@@ -295,7 +263,7 @@ pub async fn update_driver_location(
             data.redis_expiry.try_into().unwrap(),
         );
 
-        let mut entries = data.entries.lock().await;
+        let mut queue = data.queue.lock().await;
 
         for loc in filtered_request_body {
             let dimensions = Dimensions {
@@ -304,13 +272,15 @@ pub async fn update_driver_location(
                 vehicle_type: vehicle_type.clone(),
             };
 
-            entries.entry(dimensions).or_insert_with(Vec::new).push((
+            prometheus::QUEUE_GUAGE.inc();
+
+            queue.entry(dimensions).or_insert_with(Vec::new).push((
                 loc.pt.lon,
                 loc.pt.lat,
                 driver_id.clone(),
             ));
 
-            stream_updates(data.clone(), &merchant_id, &"".to_string(), loc).await;
+            let _ = stream_updates(data.clone(), &merchant_id, &"".to_string(), loc);
         }
     }
 
