@@ -1,9 +1,9 @@
 use std::sync::{atomic, Arc};
 
+use super::error;
+use crate::utils::logger;
 use error_stack::{IntoReport, ResultExt};
 use fred::interfaces::ClientLike;
-use crate::utils::logger;
-use super::error;
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize, Clone)]
@@ -44,7 +44,7 @@ impl Default for RedisSettings {
 }
 
 impl RedisSettings {
-    pub fn new(host:String, port:u16, pool_size: usize) -> Self {
+    pub fn new(host: String, port: u16, pool_size: usize) -> Self {
         RedisSettings {
             host,
             port,
@@ -74,9 +74,9 @@ pub enum RedisEntryId {
 }
 
 pub struct RedisConfig {
-    pub default_ttl: u32,                // time to live
+    pub default_ttl: u32,            // time to live
     _default_stream_read_count: u64, // number of messages to read from a stream
-    pub default_hash_ttl: u32,           // time to live for a hash
+    pub default_hash_ttl: u32,       // time to live for a hash
 }
 
 impl From<&RedisSettings> for RedisConfig {
@@ -111,7 +111,8 @@ impl RedisClient {
             .wait_for_connect()
             .await
             .into_report()
-            .change_context(error::RedisError::RedisConnectionError).unwrap();
+            .change_context(error::RedisError::RedisConnectionError)
+            .unwrap();
         Ok(Self { inner: client })
     }
 }
@@ -148,7 +149,8 @@ impl RedisConnectionPool {
         };
         let mut config = fred::types::RedisConfig::from_url(&redis_connection_url)
             .into_report()
-            .change_context(error::RedisError::RedisConnectionError).unwrap();
+            .change_context(error::RedisError::RedisConnectionError)
+            .unwrap();
 
         if !conf.use_legacy_version {
             config.version = fred::types::RespVersion::RESP3;
@@ -166,13 +168,15 @@ impl RedisConnectionPool {
 
         let pool = fred::pool::RedisPool::new(config, None, Some(reconnect_policy), conf.pool_size)
             .into_report()
-            .change_context(error::RedisError::RedisConnectionError).unwrap();
+            .change_context(error::RedisError::RedisConnectionError)
+            .unwrap();
 
         let join_handles = pool.connect();
         pool.wait_for_connect()
             .await
             .into_report()
-            .change_context(error::RedisError::RedisConnectionError).unwrap();
+            .change_context(error::RedisError::RedisConnectionError)
+            .unwrap();
 
         let config = RedisConfig::from(conf);
 

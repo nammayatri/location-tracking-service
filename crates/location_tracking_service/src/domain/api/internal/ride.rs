@@ -1,6 +1,12 @@
-use actix_web::{web::{Data, Json, Path}, post};
+use actix_web::{
+    post,
+    web::{Data, Json, Path},
+};
 
-use crate::{common::{types::*, errors::AppError}, domain::{types::internal::ride::*, action::internal::*}};
+use crate::{
+    common::{errors::AppError, types::*},
+    domain::{action::internal::*, types::internal::ride::*},
+};
 
 #[post("/internal/ride/{rideId}/start")]
 async fn ride_start(

@@ -1,4 +1,3 @@
-
 // Generic Redis
 pub fn on_ride_key(merchant_id: &String, city: &String, driver_id: &String) -> String {
     format!("ds:on_ride:{merchant_id}:{city}:{driver_id}")

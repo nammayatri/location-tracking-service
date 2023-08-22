@@ -5,7 +5,7 @@ use chrono::{DateTime, Utc};
 use fred::types::{GeoPosition, GeoUnit, RedisValue, SortOrder};
 
 use crate::{
-    common::{errors::AppError, types::*, utils::get_city, redis::*},
+    common::{errors::AppError, redis::*, types::*, utils::get_city},
     domain::types::internal::location::*,
 };
 

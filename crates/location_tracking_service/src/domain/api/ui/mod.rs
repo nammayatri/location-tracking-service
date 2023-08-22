@@ -1,2 +1,2 @@
-pub mod location;
 pub mod healthcheck;
+pub mod location;

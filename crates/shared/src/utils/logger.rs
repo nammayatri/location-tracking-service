@@ -1,4 +1,4 @@
-pub use tracing::{instrument, info, error, debug, warn};
+pub use tracing::{debug, error, info, instrument, warn};
 
 #[derive(Debug)]
 pub struct TracingGuard {

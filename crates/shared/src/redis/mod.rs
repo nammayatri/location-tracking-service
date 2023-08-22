@@ -1,2 +1,2 @@
-pub mod interface;
 mod client;
+pub mod interface;

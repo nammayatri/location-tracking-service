@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use crate::common::{errors::*, types::*, utils::get_city, redis::*};
+use crate::common::{errors::*, redis::*, types::*, utils::get_city};
 use crate::domain::types::ui::location::*;
 use actix_web::web::Data;
 use chrono::{DateTime, Utc};
@@ -162,7 +162,7 @@ pub async fn update_driver_location(
                 .await
                 .expect("unable to zcard");
 
-            if num == 100 {
+            if num >= 100 {
                 let RedisValue::Array(res) = data.location_redis.lock().await
                     .zrange(&on_ride_loc_key(&merchant_id, &city, &driver_id), 0, -1, None, false, None, false)
                     .await
