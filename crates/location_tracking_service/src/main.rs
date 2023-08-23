@@ -1,15 +1,12 @@
 use actix_web::middleware::Logger;
 use actix_web::{web, App, HttpServer};
 use env_logger::Env;
-use fred::types::{GeoPosition, GeoValue, MultipleGeoValues};
+use location_tracking_service::common::utils::get_current_bucket;
 use rdkafka::error::KafkaError;
 use shared::redis::types::{RedisConnectionPool, RedisSettings};
-use shared::utils::{
-    logger::*,
-    prometheus::{self, *},
-};
+use shared::tools::error::AppError;
+use shared::utils::{logger::*, prometheus::*};
 use std::env::var;
-use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::{spawn, sync::Mutex, time::Duration};
 
 use std::{collections::HashMap, sync::Arc};
@@ -17,7 +14,7 @@ use std::{collections::HashMap, sync::Arc};
 use location_tracking_service::common::{geo_polygon::read_geo_polygon, types::*};
 use location_tracking_service::domain::api;
 
-use location_tracking_service::redis::{commands::*, keys::*};
+use location_tracking_service::redis::commands::*;
 
 use rdkafka::config::ClientConfig;
 use rdkafka::producer::FutureProducer;
@@ -131,49 +128,43 @@ pub async fn make_app_state(app_config: AppConfig) -> AppState {
     }
 }
 
-async fn run_drainer(data: web::Data<AppState>) {
-    let bucket = Duration::as_secs(&SystemTime::elapsed(&UNIX_EPOCH).unwrap()) / data.bucket_expiry;
+async fn run_drainer(data: web::Data<AppState>) -> Result<(), AppError> {
+    let bucket = get_current_bucket(data.bucket_expiry)?;
     let mut queue = data.queue.lock().await;
 
-    for (dimensions, queue) in queue.iter_mut() {
+    for (dimensions, geo_entries) in queue.iter() {
         let merchant_id = &dimensions.merchant_id;
         let city = &dimensions.city;
         let vehicle_type = &dimensions.vehicle_type;
 
-        let geo_values: Vec<GeoValue> = queue
-            .to_owned()
-            .into_iter()
-            .map(|(lon, lat, driver_id)| {
-                prometheus::QUEUE_GUAGE.dec();
-                GeoValue {
-                    coordinates: GeoPosition {
-                        longitude: lon,
-                        latitude: lat,
-                    },
-                    member: driver_id.into(),
-                }
-            })
-            .collect();
-        let multiple_geo_values: MultipleGeoValues = geo_values.into();
-
-        let key = driver_loc_bucket_key(merchant_id, city, &vehicle_type, &bucket);
-
-        if !queue.is_empty() {
-            let _ = push_drianer_values(data.clone(), key.clone(), multiple_geo_values).await;
-            info!("queue: {:?}\nSending to redis server", queue);
-            info!("^ Merchant id: {merchant_id}, City: {city}, Vt: {vehicle_type}, key: {key}\n");
+        if !geo_entries.is_empty() {
+            let _ = push_drainer_driver_location(
+                data.clone(),
+                merchant_id,
+                city,
+                vehicle_type,
+                &bucket,
+                geo_entries,
+            )
+            .await;
+            info!("Queue: {:?}\nPushing to redis server", geo_entries);
         }
     }
     queue.clear();
+
+    Ok(())
 }
 
 #[actix_web::main]
 async fn start_server() -> std::io::Result<()> {
     env_logger::init_from_env(Env::default().default_filter_or("info"));
 
-    let dhall_config_path =
-        var("DHALL_CONFIG").unwrap_or_else(|_| "./dhall_configs/api_server.dhall".to_string());
-    let app_config = read_dhall_config(&dhall_config_path).unwrap();
+    let dhall_config_path = var("DHALL_CONFIG")
+        .unwrap_or_else(|_| "./configs/location_tracking_service.dhall".to_string());
+    let app_config = read_dhall_config(&dhall_config_path).unwrap_or_else(|err| {
+        error!("{}", err);
+        std::process::exit(1);
+    });
 
     let app_state = make_app_state(app_config.clone()).await;
 
@@ -184,7 +175,7 @@ async fn start_server() -> std::io::Result<()> {
         loop {
             info!("scheduler executing...");
             let _ = tokio::time::sleep(Duration::from_secs(10)).await;
-            run_drainer(thread_data.clone()).await
+            let _ = run_drainer(thread_data.clone()).await;
         }
     });
 

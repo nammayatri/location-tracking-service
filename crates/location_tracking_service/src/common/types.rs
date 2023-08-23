@@ -13,6 +13,16 @@ use std::{
 use strum_macros::{Display, EnumIter, EnumString};
 use tokio::sync::Mutex;
 
+pub type DriverId = String;
+pub type MerchantId = String;
+pub type Latitude = f64;
+pub type Longitude = f64;
+pub type CityName = String;
+pub type TimeStamp = DateTime<Utc>;
+pub type Radius = f64;
+pub type Accuracy = i32;
+pub type Token = String;
+
 #[derive(
     Debug, Clone, EnumString, EnumIter, Display, Serialize, Deserialize, Eq, Hash, PartialEq,
 )]
@@ -44,16 +54,6 @@ pub enum DriverMode {
     SILENT,
 }
 
-pub type DriverId = String;
-pub type MerchantId = String;
-pub type Latitude = f64;
-pub type Longitude = f64;
-pub type CityName = String;
-pub type TimeStamp = DateTime<Utc>;
-pub type Radius = f64;
-pub type Accuracy = i32;
-pub type Token = String;
-
 #[derive(Debug, Serialize, Deserialize)]
 pub struct APISuccess {
     result: String,
@@ -74,6 +74,11 @@ pub struct AuthData {
     pub driver_id: String,
 }
 
+pub struct DriverLocationPoint {
+    pub driver_id: String,
+    pub location: Point,
+}
+
 #[derive(Clone)]
 pub struct MultiPolygonBody {
     pub region: String,
@@ -82,8 +87,8 @@ pub struct MultiPolygonBody {
 
 #[derive(Deserialize, Serialize, Clone, Debug, Eq, PartialEq)]
 pub struct RideDetails {
-    pub ride_status: RideStatus,
     pub ride_id: String,
+    pub ride_status: RideStatus,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug, Eq, PartialEq)]
@@ -109,7 +114,7 @@ pub struct Dimensions {
 pub struct AppState {
     pub location_redis: Arc<RedisConnectionPool>,
     pub generic_redis: Arc<RedisConnectionPool>,
-    pub queue: Arc<Mutex<HashMap<Dimensions, Vec<(Longitude, Latitude, DriverId)>>>>,
+    pub queue: Arc<Mutex<HashMap<Dimensions, Vec<(Latitude, Longitude, DriverId)>>>>,
     pub polygon: Vec<MultiPolygonBody>,
     pub auth_url: String,
     pub auth_api_key: String,
