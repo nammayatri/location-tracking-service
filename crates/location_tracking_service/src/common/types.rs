@@ -94,8 +94,8 @@ pub struct Dimensions {
 
 #[derive(Clone)]
 pub struct AppState {
-    pub location_redis: Arc<Mutex<RedisConnectionPool>>,
-    pub generic_redis: Arc<Mutex<RedisConnectionPool>>,
+    pub location_redis: Arc<RedisConnectionPool>,
+    pub generic_redis: Arc<RedisConnectionPool>,
     pub queue: Arc<Mutex<HashMap<Dimensions, Vec<(Longitude, Latitude, DriverId)>>>>,
     pub polygon: Vec<MultiPolygonBody>,
     pub auth_url: String,
@@ -119,7 +119,7 @@ impl AppState {
         key: &str,
         frame_hits_lim: usize,
         frame_len: u32,
-        generic_redis_pool: &tokio::sync::MutexGuard<'_, RedisConnectionPool>,
+        generic_redis_pool: &RedisConnectionPool,
     ) -> Result<Vec<i64>, AppError> {
         let curr_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)

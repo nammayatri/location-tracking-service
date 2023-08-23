@@ -17,8 +17,8 @@ pub async fn driver_details(
     };
     let value = serde_json::to_string(&value).unwrap();
 
-    let redis_pool = data.generic_redis.lock().await;
-    let result = redis_pool
+    let result = data
+        .generic_redis
         .set_with_expiry(&key, value, data.on_ride_expiry)
         .await;
     if result.is_err() {

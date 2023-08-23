@@ -63,7 +63,7 @@ pub fn read_dhall_config(config_path: &str) -> Result<AppConfig, String> {
 }
 
 pub async fn make_app_state(app_config: AppConfig) -> AppState {
-    let location_redis = Arc::new(Mutex::new(
+    let location_redis = Arc::new(
         RedisConnectionPool::new(&RedisSettings::new(
             app_config.location_redis_cfg.redis_host,
             app_config.location_redis_cfg.redis_port,
@@ -71,9 +71,9 @@ pub async fn make_app_state(app_config: AppConfig) -> AppState {
         ))
         .await
         .expect("Failed to create Location Redis connection pool"),
-    ));
+    );
 
-    let generic_redis = Arc::new(Mutex::new(
+    let generic_redis = Arc::new(
         RedisConnectionPool::new(&RedisSettings::new(
             app_config.generic_redis_cfg.redis_host,
             app_config.generic_redis_cfg.redis_port,
@@ -81,7 +81,7 @@ pub async fn make_app_state(app_config: AppConfig) -> AppState {
         ))
         .await
         .expect("Failed to create Generic Redis connection pool"),
-    ));
+    );
 
     let queue = Arc::new(Mutex::new(HashMap::new()));
     let polygons = read_geo_polygon("./config").expect("Failed to read geoJSON");
@@ -158,8 +158,6 @@ async fn run_drainer(data: web::Data<AppState>) {
             // let num = data.location_redis.lock().await.zcard(&key).await.expect("unable to zcard");
             let _: () = data
                 .location_redis
-                .lock()
-                .await
                 .geo_add(&key, multiple_geo_values, None, false)
                 .await
                 .expect("Couldn't add to redis");

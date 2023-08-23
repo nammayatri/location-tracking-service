@@ -24,8 +24,6 @@ pub async fn get_nearby_drivers(
 
     let resp = data
         .location_redis
-        .lock()
-        .await
         .geo_search(
             &driver_loc_bucket_key(
                 &request_body.merchant_id,
@@ -49,8 +47,6 @@ pub async fn get_nearby_drivers(
             let pos = item.position.unwrap();
             let timestamp: String = data
                 .generic_redis
-                .lock()
-                .await
                 .get_key(&driver_loc_ts_key(&driver_id.to_string()))
                 .await
                 .unwrap();

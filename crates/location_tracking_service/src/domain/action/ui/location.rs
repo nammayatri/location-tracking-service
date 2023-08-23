@@ -1,5 +1,3 @@
-// use std::time::Instant;
-
 use crate::common::{redis::*, types::*, utils::get_city};
 use crate::domain::types::ui::location::*;
 use actix_web::web::Data;
@@ -76,13 +74,7 @@ pub async fn update_driver_location(
         data.polygon.clone(),
     )?;
 
-    let mut driver_id = data
-        .generic_redis
-        .lock()
-        .await
-        .get_key(&token)
-        .await
-        .unwrap();
+    let mut driver_id = data.generic_redis.get_key(&token).await.unwrap();
 
     if driver_id == "nil".to_string() {
         let mut headers = HeaderMap::new();
@@ -103,8 +95,6 @@ pub async fn update_driver_location(
 
         let _: () = data
             .generic_redis
-            .lock()
-            .await
             .set_with_expiry(&token, &response.driver_id, data.token_expiry)
             .await
             .unwrap();
@@ -117,7 +107,7 @@ pub async fn update_driver_location(
             &driver_id,
             data.location_update_limit,
             data.location_update_interval as u32,
-            &data.generic_redis.lock().await,
+            &data.generic_redis,
         )
         .await?;
 
@@ -128,8 +118,6 @@ pub async fn update_driver_location(
     let on_ride_resp = serde_json::from_str::<RideDetails>(
         &data
             .generic_redis
-            .lock()
-            .await
             .get_key::<String>(&on_ride_key(&merchant_id, &city, &driver_id))
             .await
             .unwrap(),
@@ -144,8 +132,6 @@ pub async fn update_driver_location(
         for loc in request_body {
             let _: () = data
                 .location_redis
-                .lock()
-                .await
                 .geo_add(
                     &on_ride_loc_key(&merchant_id, &city, &driver_id),
                     GeoValue {
@@ -163,14 +149,12 @@ pub async fn update_driver_location(
 
             let num = data
                 .location_redis
-                .lock()
-                .await
                 .zcard(&on_ride_loc_key(&merchant_id, &city, &driver_id))
                 .await
                 .expect("unable to zcard");
 
             if num >= 100 {
-                let RedisValue::Array(res) = data.location_redis.lock().await
+                let RedisValue::Array(res) = data.location_redis
                     .zrange(&on_ride_loc_key(&merchant_id, &city, &driver_id), 0, -1, None, false, None, false)
                     .await
                     .unwrap() else {todo!()};
@@ -189,7 +173,7 @@ pub async fn update_driver_location(
 
                 info!("res: {:?}", res);
 
-                let RedisValue::Array(res) = data.location_redis.lock().await.geopos(&on_ride_loc_key(&merchant_id, &city, &driver_id), res).await.unwrap() else {todo!()};
+                let RedisValue::Array(res) = data.location_redis.geopos(&on_ride_loc_key(&merchant_id, &city, &driver_id), res).await.unwrap() else {todo!()};
                 info!("New res: {:?}", res);
 
                 let _ = stream_updates(data.clone(), &merchant_id, &on_ride_resp.ride_id, loc);
@@ -229,8 +213,6 @@ pub async fn update_driver_location(
 
                 let _: () = data
                     .location_redis
-                    .lock()
-                    .await
                     .delete_key(&on_ride_loc_key(&merchant_id, &city, &driver_id))
                     .await
                     .unwrap();
@@ -239,8 +221,6 @@ pub async fn update_driver_location(
     } else {
         let last_location_update_ts = data
             .generic_redis
-            .lock()
-            .await
             .get_key::<String>(&driver_loc_ts_key(&driver_id))
             .await
             .unwrap();
@@ -257,7 +237,7 @@ pub async fn update_driver_location(
             })
             .collect();
 
-        let _ = data.generic_redis.lock().await.set_with_expiry(
+        let _ = data.generic_redis.set_with_expiry(
             &driver_loc_ts_key(&driver_id),
             (Utc::now()).to_rfc3339(), // Should be timestamp of last driver location
             data.redis_expiry.try_into().unwrap(),
