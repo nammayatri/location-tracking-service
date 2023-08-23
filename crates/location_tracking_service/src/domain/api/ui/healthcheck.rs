@@ -14,15 +14,11 @@ use shared::tools::error::AppError;
 async fn health_check(data: Data<AppState>) -> Result<Json<ResponseData>, AppError> {
     let _ = data
         .generic_redis
-        .lock()
-        .await
         .set_key(&health_check_key(), "driver-location-service-health-check")
         .await;
 
     let health_check_resp = data
         .generic_redis
-        .lock()
-        .await
         .get_key::<String>(&health_check_key())
         .await
         .unwrap();

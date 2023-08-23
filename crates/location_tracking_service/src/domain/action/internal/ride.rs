@@ -21,8 +21,6 @@ pub async fn ride_start(
 
     let _ = data
         .generic_redis
-        .lock()
-        .await
         .set_with_expiry(
             &on_ride_key(&request_body.merchant_id, &city, &request_body.driver_id),
             value,
@@ -48,8 +46,6 @@ pub async fn ride_end(
 
     let _ = data
         .generic_redis
-        .lock()
-        .await
         .set_with_expiry(
             &on_ride_key(&request_body.merchant_id, &city, &request_body.driver_id),
             value,
@@ -58,7 +54,7 @@ pub async fn ride_end(
         .await
         .unwrap();
 
-    let RedisValue::Array(res) = data.location_redis.lock().await
+    let RedisValue::Array(res) = data.location_redis
         .zrange(&on_ride_loc_key(&request_body.merchant_id, &city, &request_body.driver_id), 0, -1, None, false, None, false)
         .await
         .unwrap() else {todo!()};
@@ -73,11 +69,9 @@ pub async fn ride_end(
 
     res.sort();
 
-    let RedisValue::Array(res) = data.location_redis.lock().await.geopos(&on_ride_loc_key(&request_body.merchant_id, &city, &request_body.driver_id), res).await.unwrap() else {todo!()};
+    let RedisValue::Array(res) = data.location_redis.geopos(&on_ride_loc_key(&request_body.merchant_id, &city, &request_body.driver_id), res).await.unwrap() else {todo!()};
     let _: () = data
         .location_redis
-        .lock()
-        .await
         .delete_key(&on_ride_loc_key(
             &request_body.merchant_id,
             &city,
@@ -116,8 +110,6 @@ pub async fn ride_details(
 
     let result = data
         .generic_redis
-        .lock()
-        .await
         .set_with_expiry(
             &on_ride_key(&request_body.merchant_id, &city, &request_body.driver_id),
             value,
