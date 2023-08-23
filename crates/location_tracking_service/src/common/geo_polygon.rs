@@ -95,15 +95,3 @@ fn to_line_string(line_string: Vec<Position>) -> LineString<f64> {
 fn to_coord(position: Position) -> Coord<f64> {
     coord! {x: position[0], y: position[1] }
 }
-
-#[cfg(test)]
-mod tests {
-    #![allow(clippy::unwrap_used)]
-    use crate::common::geo_polygon::read_geo_polygon;
-    use tokio::test;
-
-    #[test]
-    async fn test_read_geo_polygon() {
-        let _ = read_geo_polygon("~/location-tracking-service/config");
-    }
-}

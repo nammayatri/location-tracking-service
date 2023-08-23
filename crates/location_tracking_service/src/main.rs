@@ -14,12 +14,8 @@ use tokio::{spawn, sync::Mutex, time::Duration};
 
 use std::{collections::HashMap, sync::Arc};
 
-mod common;
-use common::geo_polygon::read_geo_polygon;
-use common::{redis::*, types::*};
-
-mod domain;
-use domain::api;
+use location_tracking_service::common::{geo_polygon::read_geo_polygon, redis::*, types::*};
+use location_tracking_service::domain::api;
 
 use rdkafka::config::ClientConfig;
 use rdkafka::producer::FutureProducer;
