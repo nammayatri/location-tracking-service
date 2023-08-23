@@ -1,10 +1,12 @@
 use actix_web::web::Data;
 use chrono::{TimeZone, Utc};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use strum::IntoEnumIterator;
 
 use crate::{
-    common::{types::*, utils::get_city},
+    common::{
+        types::*,
+        utils::{get_city, get_current_bucket},
+    },
     domain::types::internal::location::*,
     redis::commands::*,
 };
@@ -55,11 +57,7 @@ pub async fn get_nearby_drivers(
 ) -> Result<NearbyDriverResponse, AppError> {
     let city = get_city(request_body.lat, request_body.lon, data.polygon.clone())?;
 
-    let location_expiry_in_seconds = data.bucket_expiry;
-    let current_bucket = Duration::as_secs(
-        &SystemTime::elapsed(&UNIX_EPOCH)
-            .map_err(|err| AppError::InternalError(err.to_string()))?,
-    ) / location_expiry_in_seconds;
+    let current_bucket = get_current_bucket(data.bucket_expiry)?;
 
     match request_body.clone().vehicle_type {
         None => {

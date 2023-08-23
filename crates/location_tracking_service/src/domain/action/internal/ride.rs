@@ -55,45 +55,18 @@ pub async fn ride_end(
         .await
         .unwrap();
 
-    let mut res = zrange(
+    let on_ride_driver_locations = get_on_ride_driver_locations(
         data.clone(),
-        on_ride_loc_key(&request_body.merchant_id, &city, &request_body.driver_id),
+        &request_body.driver_id,
+        &request_body.merchant_id,
+        &city,
     )
     .await?;
-
-    res.sort();
-
-    // let RedisValue::Array(res) = data.location_redis.lock().await.geopos(&on_ride_loc_key(&request_body.merchant_id, &city, &request_body.driver_id), res).await.unwrap() else {todo!()};
-    let loc = geopos(
-        data.clone(),
-        on_ride_loc_key(&request_body.merchant_id, &city, &request_body.driver_id),
-        res,
-    )
-    .await?;
-
-    let _: () = data
-        .location_redis
-        .delete_key(&on_ride_loc_key(
-            &request_body.merchant_id,
-            &city,
-            &request_body.driver_id,
-        ))
-        .await
-        .unwrap();
-
-    // let mut loc: Vec<Point> = Vec::new();
-    // for item in res {
-    //     let item = item.as_geo_position().unwrap().unwrap();
-    //     loc.push(Point {
-    //         lon: item.longitude,
-    //         lat: item.latitude,
-    //     });
-    // }
 
     Ok(RideEndResponse {
         ride_id: ride_id,
         driver_id: request_body.driver_id,
-        loc,
+        loc: on_ride_driver_locations,
     })
 }
 
