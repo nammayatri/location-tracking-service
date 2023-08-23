@@ -22,78 +22,15 @@
       imports = [
         inputs.treefmt-nix.flakeModule
         inputs.process-compose-flake.flakeModule
+        ./nix/rust.nix
+        ./nix/services.nix
       ];
       perSystem = { config, self', pkgs, lib, system, ... }:
-        let
-          rustToolchain = (pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml).override {
-            extensions = [
-              "rust-src"
-              "rust-analyzer"
-            ];
-          };
-          craneLib = (inputs.crane.mkLib pkgs).overrideToolchain rustToolchain;
-          package = craneLib.buildPackage {
-            pname = "location-tracking-service";
-            src = ./.;
-            doCheck = false; # FIXME: tests require services to be running
-            buildInputs = lib.optionals pkgs.stdenv.isDarwin
-              (with pkgs.darwin.apple_sdk.frameworks; [
-                Security
-              ]) ++ [
-              pkgs.libiconv
-              pkgs.openssl
-              pkgs.rdkafka
-            ];
-            nativeBuildInputs = [
-              pkgs.pkg-config
-              pkgs.cmake
-            ];
-          };
-        in
         {
           _module.args.pkgs = import inputs.nixpkgs {
             inherit system;
             overlays = [
               inputs.rust-overlay.overlays.default
-            ];
-          };
-
-          process-compose."lts-services" = {
-            imports = [
-              inputs.services-flake.processComposeModules.default
-            ];
-            services.redis."redis1" = {
-              enable = true;
-            };
-          };
-
-          # Flake outputs
-          packages.default = package;
-          devShells.default = pkgs.mkShell {
-            inputsFrom = [
-              config.treefmt.build.devShell
-              self'.packages.default # Makes the buildInputs of the package available in devShell (so cargo can link against Nix libraries)
-            ];
-            shellHook = ''
-              # For rust-analyzer 'hover' tooltips to work.
-              export RUST_SRC_PATH="${rustToolchain}/lib/rustlib/src/rust/library";
-
-              export REDIS_HOST=${config.process-compose."lts-services".services.redis."redis1".bind}
-              export DATABASE_URL=postgresql://postgres:root@localhost:5434/atlas_dev
-
-              echo
-              echo "🍎🍎 Run 'just <recipe>' to get started"
-              just
-            '';
-            nativeBuildInputs = with pkgs; [
-              # Add your dev tools here.
-              cargo
-              rustc
-              rust-analyzer
-              cargo-watch
-              just
-              # Programs used by `justfile`
-              config.process-compose."lts-services".outputs.package
             ];
           };
 
@@ -106,6 +43,27 @@
               rustfmt.enable = true;
             };
           };
+
+          # Flake outputs
+          devShells.default = pkgs.mkShell {
+            inputsFrom = [
+              config.treefmt.build.devShell
+              self'.devShells.rust
+              self'.devShells.services
+            ];
+            shellHook = ''
+              export REDIS_HOST=${config.process-compose."lts-services".services.redis."redis1".bind}
+              export DATABASE_URL=postgresql://postgres:root@localhost:5434/atlas_dev
+
+              echo
+              echo "🍎🍎 Run 'just <recipe>' to get started"
+              just
+            '';
+            nativeBuildInputs = with pkgs; [
+              just
+            ];
+          };
+
         };
     };
 }
