@@ -35,7 +35,7 @@ pub async fn get_nearby_drivers(
                     &driver_loc_bucket_key(
                         &request_body.merchant_id,
                         &city,
-                        &vehicle_type.to_string(),
+                        &vehicle_type,
                         &current_bucket,
                     ),
                     None,
@@ -74,7 +74,7 @@ pub async fn get_nearby_drivers(
                 &driver_loc_bucket_key(
                     &request_body.merchant_id,
                     &city,
-                    &request_body.vehicle_type.unwrap().to_string(),
+                    &request_body.vehicle_type.unwrap(),
                     &current_bucket,
                 ),
                 None,

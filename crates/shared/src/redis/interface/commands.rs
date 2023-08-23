@@ -72,20 +72,19 @@ impl RedisConnectionPool {
         V: TryInto<RedisValue> + Debug + Send + Sync,
         V::Error: Into<fred::error::RedisError> + Send + Sync,
     {
-        let output: Result<(), _> = self
+        let output: Result<RedisValue, _> = self
             .pool
             .msetnx((key, value))
             .await
             .into_report()
             .change_context(AppError::SetFailed);
 
-        if output.is_ok() {
+        if let Ok(RedisValue::Boolean(true)) = output {
             self.set_expiry(key, expiry).await?;
-        } else {
-            return Err(AppError::SetFailed.into());
+            return Ok(());
         }
 
-        Ok(())
+        Err(AppError::SetExFailed.into())
     }
 
     #[instrument(level = "DEBUG", skip(self))]
