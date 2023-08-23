@@ -24,6 +24,7 @@
         inputs.process-compose-flake.flakeModule
         ./nix/rust.nix
         ./nix/services.nix
+        ./nix/docker.nix
       ];
       perSystem = { config, self', pkgs, lib, system, ... }:
         {

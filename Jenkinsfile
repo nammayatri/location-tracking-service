@@ -32,6 +32,19 @@ pipeline {
                             nixCI system: env.SYSTEM
                         }
                     }
+                    stage ('Docker image') {
+                        when {
+                            allOf {
+                                expression { 'x86_64-linux' == env.SYSTEM }
+                                anyOf {
+                                    branch 'main'; branch 'docker'; changeRequest target: 'main'
+                                }
+                            }
+                        }
+                        steps {
+                            dockerPush "dockerImage", "ghcr.io"
+                        }
+                    }
                     stage ('Cachix push') {
                         when {
                             anyOf {
