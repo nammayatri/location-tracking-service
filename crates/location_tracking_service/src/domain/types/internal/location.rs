@@ -3,20 +3,17 @@ use serde::{Deserialize, Serialize};
 
 use crate::common::types::*;
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct NearbyDriversRequest {
     pub lat: Latitude,
     pub lon: Longitude,
-    pub vehicle_type: VehicleType,
+    pub vehicle_type: Option<VehicleType>,
     pub radius: Radius,
     pub merchant_id: MerchantId,
 }
 
-#[derive(Deserialize, Serialize, Debug)]
-pub struct NearbyDriverResponse {
-    pub resp: Vec<DriverLocation>,
-}
+pub type NearbyDriverResponse = Vec<DriverLocation>;
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]

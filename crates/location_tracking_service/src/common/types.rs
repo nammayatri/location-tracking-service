@@ -10,16 +10,22 @@ use std::{
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
-use strum_macros::{Display, EnumString};
+use strum_macros::{Display, EnumIter, EnumString};
 use tokio::sync::Mutex;
 
-#[derive(Debug, Clone, EnumString, Display, Serialize, Deserialize, Eq, Hash, PartialEq)]
+#[derive(
+    Debug, Clone, EnumString, EnumIter, Display, Serialize, Deserialize, Eq, Hash, PartialEq,
+)]
 pub enum VehicleType {
     #[strum(serialize = "AUTO_RICKSHAW")]
     #[serde(rename = "AUTO_RICKSHAW")]
     AutoRickshaw,
+    #[strum(serialize = "SEDAN")]
+    #[serde(rename = "SEDAN")]
     Sedan,
     SUV,
+    #[strum(serialize = "HATCHBACK")]
+    #[serde(rename = "HATCHBACK")]
     Hatchback,
 }
 
@@ -56,7 +62,7 @@ pub struct APISuccess {
 impl Default for APISuccess {
     fn default() -> Self {
         Self {
-            result: "success".to_string(),
+            result: "Success".to_string(),
         }
     }
 }
@@ -111,6 +117,7 @@ pub struct AppState {
     pub producer: Option<FutureProducer>,
     pub driver_location_update_topic: String,
     pub driver_location_update_key: String,
+    pub batch_size: u64,
 }
 
 impl AppState {

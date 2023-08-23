@@ -39,6 +39,7 @@ pub struct AppConfig {
     pub kafka_cfg: KafkaConfig,
     pub driver_location_update_topic: String,
     pub driver_location_update_key: String,
+    pub batch_size: u64,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -124,6 +125,7 @@ pub async fn make_app_state(app_config: AppConfig) -> AppState {
         producer,
         driver_location_update_topic: app_config.driver_location_update_topic,
         driver_location_update_key: app_config.driver_location_update_key,
+        batch_size: app_config.batch_size,
     }
 }
 
