@@ -3,7 +3,7 @@ use crate::domain::types::ui::location::*;
 use crate::redis::{commands::*, keys::*};
 use actix_web::web::Data;
 use chrono::Utc;
-use fred::types::{GeoPosition, GeoValue};
+
 use rdkafka::producer::FutureRecord;
 use rdkafka::util::Timeout;
 use reqwest::header::{HeaderMap, HeaderValue, CONTENT_TYPE};
