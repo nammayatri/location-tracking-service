@@ -17,6 +17,8 @@ use std::{collections::HashMap, sync::Arc};
 use location_tracking_service::common::{geo_polygon::read_geo_polygon, redis::*, types::*};
 use location_tracking_service::domain::api;
 
+use location_tracking_service::redis::commands::*;
+
 use rdkafka::config::ClientConfig;
 use rdkafka::producer::FutureProducer;
 use serde::Deserialize;
@@ -157,18 +159,7 @@ async fn run_drainer(data: web::Data<AppState>) {
         let key = driver_loc_bucket_key(merchant_id, city, &vehicle_type, &bucket);
 
         if !queue.is_empty() {
-            // let num = data.location_redis.lock().await.zcard(&key).await.expect("unable to zcard");
-            let _: () = data
-                .location_redis
-                .geo_add(&key, multiple_geo_values, None, false)
-                .await
-                .expect("Couldn't add to redis");
-            // if num == 0 {
-            //     let _: () = data.location_redis.lock()
-            //         .set_expiry(&key, data.redis_expiry.try_into().unwrap())
-            //         .await
-            //         .expect("Unable to set expiry");
-            // }
+            let _ = push_drianer_values(data.clone(), key.clone(), multiple_geo_values).await;
             info!("queue: {:?}\nSending to redis server", queue);
             info!("^ Merchant id: {merchant_id}, City: {city}, Vt: {vehicle_type}, key: {key}\n");
         }
