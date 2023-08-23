@@ -1,5 +1,3 @@
-use shared::redis::interface::types::{RedisConnectionPool, RedisSettings};
-
 #[test]
 fn test_read_geo_polygon() {
     print!("helloworld!");
@@ -7,6 +5,8 @@ fn test_read_geo_polygon() {
 
 #[tokio::test]
 async fn test_set_key() {
+    use shared::redis::interface::types::{RedisConnectionPool, RedisSettings};
+
     let is_success = tokio::task::spawn_blocking(move || {
         futures::executor::block_on(async {
             let pool = RedisConnectionPool::new(&RedisSettings::default())

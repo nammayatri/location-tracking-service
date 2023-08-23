@@ -125,98 +125,101 @@ pub async fn update_driver_location(
     .unwrap();
 
     if on_ride_resp.ride_status == RideStatus::INPROGRESS {
-        error!(
-            "way points more then 100 points {0} on_ride: True",
-            request_body.len()
-        );
+        if request_body.len() > 100 {
+            error!(
+                "way points more then 100 points {0} on_ride: True",
+                request_body.len()
+            );
+        }
+        let mut multiple_geo_values = Vec::new();
         for loc in request_body {
-            let _: () = data
-                .location_redis
-                .geo_add(
-                    &on_ride_loc_key(&merchant_id, &city, &driver_id),
-                    GeoValue {
-                        coordinates: GeoPosition {
-                            longitude: loc.pt.lon,
-                            latitude: loc.pt.lat,
-                        },
-                        member: RedisValue::String(loc.ts.to_rfc3339().try_into().unwrap()),
-                    },
-                    None,
-                    false,
-                )
-                .await
-                .unwrap();
+            let geo_value = GeoValue {
+                coordinates: GeoPosition {
+                    longitude: loc.pt.lon,
+                    latitude: loc.pt.lat,
+                },
+                member: RedisValue::String(loc.ts.to_rfc3339().try_into().unwrap()),
+            };
+            multiple_geo_values.push(geo_value);
+            let _ = stream_updates(data.clone(), &merchant_id, &on_ride_resp.ride_id, loc);
+        }
 
-            let num = data
-                .location_redis
-                .zcard(&on_ride_loc_key(&merchant_id, &city, &driver_id))
-                .await
-                .expect("unable to zcard");
+        let _: () = data
+            .location_redis
+            .geo_add(
+                &on_ride_loc_key(&merchant_id, &city, &driver_id),
+                multiple_geo_values,
+                None,
+                false,
+            )
+            .await
+            .expect("Couldn't add to redis");
 
-            if num >= 100 {
-                let RedisValue::Array(res) = data.location_redis
+        let num = data
+            .location_redis
+            .zcard(&on_ride_loc_key(&merchant_id, &city, &driver_id))
+            .await
+            .expect("unable to zcard");
+
+        if num >= data.batch_size {
+            let RedisValue::Array(res) = data.location_redis
                     .zrange(&on_ride_loc_key(&merchant_id, &city, &driver_id), 0, -1, None, false, None, false)
                     .await
                     .unwrap() else {todo!()};
 
-                let mut res = res
-                    .into_iter()
-                    .map(|x| match x {
-                        RedisValue::String(y) => {
-                            String::from_utf8(y.into_inner().to_vec()).unwrap()
-                        }
-                        _ => String::from(""),
-                    })
-                    .collect::<Vec<String>>();
+            let mut res = res
+                .into_iter()
+                .map(|x| match x {
+                    RedisValue::String(y) => String::from_utf8(y.into_inner().to_vec()).unwrap(),
+                    _ => String::from(""),
+                })
+                .collect::<Vec<String>>();
 
-                res.sort();
+            res.sort();
 
-                info!("res: {:?}", res);
+            info!("res: {:?}", res);
 
-                let RedisValue::Array(res) = data.location_redis.geopos(&on_ride_loc_key(&merchant_id, &city, &driver_id), res).await.unwrap() else {todo!()};
-                info!("New res: {:?}", res);
+            let RedisValue::Array(res) = data.location_redis.geopos(&on_ride_loc_key(&merchant_id, &city, &driver_id), res).await.unwrap() else {todo!()};
+            info!("New res: {:?}", res);
 
-                let _ = stream_updates(data.clone(), &merchant_id, &on_ride_resp.ride_id, loc);
+            let loc: Vec<Point> = res
+                .into_iter()
+                .map(|x| match x {
+                    RedisValue::Array(y) => {
+                        let mut y = y.into_iter();
+                        let point = Point {
+                            lon: y.next().unwrap().as_f64().unwrap().into(),
+                            lat: y.next().unwrap().as_f64().unwrap().into(),
+                        };
+                        point
+                    }
+                    _ => Point { lat: 0.0, lon: 0.0 },
+                })
+                .collect::<Vec<Point>>();
 
-                let loc: Vec<Point> = res
-                    .into_iter()
-                    .map(|x| match x {
-                        RedisValue::Array(y) => {
-                            let mut y = y.into_iter();
-                            let point = Point {
-                                lon: y.next().unwrap().as_f64().unwrap().into(),
-                                lat: y.next().unwrap().as_f64().unwrap().into(),
-                            };
-                            point
-                        }
-                        _ => Point { lat: 0.0, lon: 0.0 },
-                    })
-                    .collect::<Vec<Point>>();
+            let mut headers = HeaderMap::new();
+            headers.insert(
+                CONTENT_TYPE,
+                HeaderValue::from_str("application/json").unwrap(),
+            );
 
-                let mut headers = HeaderMap::new();
-                headers.insert(
-                    CONTENT_TYPE,
-                    HeaderValue::from_str("application/json").unwrap(),
-                );
+            let _: APISuccess = call_api(
+                Method::POST,
+                &data.bulk_location_callback_url,
+                headers.clone(),
+                Some(BulkDataReq {
+                    ride_id: on_ride_resp.ride_id.clone(),
+                    driver_id: driver_id.clone(),
+                    loc: loc,
+                }),
+            )
+            .await?;
 
-                let _: APISuccess = call_api(
-                    Method::POST,
-                    &data.bulk_location_callback_url,
-                    headers.clone(),
-                    Some(BulkDataReq {
-                        ride_id: on_ride_resp.ride_id.clone(),
-                        driver_id: driver_id.clone(),
-                        loc: loc,
-                    }),
-                )
-                .await?;
-
-                let _: () = data
-                    .location_redis
-                    .delete_key(&on_ride_loc_key(&merchant_id, &city, &driver_id))
-                    .await
-                    .unwrap();
-            }
+            let _: () = data
+                .location_redis
+                .delete_key(&on_ride_loc_key(&merchant_id, &city, &driver_id))
+                .await
+                .unwrap();
         }
     } else {
         let last_location_update_ts = data
@@ -226,10 +229,11 @@ pub async fn update_driver_location(
             .unwrap();
         let last_location_update_ts = match DateTime::parse_from_rfc3339(&last_location_update_ts) {
             Ok(x) => x.with_timezone(&Utc),
-            Err(_) => Utc::now(),
+            Err(_) => request_body[0].ts,
         };
 
         let filtered_request_body: Vec<UpdateDriverLocationRequest> = request_body
+            .clone()
             .into_iter()
             .filter(|request| {
                 request.ts >= last_location_update_ts
@@ -237,11 +241,15 @@ pub async fn update_driver_location(
             })
             .collect();
 
-        let _ = data.generic_redis.set_with_expiry(
-            &driver_loc_ts_key(&driver_id),
-            (Utc::now()).to_rfc3339(), // Should be timestamp of last driver location
-            data.redis_expiry.try_into().unwrap(),
-        );
+        let _ = data
+            .generic_redis
+            .set_with_expiry(
+                &driver_loc_ts_key(&driver_id),
+                (Utc::now()).to_rfc3339(), // Should be timestamp of last driver location
+                data.redis_expiry.try_into().unwrap(),
+            )
+            .await
+            .unwrap();
 
         let mut queue = data.queue.lock().await;
 

@@ -31,5 +31,6 @@ in {
     location_update_limit = 10,
     location_update_interval = 60,
     driver_location_update_topic = "location-updates",
-    driver_location_update_key = "loc"
+    driver_location_update_key = "loc",
+    batch_size = 100,
 }
