@@ -67,6 +67,13 @@ impl Default for APISuccess {
     }
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthData {
+    #[serde(rename = "driverId")]
+    pub driver_id: String,
+}
+
 #[derive(Clone)]
 pub struct MultiPolygonBody {
     pub region: String,

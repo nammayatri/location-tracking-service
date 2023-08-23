@@ -154,7 +154,7 @@ async fn run_drainer(data: web::Data<AppState>) {
             .collect();
         let multiple_geo_values: MultipleGeoValues = geo_values.into();
 
-        let key = driver_loc_bucket_key(merchant_id, city, &vehicle_type.to_string(), &bucket);
+        let key = driver_loc_bucket_key(merchant_id, city, &vehicle_type, &bucket);
 
         if !queue.is_empty() {
             // let num = data.location_redis.lock().await.zcard(&key).await.expect("unable to zcard");

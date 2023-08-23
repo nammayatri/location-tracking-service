@@ -66,7 +66,7 @@ pub async fn update_driver_location(
     merchant_id: MerchantId,
     vehicle_type: VehicleType,
     data: Data<AppState>,
-    mut request_body: Vec<UpdateDriverLocationRequest>,
+    request_body: Vec<UpdateDriverLocationRequest>,
 ) -> Result<APISuccess, AppError> {
     let city = get_city(
         request_body[0].pt.lat,
@@ -111,9 +111,40 @@ pub async fn update_driver_location(
         )
         .await?;
 
-    request_body.sort_by(|a, b| (a.ts).cmp(&b.ts));
+    with_lock_redis(
+        data.generic_redis.clone(),
+        driver_processing_location_update_lock_key(&merchant_id.clone(), &city.clone()).as_str(),
+        60,
+        process_driver_locations,
+        (
+            data.clone(),
+            request_body.clone(),
+            driver_id.clone(),
+            merchant_id.clone(),
+            vehicle_type.clone(),
+            city.clone(),
+        ),
+    )
+    .await?;
 
-    info!("got location updates: {driver_id} {:?}", request_body);
+    Ok(APISuccess::default())
+}
+
+async fn process_driver_locations(
+    args: (
+        Data<AppState>,
+        Vec<UpdateDriverLocationRequest>,
+        DriverId,
+        MerchantId,
+        VehicleType,
+        CityName,
+    ),
+) -> Result<(), AppError> {
+    let (data, mut locations, driver_id, merchant_id, vehicle_type, city) = args;
+
+    locations.sort_by(|a, b| (a.ts).cmp(&b.ts));
+
+    info!("got location updates: {driver_id} {:?}", locations);
 
     let on_ride_resp = serde_json::from_str::<RideDetails>(
         &data
@@ -125,14 +156,14 @@ pub async fn update_driver_location(
     .unwrap();
 
     if on_ride_resp.ride_status == RideStatus::INPROGRESS {
-        if request_body.len() > 100 {
+        if locations.len() > 100 {
             error!(
                 "way points more then 100 points {0} on_ride: True",
-                request_body.len()
+                locations.len()
             );
         }
         let mut multiple_geo_values = Vec::new();
-        for loc in request_body {
+        for loc in locations {
             let geo_value = GeoValue {
                 coordinates: GeoPosition {
                     longitude: loc.pt.lon,
@@ -229,10 +260,10 @@ pub async fn update_driver_location(
             .unwrap();
         let last_location_update_ts = match DateTime::parse_from_rfc3339(&last_location_update_ts) {
             Ok(x) => x.with_timezone(&Utc),
-            Err(_) => request_body[0].ts,
+            Err(_) => locations[0].ts,
         };
 
-        let filtered_request_body: Vec<UpdateDriverLocationRequest> = request_body
+        let filtered_locations: Vec<UpdateDriverLocationRequest> = locations
             .clone()
             .into_iter()
             .filter(|request| {
@@ -253,7 +284,7 @@ pub async fn update_driver_location(
 
         let mut queue = data.queue.lock().await;
 
-        for loc in filtered_request_body {
+        for loc in filtered_locations {
             let dimensions = Dimensions {
                 merchant_id: merchant_id.clone(),
                 city: city.clone(),
@@ -272,5 +303,5 @@ pub async fn update_driver_location(
         }
     }
 
-    Ok(APISuccess::default())
+    Ok(())
 }
