@@ -1,6 +1,7 @@
 use crate::redis::commands::*;
+use crate::redis::keys::*;
 use crate::{
-    common::{redis::*, types::*, utils::get_city},
+    common::{types::*, utils::get_city},
     domain::types::internal::ride::*,
 };
 use actix_web::web::Data;

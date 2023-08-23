@@ -3,7 +3,7 @@ use actix_web::{web, App, HttpServer};
 use env_logger::Env;
 use fred::types::{GeoPosition, GeoValue, MultipleGeoValues};
 use rdkafka::error::KafkaError;
-use shared::redis::interface::types::{RedisConnectionPool, RedisSettings};
+use shared::redis::types::{RedisConnectionPool, RedisSettings};
 use shared::utils::{
     logger::*,
     prometheus::{self, *},
@@ -14,10 +14,10 @@ use tokio::{spawn, sync::Mutex, time::Duration};
 
 use std::{collections::HashMap, sync::Arc};
 
-use location_tracking_service::common::{geo_polygon::read_geo_polygon, redis::*, types::*};
+use location_tracking_service::common::{geo_polygon::read_geo_polygon, types::*};
 use location_tracking_service::domain::api;
 
-use location_tracking_service::redis::commands::*;
+use location_tracking_service::redis::{commands::*, keys::*};
 
 use rdkafka::config::ClientConfig;
 use rdkafka::producer::FutureProducer;

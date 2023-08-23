@@ -1,9 +1,4 @@
-use std::sync::Arc;
-
-use futures::Future;
-use shared::{redis::interface::types::RedisConnectionPool, tools::error::AppError};
-
-use super::types::*;
+use crate::common::types::*;
 
 // Generic Redis
 pub fn on_ride_key(merchant_id: &MerchantId, city: &CityName, driver_id: &DriverId) -> String {
@@ -43,26 +38,4 @@ pub fn driver_loc_bucket_key(
     bucket: &u64,
 ) -> String {
     format!("dl:loc:{merchant_id}:{city}:{vehicle_type}:{bucket}")
-}
-
-pub async fn with_lock_redis<F, Args, Fut>(
-    redis: Arc<RedisConnectionPool>,
-    key: &str,
-    expiry: i64,
-    callback: F,
-    args: Args,
-) -> Result<(), AppError>
-where
-    F: Fn(Args) -> Fut,
-    Args: Send + 'static,
-    Fut: Future<Output = Result<(), AppError>>,
-{
-    let lock = redis.setnx_with_expiry(key, true, expiry).await;
-
-    if let Ok(_) = lock {
-        callback(args).await?;
-        let _ = redis.delete_key(key).await;
-    }
-
-    Ok(())
 }

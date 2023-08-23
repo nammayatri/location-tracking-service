@@ -15,6 +15,8 @@ struct ErrorBody {
 
 #[derive(Debug, Serialize, thiserror::Error)]
 pub enum AppError {
+    #[error("InternalError: {0}")]
+    InternalError(String),
     #[error("InternalServerError")]
     InternalServerError,
     #[error("SerializationError: {0}")]
@@ -102,6 +104,10 @@ pub enum AppError {
 impl AppError {
     fn error_message(&self) -> ErrorBody {
         match self {
+            AppError::InternalError(err) => ErrorBody {
+                message: err.to_string(),
+                code: "INTERNAL_ERROR".to_string(),
+            },
             AppError::DriverAppAuthFailed => ErrorBody {
                 message: format!("Authentication Failed With Driver Offer App").to_string(),
                 code: "DRIVER_APP_AUTH_FAILED".to_string(),
@@ -123,6 +129,7 @@ impl ResponseError for AppError {
 
     fn status_code(&self) -> StatusCode {
         match self {
+            AppError::InternalError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::InternalServerError => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::DriverAppAuthFailed => StatusCode::UNAUTHORIZED,
             AppError::Unserviceable => StatusCode::BAD_REQUEST,

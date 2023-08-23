@@ -1,4 +1,4 @@
-use crate::redis::interface::types::RedisConnectionPool;
+use crate::redis::types::RedisConnectionPool;
 use crate::tools::error::AppError;
 use crate::utils::logger::instrument;
 use error_stack::{IntoReport, ResultExt};
@@ -225,7 +225,7 @@ impl RedisConnectionPool {
         withcoord: bool,
         withdist: bool,
         withhash: bool,
-    ) -> Result<Option<Vec<GeoRadiusInfo>>, AppError> {
+    ) -> Result<Vec<GeoRadiusInfo>, AppError> {
         let output: Result<Vec<GeoRadiusInfo>, _> = self
             .pool
             .geosearch(
@@ -248,7 +248,7 @@ impl RedisConnectionPool {
             return Err(AppError::GeoSearchFailed.into());
         }
 
-        Ok(Some(output.unwrap()))
+        Ok(output.unwrap())
     }
 
     //GEOPOS
