@@ -1,10 +1,7 @@
 use actix_web::web::Data;
 use shared::tools::error::AppError;
 
-use crate::{
-    common::{redis::*, types::*},
-    domain::types::internal::driver::*,
-};
+use crate::{common::types::*, domain::types::internal::driver::*, redis::keys::*};
 
 pub async fn driver_details(
     data: Data<AppState>,

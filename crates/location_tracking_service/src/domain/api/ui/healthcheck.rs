@@ -4,8 +4,7 @@ use actix_web::{
 };
 
 use crate::{
-    common::{redis::*, types::*},
-    domain::types::internal::ride::ResponseData,
+    common::types::*, domain::types::internal::ride::ResponseData, redis::keys::health_check_key,
 };
 
 use shared::tools::error::AppError;

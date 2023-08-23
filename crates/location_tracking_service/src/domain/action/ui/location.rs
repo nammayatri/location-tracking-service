@@ -1,6 +1,6 @@
-use crate::common::{redis::*, types::*, utils::get_city};
+use crate::common::{types::*, utils::get_city};
 use crate::domain::types::ui::location::*;
-use crate::redis::commands::*;
+use crate::redis::{commands::*, keys::*};
 use actix_web::web::Data;
 use chrono::{DateTime, Utc};
 use fred::types::{GeoPosition, GeoValue};

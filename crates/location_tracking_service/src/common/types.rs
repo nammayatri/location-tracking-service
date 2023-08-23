@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use geo::MultiPolygon;
 use rdkafka::producer::FutureProducer;
 use serde::{Deserialize, Serialize};
-use shared::redis::interface::types::RedisConnectionPool;
+use shared::redis::types::RedisConnectionPool;
 use shared::tools::error::AppError;
 use shared::utils::logger::*;
 use std::{

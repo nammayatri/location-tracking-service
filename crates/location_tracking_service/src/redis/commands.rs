@@ -1,23 +1,27 @@
 use crate::common::types::*;
-use crate::redis::types::*;
+use crate::redis::{keys::*, types::*};
 use actix_web::web::Data;
 use fred::types::{GeoPosition, GeoUnit, MultipleGeoValues, RedisValue, SortOrder};
-use shared::tools::error::AppError;
+use futures::Future;
 use shared::utils::logger::*;
+use shared::{redis::types::RedisConnectionPool, tools::error::AppError};
+use std::sync::Arc;
 
-pub async fn geo_search(
+pub async fn get_drivers_within_radius(
     data: Data<AppState>,
-    key: String,
-    lon: f64,
-    lat: f64,
+    merchant_id: &MerchantId,
+    city: &CityName,
+    vehicle: &VehicleType,
+    bucket: &u64,
+    location: Point,
     radius: f64,
 ) -> Result<Vec<GeoSearch>, AppError> {
-    let resp = data
+    let nearby_drivers = data
         .location_redis
         .geo_search(
-            key.as_str(),
+            driver_loc_bucket_key(&merchant_id, &city, &vehicle, &bucket).as_str(),
             None,
-            Some(GeoPosition::from((lon, lat))),
+            Some(GeoPosition::from((location.lon, location.lat))),
             Some((radius, GeoUnit::Kilometers)),
             None,
             Some(SortOrder::Asc),
@@ -28,19 +32,20 @@ pub async fn geo_search(
         )
         .await?;
 
-    let mut resp_vec: Vec<GeoSearch> = Vec::new();
+    let mut resp: Vec<GeoSearch> = Vec::new();
 
-    for item in resp.unwrap() {
-        match item.member {
+    for driver in nearby_drivers {
+        match driver.member {
             RedisValue::String(driver_id) => {
-                let pos = item.position.unwrap();
+                let pos = driver
+                    .position
+                    .expect("GeoPosition not found for geo search");
                 let lon = pos.longitude;
                 let lat = pos.latitude;
 
-                resp_vec.push(GeoSearch {
+                resp.push(GeoSearch {
                     driver_id: driver_id.to_string(),
-                    lon: lon,
-                    lat: lat,
+                    location: Point { lat: lat, lon: lon },
                 });
             }
             _ => {
@@ -49,7 +54,7 @@ pub async fn geo_search(
         }
     }
 
-    return Ok(resp_vec);
+    return Ok(resp);
 }
 
 pub async fn push_drianer_values(
@@ -133,4 +138,26 @@ pub async fn geopos(
             return Err(AppError::InternalServerError);
         }
     }
+}
+
+pub async fn with_lock_redis<F, Args, Fut>(
+    redis: Arc<RedisConnectionPool>,
+    key: &str,
+    expiry: i64,
+    callback: F,
+    args: Args,
+) -> Result<(), AppError>
+where
+    F: Fn(Args) -> Fut,
+    Args: Send + 'static,
+    Fut: Future<Output = Result<(), AppError>>,
+{
+    let lock = redis.setnx_with_expiry(key, true, expiry).await;
+
+    if let Ok(_) = lock {
+        callback(args).await?;
+        let _ = redis.delete_key(key).await;
+    }
+
+    Ok(())
 }
