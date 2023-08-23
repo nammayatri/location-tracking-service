@@ -1,8 +1,9 @@
 use crate::common::{redis::*, types::*, utils::get_city};
 use crate::domain::types::ui::location::*;
+use crate::redis::commands::*;
 use actix_web::web::Data;
 use chrono::{DateTime, Utc};
-use fred::types::{GeoPosition, GeoValue, RedisValue};
+use fred::types::{GeoPosition, GeoValue};
 use rdkafka::producer::FutureRecord;
 use rdkafka::util::Timeout;
 use reqwest::header::{HeaderMap, HeaderValue, CONTENT_TYPE};
@@ -51,7 +52,7 @@ async fn stream_updates(
             _ = producer
                 .send(
                     FutureRecord::to(topic).key(key).payload(&message),
-                    Timeout::After(Duration::from_secs(0)),
+                    Timeout::After(Duration::from_secs(1)),
                 )
                 .await;
         }
@@ -169,22 +170,18 @@ async fn process_driver_locations(
                     longitude: loc.pt.lon,
                     latitude: loc.pt.lat,
                 },
-                member: RedisValue::String(loc.ts.to_rfc3339().try_into().unwrap()),
+                member: (loc.ts.to_rfc3339().try_into().unwrap()),
             };
             multiple_geo_values.push(geo_value);
-            let _ = stream_updates(data.clone(), &merchant_id, &on_ride_resp.ride_id, loc);
+            let _ = stream_updates(data.clone(), &merchant_id, &on_ride_resp.ride_id, loc).await;
         }
 
-        let _: () = data
-            .location_redis
-            .geo_add(
-                &on_ride_loc_key(&merchant_id, &city, &driver_id),
-                multiple_geo_values,
-                None,
-                false,
-            )
-            .await
-            .expect("Couldn't add to redis");
+        let _ = push_driver_location(
+            data.clone(),
+            on_ride_loc_key(&merchant_id, &city, &driver_id),
+            multiple_geo_values.into(),
+        )
+        .await?;
 
         let num = data
             .location_redis
@@ -193,40 +190,38 @@ async fn process_driver_locations(
             .expect("unable to zcard");
 
         if num >= data.batch_size {
-            let RedisValue::Array(res) = data.location_redis
-                    .zrange(&on_ride_loc_key(&merchant_id, &city, &driver_id), 0, -1, None, false, None, false)
-                    .await
-                    .unwrap() else {todo!()};
-
-            let mut res = res
-                .into_iter()
-                .map(|x| match x {
-                    RedisValue::String(y) => String::from_utf8(y.into_inner().to_vec()).unwrap(),
-                    _ => String::from(""),
-                })
-                .collect::<Vec<String>>();
+            let mut res = zrange(
+                data.clone(),
+                on_ride_loc_key(&merchant_id, &city, &driver_id),
+            )
+            .await?;
 
             res.sort();
 
             info!("res: {:?}", res);
 
-            let RedisValue::Array(res) = data.location_redis.geopos(&on_ride_loc_key(&merchant_id, &city, &driver_id), res).await.unwrap() else {todo!()};
-            info!("New res: {:?}", res);
+            // let RedisValue::Array(res) = data.location_redis.geopos(&on_ride_loc_key(&merchant_id, &city, &driver_id), res).await.unwrap() else {todo!()};
+            let loc = geopos(
+                data.clone(),
+                on_ride_loc_key(&merchant_id, &city, &driver_id),
+                res,
+            )
+            .await?;
 
-            let loc: Vec<Point> = res
-                .into_iter()
-                .map(|x| match x {
-                    RedisValue::Array(y) => {
-                        let mut y = y.into_iter();
-                        let point = Point {
-                            lon: y.next().unwrap().as_f64().unwrap().into(),
-                            lat: y.next().unwrap().as_f64().unwrap().into(),
-                        };
-                        point
-                    }
-                    _ => Point { lat: 0.0, lon: 0.0 },
-                })
-                .collect::<Vec<Point>>();
+            // let loc: Vec<Point> = res
+            //     .into_iter()
+            //     .map(|x| match x {
+            //         RedisValue::Array(y) => {
+            //             let mut y = y.into_iter();
+            //             let point = Point {
+            //                 lon: y.next().unwrap().as_f64().unwrap().into(),
+            //                 lat: y.next().unwrap().as_f64().unwrap().into(),
+            //             };
+            //             point
+            //         }
+            //         _ => Point { lat: 0.0, lon: 0.0 },
+            //     })
+            //     .collect::<Vec<Point>>();
 
             let mut headers = HeaderMap::new();
             headers.insert(
@@ -299,7 +294,7 @@ async fn process_driver_locations(
                 driver_id.clone(),
             ));
 
-            let _ = stream_updates(data.clone(), &merchant_id, &"".to_string(), loc);
+            let _ = stream_updates(data.clone(), &merchant_id, &"".to_string(), loc).await;
         }
     }
 

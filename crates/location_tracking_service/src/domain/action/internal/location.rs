@@ -1,15 +1,13 @@
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-
 use actix_web::web::Data;
-use chrono::TimeZone;
-use chrono::Utc;
-use fred::types::{GeoPosition, GeoUnit, RedisValue, SortOrder};
+use chrono::{TimeZone, Utc};
 use shared::utils::logger::*;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use strum::IntoEnumIterator;
 
 use crate::{
     common::{redis::*, types::*, utils::get_city},
     domain::types::internal::location::*,
+    redis::commands::*,
 };
 use shared::tools::error::AppError;
 
@@ -29,74 +27,26 @@ pub async fn get_nearby_drivers(
     if request_body.vehicle_type == Option::None {
         for vehicle_type in VehicleType::iter() {
             info!("vechile type{:?}", vehicle_type);
-            let resp = data
-                .location_redis
-                .geo_search(
-                    &driver_loc_bucket_key(
-                        &request_body.merchant_id,
-                        &city,
-                        &vehicle_type,
-                        &current_bucket,
-                    ),
-                    None,
-                    Some(GeoPosition::from((request_body.lon, request_body.lat))),
-                    Some((request_body.radius, GeoUnit::Kilometers)),
-                    None,
-                    Some(SortOrder::Asc),
-                    None,
-                    true,
-                    true,
-                    false,
-                )
-                .await?;
-
-            for item in resp.unwrap() {
-                if let RedisValue::String(driver_id) = item.member {
-                    let pos = item.position.unwrap();
-                    let timestamp = Utc.timestamp_opt((current_bucket * 60) as i64, 0).unwrap();
-                    let driver_location = DriverLocation {
-                        driver_id: driver_id.to_string(),
-                        lon: pos.longitude,
-                        lat: pos.latitude,
-                        coordinates_calculated_at: timestamp.clone(),
-                        created_at: timestamp.clone(),
-                        updated_at: timestamp.clone(),
-                        merchant_id: request_body.merchant_id.clone(),
-                    };
-                    resp_vec.push(driver_location);
-                }
-            }
-        }
-    } else {
-        let resp = data
-            .location_redis
-            .geo_search(
-                &driver_loc_bucket_key(
-                    &request_body.merchant_id,
+            let resp = geo_search(
+                data.clone(),
+                driver_loc_bucket_key(
+                    &request_body.clone().merchant_id,
                     &city,
-                    &request_body.vehicle_type.unwrap(),
+                    &vehicle_type,
                     &current_bucket,
                 ),
-                None,
-                Some(GeoPosition::from((request_body.lon, request_body.lat))),
-                Some((request_body.radius, GeoUnit::Kilometers)),
-                None,
-                Some(SortOrder::Asc),
-                None,
-                true,
-                true,
-                false,
+                request_body.clone().lon,
+                request_body.clone().lat,
+                request_body.clone().radius,
             )
             .await?;
 
-        for item in resp.unwrap() {
-            if let RedisValue::String(driver_id) = item.member {
-                let pos = item.position.unwrap();
+            for item in resp {
                 let timestamp = Utc.timestamp_opt((current_bucket * 60) as i64, 0).unwrap();
                 let driver_location = DriverLocation {
-                    driver_id: driver_id.to_string(),
-                    lon: pos.longitude,
-                    lat: pos.latitude,
+                    driver_id: item.driver_id.to_string(),
+                    lon: item.lon,
+                    lat: item.lat,
                     coordinates_calculated_at: timestamp.clone(),
                     created_at: timestamp.clone(),
                     updated_at: timestamp.clone(),
@@ -104,6 +54,34 @@ pub async fn get_nearby_drivers(
                 };
                 resp_vec.push(driver_location);
             }
+        }
+    } else {
+        let resp = geo_search(
+            data.clone(),
+            driver_loc_bucket_key(
+                &request_body.clone().merchant_id,
+                &city,
+                &request_body.clone().vehicle_type.unwrap(),
+                &current_bucket,
+            ),
+            request_body.clone().lon,
+            request_body.clone().lat,
+            request_body.clone().radius,
+        )
+        .await?;
+
+        for item in resp {
+            let timestamp = Utc.timestamp_opt((current_bucket * 60) as i64, 0).unwrap();
+            let driver_location = DriverLocation {
+                driver_id: item.driver_id.to_string(),
+                lon: item.lon,
+                lat: item.lat,
+                coordinates_calculated_at: timestamp.clone(),
+                created_at: timestamp.clone(),
+                updated_at: timestamp.clone(),
+                merchant_id: request_body.merchant_id.clone(),
+            };
+            resp_vec.push(driver_location);
         }
     }
 

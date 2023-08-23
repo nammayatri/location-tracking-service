@@ -1,9 +1,9 @@
+use crate::redis::commands::*;
 use crate::{
     common::{redis::*, types::*, utils::get_city},
     domain::types::internal::ride::*,
 };
 use actix_web::web::Data;
-use fred::types::RedisValue;
 use shared::tools::error::AppError;
 
 pub async fn ride_start(
@@ -54,22 +54,22 @@ pub async fn ride_end(
         .await
         .unwrap();
 
-    let RedisValue::Array(res) = data.location_redis
-        .zrange(&on_ride_loc_key(&request_body.merchant_id, &city, &request_body.driver_id), 0, -1, None, false, None, false)
-        .await
-        .unwrap() else {todo!()};
-
-    let mut res = res
-        .into_iter()
-        .map(|x| match x {
-            RedisValue::String(y) => String::from_utf8(y.into_inner().to_vec()).unwrap(),
-            _ => String::from(""),
-        })
-        .collect::<Vec<String>>();
+    let mut res = zrange(
+        data.clone(),
+        on_ride_loc_key(&request_body.merchant_id, &city, &request_body.driver_id),
+    )
+    .await?;
 
     res.sort();
 
-    let RedisValue::Array(res) = data.location_redis.geopos(&on_ride_loc_key(&request_body.merchant_id, &city, &request_body.driver_id), res).await.unwrap() else {todo!()};
+    // let RedisValue::Array(res) = data.location_redis.lock().await.geopos(&on_ride_loc_key(&request_body.merchant_id, &city, &request_body.driver_id), res).await.unwrap() else {todo!()};
+    let loc = geopos(
+        data.clone(),
+        on_ride_loc_key(&request_body.merchant_id, &city, &request_body.driver_id),
+        res,
+    )
+    .await?;
+
     let _: () = data
         .location_redis
         .delete_key(&on_ride_loc_key(
@@ -80,14 +80,14 @@ pub async fn ride_end(
         .await
         .unwrap();
 
-    let mut loc: Vec<Point> = Vec::new();
-    for item in res {
-        let item = item.as_geo_position().unwrap().unwrap();
-        loc.push(Point {
-            lon: item.longitude,
-            lat: item.latitude,
-        });
-    }
+    // let mut loc: Vec<Point> = Vec::new();
+    // for item in res {
+    //     let item = item.as_geo_position().unwrap().unwrap();
+    //     loc.push(Point {
+    //         lon: item.longitude,
+    //         lat: item.latitude,
+    //     });
+    // }
 
     Ok(RideEndResponse {
         ride_id: ride_id,
