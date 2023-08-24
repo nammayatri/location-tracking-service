@@ -1,4 +1,4 @@
-use crate::redis::types::RedisConnectionPool;
+use crate::redis::types::*;
 use crate::tools::error::AppError;
 use crate::utils::logger::instrument;
 use error_stack::{IntoReport, ResultExt};
@@ -79,7 +79,7 @@ impl RedisConnectionPool {
             .into_report()
             .change_context(AppError::SetFailed);
 
-        if let Ok(RedisValue::Boolean(true)) = output {
+        if let Ok(RedisValue::Integer(1)) = output {
             self.set_expiry(key, expiry).await?;
             return Ok(());
         }
@@ -105,22 +105,19 @@ impl RedisConnectionPool {
 
     // get key
     #[instrument(level = "DEBUG", skip(self))]
-    pub async fn get_key<V>(&self, key: &str) -> Result<V, AppError>
-    where
-        V: FromRedis + Unpin + Send + 'static,
-    {
-        let output: Result<V, _> = self
+    pub async fn get_key(&self, key: &str) -> Result<Option<String>, AppError> {
+        let output: Result<RedisValue, _> = self
             .pool
             .get(key)
             .await
             .into_report()
             .change_context(AppError::GetFailed);
 
-        if !output.is_ok() {
-            return Err(AppError::GetFailed.into());
+        match output {
+            Ok(RedisValue::String(val)) => Ok(Some(val.to_string())),
+            Ok(RedisValue::Null) => Ok(None),
+            _ => Err(AppError::GetFailed),
         }
-
-        Ok(output.unwrap())
     }
 
     // delete key
@@ -252,7 +249,7 @@ impl RedisConnectionPool {
     }
 
     //GEOPOS
-    pub async fn geopos(&self, key: &str, members: Vec<String>) -> Result<RedisValue, AppError> {
+    pub async fn geopos(&self, key: &str, members: Vec<String>) -> Result<Vec<Point>, AppError> {
         let output: Result<RedisValue, _> = self
             .pool
             .geopos(key, members)
@@ -260,11 +257,38 @@ impl RedisConnectionPool {
             .into_report()
             .change_context(AppError::GeoPosFailed);
 
-        if !output.is_ok() {
-            return Err(AppError::GeoPosFailed.into());
+        match output {
+            Ok(RedisValue::Array(points)) => {
+                if !points.is_empty() {
+                    if points[0].is_array() {
+                        let mut resp = Vec::new();
+                        for point in points {
+                            let point = point.as_geo_position().expect("Unable to parse point");
+                            match point {
+                                Some(pos) => {
+                                    resp.push(Point {
+                                        lat: pos.latitude,
+                                        lon: pos.longitude,
+                                    });
+                                }
+                                _ => {}
+                            }
+                        }
+                        return Ok(resp);
+                    } else if points.len() == 2 && points[0].is_double() && points[1].is_double() {
+                        return Ok(vec![Point {
+                            lat: points[1].as_f64().expect("Unable to parse lat"),
+                            lon: points[0].as_f64().expect("Unable to parse lon"),
+                        }]);
+                    } else {
+                        return Err(AppError::GeoPosFailed);
+                    }
+                } else {
+                    return Err(AppError::GeoPosFailed);
+                }
+            }
+            _ => Err(AppError::GeoPosFailed),
         }
-
-        Ok(output.unwrap())
     }
 
     //ZREMRANGEBYRANK
@@ -341,7 +365,7 @@ impl RedisConnectionPool {
         rev: bool,
         limit: Option<Limit>,
         withscores: bool,
-    ) -> Result<RedisValue, AppError> {
+    ) -> Result<Vec<String>, AppError> {
         let output: Result<RedisValue, _> = self
             .pool
             .zrange(key, min, max, sort, rev, limit, withscores)
@@ -349,10 +373,22 @@ impl RedisConnectionPool {
             .into_report()
             .change_context(AppError::ZRangeFailed);
 
-        if !output.is_ok() {
-            return Err(AppError::ZRangeFailed.into());
+        match output {
+            Ok(RedisValue::Array(val)) => {
+                let mut members = Vec::new();
+                for member in val {
+                    match member {
+                        RedisValue::String(y) => {
+                            members.push(String::from_utf8(y.into_inner().to_vec()).unwrap())
+                        }
+                        _ => (),
+                    }
+                }
+                members.sort();
+                Ok(members)
+            }
+            Ok(RedisValue::String(member)) => Ok(vec![member.to_string()]),
+            _ => Err(AppError::ZRangeFailed),
         }
-
-        Ok(output.unwrap())
     }
 }

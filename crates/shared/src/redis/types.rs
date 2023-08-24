@@ -6,6 +6,11 @@ use error_stack::{IntoReport, ResultExt};
 use fred::interfaces::ClientLike;
 use serde::Deserialize;
 
+pub struct Point {
+    pub lat: f64,
+    pub lon: f64,
+}
+
 #[derive(Debug, Deserialize, Clone)]
 #[serde(default)]
 pub struct RedisSettings {

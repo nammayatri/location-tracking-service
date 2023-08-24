@@ -32,10 +32,11 @@ async fn search_nearby_drivers_with_vehicle(
     )
     .await?;
 
+    let timestamp = Utc.timestamp_opt((bucket * 60) as i64, 0).unwrap();
+
     let mut resp: Vec<DriverLocation> = Vec::new();
 
     for driver in nearby_drivers {
-        let timestamp = Utc.timestamp_opt((bucket * 60) as i64, 0).unwrap();
         let driver_location = DriverLocation {
             driver_id: driver.driver_id.to_string(),
             lat: driver.location.lat,

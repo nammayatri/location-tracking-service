@@ -69,12 +69,12 @@ pub async fn push_drainer_driver_location(
     let geo_values: Vec<GeoValue> = geo_entries
         .to_owned()
         .into_iter()
-        .map(|(lon, lat, driver_id)| {
+        .map(|(lat, lon, driver_id)| {
             prometheus::QUEUE_GUAGE.dec();
             GeoValue {
                 coordinates: GeoPosition {
-                    longitude: lon,
                     latitude: lat,
+                    longitude: lon,
                 },
                 member: driver_id.into(),
             }
@@ -101,7 +101,7 @@ pub async fn get_and_set_driver_last_location_update_timestamp(
 ) -> Result<DateTime<Utc>, AppError> {
     let last_location_update_ts = data
         .generic_redis
-        .get_key::<String>(&driver_loc_ts_key(&driver_id))
+        .get_key(&driver_loc_ts_key(&driver_id))
         .await?;
 
     let _ = data
@@ -113,11 +113,13 @@ pub async fn get_and_set_driver_last_location_update_timestamp(
         )
         .await?;
 
-    if let Ok(x) = DateTime::parse_from_rfc3339(&last_location_update_ts) {
-        return Ok(x.with_timezone(&Utc));
+    if let Some(ts) = last_location_update_ts {
+        if let Ok(x) = DateTime::parse_from_rfc3339(&ts) {
+            return Ok(x.with_timezone(&Utc));
+        }
     }
 
-    Err(AppError::InternalServerError)
+    return Err(AppError::InternalServerError);
 }
 
 pub async fn get_driver_ride_status(
@@ -128,8 +130,13 @@ pub async fn get_driver_ride_status(
 ) -> Result<RideDetails, AppError> {
     let ride_details = data
         .generic_redis
-        .get_key::<String>(&on_ride_key(&merchant_id, &city, &driver_id))
+        .get_key(&on_ride_key(&merchant_id, &city, &driver_id))
         .await?;
+
+    let ride_details = match ride_details {
+        Some(ride_details) => ride_details,
+        None => return Err(AppError::InternalServerError),
+    };
 
     let ride_details = serde_json::from_str::<RideDetails>(&ride_details)
         .map_err(|err| AppError::InternalError(err.to_string()))?;
@@ -193,7 +200,7 @@ pub async fn get_on_ride_driver_locations(
     merchant_id: &MerchantId,
     city: &CityName,
 ) -> Result<Vec<Point>, AppError> {
-    let redis_val = data
+    let members = data
         .location_redis
         .zrange(
             &on_ride_loc_key(&merchant_id, &city, &driver_id),
@@ -206,58 +213,25 @@ pub async fn get_on_ride_driver_locations(
         )
         .await?;
 
-    match redis_val {
-        RedisValue::Array(res) => {
-            let mut members = res
-                .into_iter()
-                .map(|x| match x {
-                    RedisValue::String(y) => String::from_utf8(y.into_inner().to_vec()).unwrap(),
-                    _ => String::from(""),
-                })
-                .collect::<Vec<String>>();
+    let points = data
+        .location_redis
+        .geopos(&on_ride_loc_key(&merchant_id, &city, &driver_id), members)
+        .await?;
 
-            members.sort();
+    let _: () = data
+        .location_redis
+        .delete_key(&on_ride_loc_key(&merchant_id, &city, &driver_id))
+        .await?;
 
-            let redis_val = data
-                .location_redis
-                .geopos(&on_ride_loc_key(&merchant_id, &city, &driver_id), members)
-                .await?;
-
-            match redis_val {
-                RedisValue::Array(res) => {
-                    let mut loc: Vec<Point> = Vec::new();
-
-                    for item in res {
-                        let item = item.as_geo_position().unwrap();
-                        match item {
-                            Some(val) => {
-                                loc.push(Point {
-                                    lon: val.longitude,
-                                    lat: val.latitude,
-                                });
-                            }
-                            _ => {}
-                        }
-                    }
-
-                    let _: () = data
-                        .location_redis
-                        .delete_key(&on_ride_loc_key(&merchant_id, &city, &driver_id))
-                        .await?;
-
-                    return Ok(loc);
-                }
-                _ => {
-                    info!("Invalid RedisValue variant");
-                    return Err(AppError::InternalServerError);
-                }
-            }
-        }
-        _ => {
-            info!("Invalid RedisValue variant");
-            return Err(AppError::InternalServerError);
-        }
-    }
+    Ok(points
+        .into_iter()
+        .map(|point| {
+            return Point {
+                lat: point.lat,
+                lon: point.lon,
+            };
+        })
+        .collect::<Vec<Point>>())
 }
 
 pub async fn with_lock_redis<F, Args, Fut>(
@@ -275,8 +249,9 @@ where
     let lock = redis.setnx_with_expiry(key, true, expiry).await;
 
     if let Ok(_) = lock {
-        callback(args).await?;
+        let resp = callback(args).await;
         let _ = redis.delete_key(key).await;
+        resp?
     }
 
     Ok(())

@@ -74,9 +74,9 @@ pub async fn update_driver_location(
         data.polygon.clone(),
     )?;
 
-    let mut driver_id = data.generic_redis.get_key(&token).await.unwrap();
+    let mut driver_id = data.generic_redis.get_key(&token).await?;
 
-    if driver_id == "nil".to_string() {
+    if let None = driver_id {
         let response = call_api::<AuthResponseData, String>(
             Method::GET,
             &data.auth_url,
@@ -96,8 +96,10 @@ pub async fn update_driver_location(
             .await
             .unwrap();
 
-        driver_id = response.driver_id;
+        driver_id = Some(response.driver_id);
     }
+
+    let driver_id = driver_id.unwrap();
 
     let _ = data
         .sliding_window_limiter(
@@ -199,14 +201,16 @@ async fn process_driver_locations(
         }
     } else {
         let last_location_update_ts =
-            get_and_set_driver_last_location_update_timestamp(data.clone(), &driver_id).await?;
+            get_and_set_driver_last_location_update_timestamp(data.clone(), &driver_id)
+                .await
+                .unwrap_or(locations[0].ts);
 
         let filtered_locations: Vec<UpdateDriverLocationRequest> = locations
             .clone()
             .into_iter()
             .filter(|request| {
                 request.ts >= last_location_update_ts
-                    && request.acc >= data.min_location_accuracy.try_into().unwrap()
+                    && request.acc <= data.min_location_accuracy.try_into().unwrap()
             })
             .collect();
 
