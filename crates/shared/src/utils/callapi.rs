@@ -1,10 +1,11 @@
 use std::fmt::Debug;
+use std::str::FromStr;
 
 use crate::call_external_api;
 use crate::tools::error::AppError;
 use crate::utils::logger::*;
 use crate::utils::prometheus::CALL_EXTERNAL_API;
-use reqwest::header::HeaderMap;
+use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use reqwest::{Client, Method};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -12,7 +13,7 @@ use serde::Serialize;
 pub async fn call_api<T, U>(
     method: Method,
     url: &str,
-    headers: HeaderMap,
+    headers: Vec<(&str, &str)>,
     body: Option<U>,
 ) -> Result<T, AppError>
 where
@@ -23,20 +24,29 @@ where
 
     let client = Client::new();
 
-    let mut request_builder = client.request(method.clone(), url).headers(headers);
+    let mut header_map = HeaderMap::new();
+
+    for (header_key, header_value) in headers.clone() {
+        header_map.insert(
+            HeaderName::from_str(header_key).expect("Invalid header name"),
+            HeaderValue::from_str(header_value).expect("Invalid header value"),
+        );
+    }
+
+    let mut request = client.request(method.clone(), url).headers(header_map);
 
     if let Some(body) = &body {
         let body = serde_json::to_string(body)
             .map_err(|err| AppError::SerializationError(err.to_string()))?;
-        request_builder = request_builder.body(body);
+        request = request.body(body);
     }
 
-    let resp = request_builder.send().await;
+    let resp = request.send().await;
 
     match resp {
         Ok(resp) => {
             call_external_api!(method.as_str(), url, resp.status().as_str(), start_time);
-            info!("[CALL EXTERNAL API] {{ Method : {:?}, URL : {:?}, Request : {:?}, Response : {:?} }}", &method, url, &body, resp);
+            info!("[CALL EXTERNAL API] {{ Method : {:?}, URL : {:?}, Request Body : {:?}, Request Headers : {:?}, Response : {:?} }}", &method, url, &body, &headers, resp);
             Ok(resp
                 .json::<T>()
                 .await

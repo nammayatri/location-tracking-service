@@ -6,7 +6,6 @@ use chrono::Utc;
 
 use rdkafka::producer::FutureRecord;
 use rdkafka::util::Timeout;
-use reqwest::header::{HeaderMap, HeaderValue, CONTENT_TYPE};
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use shared::tools::error::AppError;
@@ -78,18 +77,15 @@ pub async fn update_driver_location(
     let mut driver_id = data.generic_redis.get_key(&token).await.unwrap();
 
     if driver_id == "nil".to_string() {
-        let mut headers = HeaderMap::new();
-        headers.insert("token", HeaderValue::from_str(&token).unwrap());
-        headers.insert(
-            "api-key",
-            HeaderValue::from_str(data.auth_api_key.as_str()).unwrap(),
-        );
-        headers.insert("merchant-id", HeaderValue::from_str(&merchant_id).unwrap());
-
         let response = call_api::<AuthResponseData, String>(
             Method::GET,
             &data.auth_url,
-            headers.clone(),
+            vec![
+                ("content-type", "application/json"),
+                ("token", &token),
+                ("api-key", &data.auth_api_key),
+                ("merchant-id", &merchant_id),
+            ],
             None,
         )
         .await?;
@@ -189,16 +185,10 @@ async fn process_driver_locations(
             let on_ride_driver_locations =
                 get_on_ride_driver_locations(data.clone(), &driver_id, &merchant_id, &city).await?;
 
-            let mut headers = HeaderMap::new();
-            headers.insert(
-                CONTENT_TYPE,
-                HeaderValue::from_str("application/json").unwrap(),
-            );
-
             let _: APISuccess = call_api(
                 Method::POST,
                 &data.bulk_location_callback_url,
-                headers.clone(),
+                vec![("content-type", "application/json")],
                 Some(BulkDataReq {
                     ride_id: ride_details.ride_id.clone(),
                     driver_id: driver_id.clone(),
