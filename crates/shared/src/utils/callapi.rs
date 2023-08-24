@@ -3,8 +3,7 @@ use std::str::FromStr;
 
 use crate::call_external_api;
 use crate::tools::error::AppError;
-use crate::utils::logger::*;
-use crate::utils::prometheus::CALL_EXTERNAL_API;
+use crate::utils::{logger::*, prometheus::CALL_EXTERNAL_API};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use reqwest::{Client, Method};
 use serde::de::DeserializeOwned;

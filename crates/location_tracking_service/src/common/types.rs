@@ -145,28 +145,26 @@ impl AppState {
             .expect("Time went backwards")
             .as_secs() as i64;
 
-        let hits = generic_redis_pool.get_key::<String>(key).await.unwrap();
-        let nil_string = String::from("nil");
-        let hits = if hits == nil_string {
-            vec![]
-        } else {
-            serde_json::from_str::<Vec<i64>>(&hits).unwrap()
-        };
+        let hits = generic_redis_pool.get_key(key).await.unwrap();
+        match hits {
+            Some(hits) => {
+                let hits = serde_json::from_str::<Vec<i64>>(&hits).unwrap();
+                info!("hits: {:?}", hits);
+                let (filt_hits, ret) =
+                    Self::sliding_window_limiter_pure(curr_time, &hits, frame_hits_lim, frame_len);
 
-        info!("hits: {:?}", hits);
+                if !ret {
+                    return Err(AppError::HitsLimitExceeded);
+                }
 
-        let (filt_hits, ret) =
-            Self::sliding_window_limiter_pure(curr_time, &hits, frame_hits_lim, frame_len);
+                let _ = generic_redis_pool
+                    .set_with_expiry(key, serde_json::to_string(&filt_hits).unwrap(), frame_len)
+                    .await;
 
-        if !ret {
-            return Err(AppError::HitsLimitExceeded);
+                Ok(filt_hits)
+            }
+            None => Ok(vec![]),
         }
-
-        let _ = generic_redis_pool
-            .set_with_expiry(key, serde_json::to_string(&filt_hits).unwrap(), frame_len)
-            .await;
-
-        Ok(filt_hits)
     }
 
     fn sliding_window_limiter_pure(

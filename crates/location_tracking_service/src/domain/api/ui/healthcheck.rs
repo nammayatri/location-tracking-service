@@ -18,11 +18,11 @@ async fn health_check(data: Data<AppState>) -> Result<Json<ResponseData>, AppErr
 
     let health_check_resp = data
         .generic_redis
-        .get_key::<String>(&health_check_key())
+        .get_key(&health_check_key())
         .await
         .unwrap();
 
-    if health_check_resp == String::from("nil") {
+    if health_check_resp.is_none() {
         return Err(AppError::InternalServerError);
     }
 

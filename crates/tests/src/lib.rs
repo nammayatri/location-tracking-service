@@ -13,7 +13,6 @@ async fn test_set_key() {
                 .await
                 .expect("Failed to create Redis Connection Pool");
             let result = pool.set_key("helloworld!", "value".to_string()).await;
-            print!("{:?}", pool.get_key::<String>("helloworld!").await);
             result.is_ok()
         })
     })
