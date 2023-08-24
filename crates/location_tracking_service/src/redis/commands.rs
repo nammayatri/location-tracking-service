@@ -108,7 +108,7 @@ pub async fn get_and_set_driver_last_location_update_timestamp(
         .generic_redis
         .set_with_expiry(
             &driver_loc_ts_key(&driver_id),
-            (Utc::now()).to_rfc3339(), // Should be timestamp of last driver location
+            (Utc::now()).to_rfc3339(),
             data.redis_expiry.try_into().unwrap(),
         )
         .await?;

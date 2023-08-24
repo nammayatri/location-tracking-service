@@ -24,21 +24,27 @@ pub async fn update_driver_location(
     let token: Token = req
         .headers()
         .get("token")
-        .unwrap()
+        .expect("token not found in headers")
         .to_str()
-        .unwrap()
-        .to_owned();
+        .map_err(|err| AppError::InternalError(err.to_string()))?
+        .to_string();
 
     let merchant_id: MerchantId = req
         .headers()
         .get("mId")
-        .unwrap()
+        .expect("mId not found in headers")
         .to_str()
-        .unwrap()
-        .to_owned();
+        .map_err(|err| AppError::InternalError(err.to_string()))?
+        .to_string();
 
-    let vehicle_type: VehicleType =
-        VehicleType::from_str(req.headers().get("vt").unwrap().to_str().unwrap()).unwrap();
+    let vehicle_type: VehicleType = VehicleType::from_str(
+        req.headers()
+            .get("vt")
+            .expect("vt not found in headers")
+            .to_str()
+            .map_err(|err| AppError::InternalError(err.to_string()))?,
+    )
+    .map_err(|err| AppError::InternalError(err.to_string()))?;
 
     Ok(Json(
         location::update_driver_location(token, merchant_id, vehicle_type, data, request_body)
