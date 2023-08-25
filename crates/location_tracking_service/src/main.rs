@@ -84,7 +84,9 @@ pub async fn make_app_state(app_config: AppConfig) -> AppState {
     );
 
     let queue = Arc::new(Mutex::new(HashMap::new()));
-    let polygons = read_geo_polygon("./config").expect("Failed to read geoJSON");
+
+    let geo_config_path = var("GEO_CONFIG").unwrap_or_else(|_| "./geo_config".to_string());
+    let polygons = read_geo_polygon(&geo_config_path).expect("Failed to read geoJSON");
 
     let producer: Option<FutureProducer>;
 
@@ -160,7 +162,7 @@ async fn start_server() -> std::io::Result<()> {
     env_logger::init_from_env(Env::default().default_filter_or("info"));
 
     let dhall_config_path = var("DHALL_CONFIG")
-        .unwrap_or_else(|_| "./configs/location_tracking_service.dhall".to_string());
+        .unwrap_or_else(|_| "./dhall_config/location_tracking_service.dhall".to_string());
     let app_config = read_dhall_config(&dhall_config_path).unwrap_or_else(|err| {
         error!("{}", err);
         std::process::exit(1);
