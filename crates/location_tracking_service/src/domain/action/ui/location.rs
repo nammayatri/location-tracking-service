@@ -1,18 +1,16 @@
+use crate::common::kafka::push_to_kafka;
 use crate::common::{types::*, utils::get_city};
 use crate::domain::types::ui::location::*;
 use crate::redis::{commands::*, keys::*};
 use actix_web::web::Data;
 use chrono::Utc;
 
-use rdkafka::producer::FutureRecord;
-use rdkafka::util::Timeout;
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use shared::tools::error::AppError;
 use shared::utils::callapi::*;
 use shared::utils::logger::*;
 use shared::utils::prometheus;
-use std::time::Duration;
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -44,21 +42,7 @@ async fn kafka_stream_updates(
         mode: "".to_string(),
     };
 
-    let message = serde_json::to_string(&loc).unwrap();
-
-    match &data.producer {
-        Some(producer) => {
-            _ = producer
-                .send(
-                    FutureRecord::to(topic).key(key).payload(&message),
-                    Timeout::After(Duration::from_secs(1)),
-                )
-                .await;
-        }
-        None => {
-            info!("Producer is None, unable to send message");
-        }
-    }
+    push_to_kafka(&data.producer, topic, key, loc).await;
 }
 
 pub async fn update_driver_location(
@@ -92,7 +76,7 @@ pub async fn update_driver_location(
 
         let _: () = data
             .generic_redis
-            .set_with_expiry(&token, &response.driver_id, data.token_expiry)
+            .set_with_expiry(&token, &response.driver_id, data.auth_token_expiry)
             .await
             .unwrap();
 

@@ -1,26 +1,15 @@
 use actix_web::web::Data;
 use shared::tools::error::AppError;
 
-use crate::{common::types::*, domain::types::internal::driver::*, redis::keys::*};
+use crate::{
+    common::types::*, domain::types::internal::driver::*, redis::commands::set_driver_details,
+};
 
 pub async fn driver_details(
     data: Data<AppState>,
     request_body: DriverDetailsRequest,
 ) -> Result<APISuccess, AppError> {
-    let key = driver_details_key(&request_body.driver_id);
-    let value = DriverDetails {
-        driver_id: request_body.driver_id,
-        driver_mode: request_body.driver_mode,
-    };
-    let value = serde_json::to_string(&value).unwrap();
-
-    let result = data
-        .generic_redis
-        .set_with_expiry(&key, value, data.on_ride_expiry)
-        .await;
-    if result.is_err() {
-        return Err(AppError::InternalServerError);
-    }
+    set_driver_details(data, request_body.driver_id, request_body.driver_mode).await?;
 
     Ok(APISuccess::default())
 }

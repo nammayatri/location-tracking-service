@@ -8,6 +8,45 @@ use shared::utils::{logger::*, prometheus};
 use shared::{redis::types::RedisConnectionPool, tools::error::AppError};
 use std::sync::Arc;
 
+pub async fn set_ride_details(
+    data: Data<AppState>,
+    merchant_id: &MerchantId,
+    city: &CityName,
+    driver_id: &DriverId,
+    ride_id: RideId,
+    ride_status: RideStatus,
+) -> Result<(), AppError> {
+    let value = RideDetails {
+        ride_id,
+        ride_status,
+    };
+    let value = serde_json::to_string(&value).unwrap();
+
+    data.generic_redis
+        .set_with_expiry(
+            &on_ride_key(merchant_id, city, driver_id),
+            value,
+            data.redis_expiry,
+        )
+        .await
+}
+
+pub async fn set_driver_details(
+    data: Data<AppState>,
+    driver_id: DriverId,
+    driver_mode: DriverMode,
+) -> Result<(), AppError> {
+    let value = DriverDetails {
+        driver_id: driver_id.clone(),
+        driver_mode,
+    };
+    let value = serde_json::to_string(&value).unwrap();
+
+    data.generic_redis
+        .set_with_expiry(&driver_details_key(&driver_id), value, data.redis_expiry)
+        .await
+}
+
 pub async fn get_drivers_within_radius(
     data: Data<AppState>,
     merchant_id: &MerchantId,
@@ -109,7 +148,7 @@ pub async fn get_and_set_driver_last_location_update_timestamp(
         .set_with_expiry(
             &driver_loc_ts_key(&driver_id),
             (Utc::now()).to_rfc3339(),
-            data.redis_expiry.try_into().unwrap(),
+            data.last_location_timstamp_expiry.try_into().unwrap(),
         )
         .await?;
 
