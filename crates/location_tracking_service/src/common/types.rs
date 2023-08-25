@@ -13,6 +13,7 @@ use std::{
 use strum_macros::{Display, EnumIter, EnumString};
 use tokio::sync::Mutex;
 
+pub type RideId = String;
 pub type DriverId = String;
 pub type MerchantId = String;
 pub type Latitude = f64;
@@ -119,11 +120,11 @@ pub struct AppState {
     pub auth_url: String,
     pub auth_api_key: String,
     pub bulk_location_callback_url: String,
-    pub token_expiry: u32,
+    pub auth_token_expiry: u32,
     pub bucket_expiry: u64,
-    pub on_ride_expiry: u32,
+    pub redis_expiry: u32,
     pub min_location_accuracy: u32,
-    pub redis_expiry: usize,
+    pub last_location_timstamp_expiry: usize,
     pub location_update_limit: usize,
     pub location_update_interval: u64,
     pub producer: Option<FutureProducer>,
