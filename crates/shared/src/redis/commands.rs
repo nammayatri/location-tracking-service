@@ -10,6 +10,7 @@ use fred::{
     },
 };
 use std::fmt::Debug;
+use tracing::info;
 
 impl RedisConnectionPool {
     // set key
@@ -257,6 +258,8 @@ impl RedisConnectionPool {
             .into_report()
             .change_context(AppError::GeoPosFailed);
 
+        info!("output: {:?}", output);
+
         match output {
             Ok(RedisValue::Array(points)) => {
                 if !points.is_empty() {
@@ -281,10 +284,10 @@ impl RedisConnectionPool {
                             lon: points[0].as_f64().expect("Unable to parse lon"),
                         }]);
                     } else {
-                        return Err(AppError::GeoPosFailed);
+                        return Ok(vec![]);
                     }
                 } else {
-                    return Err(AppError::GeoPosFailed);
+                    return Ok(vec![]);
                 }
             }
             _ => Err(AppError::GeoPosFailed),

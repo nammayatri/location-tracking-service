@@ -6,6 +6,7 @@ use error_stack::{IntoReport, ResultExt};
 use fred::interfaces::ClientLike;
 use serde::Deserialize;
 
+#[derive(Debug)]
 pub struct Point {
     pub lat: f64,
     pub lon: f64,
