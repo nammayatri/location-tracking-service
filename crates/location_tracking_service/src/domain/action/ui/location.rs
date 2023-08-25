@@ -129,93 +129,95 @@ async fn process_driver_locations(
 
     info!("Got location updates: {driver_id} {:?}", locations);
 
-    let ride_details =
-        get_driver_ride_status(data.clone(), &driver_id, &merchant_id, &city).await?;
+    match get_driver_ride_status(data.clone(), &driver_id, &merchant_id, &city).await {
+        Ok(RideDetails {
+            ride_id,
+            ride_status: RideStatus::INPROGRESS,
+        }) => {
+            if locations.len() > 100 {
+                error!(
+                    "Way points more than 100 points {} on_ride: True",
+                    locations.len()
+                );
+            }
+            let mut geo_entries = Vec::new();
+            for loc in locations {
+                geo_entries.push((loc.pt.lat, loc.pt.lon, loc.ts.to_rfc3339()));
+                let _ = kafka_stream_updates(data.clone(), &merchant_id, &ride_id, loc).await;
+            }
 
-    if locations.len() > 100 {
-        let ride_status = if ride_details.ride_status == RideStatus::INPROGRESS {
-            "True"
-        } else {
-            "False"
-        };
-
-        error!(
-            "Way points more than 100 points {} on_ride: {}",
-            locations.len(),
-            ride_status
-        );
-    }
-
-    if ride_details.ride_status == RideStatus::INPROGRESS {
-        let mut geo_entries = Vec::new();
-        for loc in locations {
-            geo_entries.push((loc.pt.lat, loc.pt.lon, loc.ts.to_rfc3339()));
-            let _ =
-                kafka_stream_updates(data.clone(), &merchant_id, &ride_details.ride_id, loc).await;
-        }
-
-        let _ = push_on_ride_driver_location(
-            data.clone(),
-            &driver_id,
-            &merchant_id,
-            &city,
-            &geo_entries,
-        )
-        .await?;
-
-        let on_ride_driver_location_count =
-            get_on_ride_driver_location_count(data.clone(), &driver_id, &merchant_id, &city)
-                .await?;
-
-        if on_ride_driver_location_count >= data.batch_size {
-            let on_ride_driver_locations =
-                get_on_ride_driver_locations(data.clone(), &driver_id, &merchant_id, &city).await?;
-
-            let _: APISuccess = call_api(
-                Method::POST,
-                &data.bulk_location_callback_url,
-                vec![("content-type", "application/json")],
-                Some(BulkDataReq {
-                    ride_id: ride_details.ride_id.clone(),
-                    driver_id: driver_id.clone(),
-                    loc: on_ride_driver_locations,
-                }),
+            let _ = push_on_ride_driver_location(
+                data.clone(),
+                &driver_id,
+                &merchant_id,
+                &city,
+                &geo_entries,
             )
             .await?;
+
+            let on_ride_driver_location_count =
+                get_on_ride_driver_location_count(data.clone(), &driver_id, &merchant_id, &city)
+                    .await?;
+
+            if on_ride_driver_location_count >= data.batch_size {
+                let on_ride_driver_locations =
+                    get_on_ride_driver_locations(data.clone(), &driver_id, &merchant_id, &city)
+                        .await?;
+
+                let _: APISuccess = call_api(
+                    Method::POST,
+                    &data.bulk_location_callback_url,
+                    vec![("content-type", "application/json")],
+                    Some(BulkDataReq {
+                        ride_id: ride_id.clone(),
+                        driver_id: driver_id.clone(),
+                        loc: on_ride_driver_locations,
+                    }),
+                )
+                .await?;
+            }
         }
-    } else {
-        let last_location_update_ts =
-            get_and_set_driver_last_location_update_timestamp(data.clone(), &driver_id)
-                .await
-                .unwrap_or(locations[0].ts);
+        _ => {
+            if locations.len() > 100 {
+                error!(
+                    "Way points more than 100 points {} on_ride: False",
+                    locations.len()
+                );
+            }
+            let last_location_update_ts =
+                get_and_set_driver_last_location_update_timestamp(data.clone(), &driver_id)
+                    .await
+                    .unwrap_or(locations[0].ts);
 
-        let filtered_locations: Vec<UpdateDriverLocationRequest> = locations
-            .clone()
-            .into_iter()
-            .filter(|request| {
-                request.ts >= last_location_update_ts
-                    && request.acc <= data.min_location_accuracy.try_into().unwrap()
-            })
-            .collect();
+            let filtered_locations: Vec<UpdateDriverLocationRequest> = locations
+                .clone()
+                .into_iter()
+                .filter(|request| {
+                    request.ts >= last_location_update_ts
+                        && request.acc <= data.min_location_accuracy.try_into().unwrap()
+                })
+                .collect();
 
-        let mut queue = data.queue.lock().await;
+            let mut queue = data.queue.lock().await;
 
-        for loc in filtered_locations {
-            let dimensions = Dimensions {
-                merchant_id: merchant_id.clone(),
-                city: city.clone(),
-                vehicle_type: vehicle_type.clone(),
-            };
+            for loc in filtered_locations {
+                let dimensions = Dimensions {
+                    merchant_id: merchant_id.clone(),
+                    city: city.clone(),
+                    vehicle_type: vehicle_type.clone(),
+                };
 
-            prometheus::QUEUE_GUAGE.inc();
+                prometheus::QUEUE_GUAGE.inc();
 
-            queue.entry(dimensions).or_insert_with(Vec::new).push((
-                loc.pt.lat,
-                loc.pt.lon,
-                driver_id.clone(),
-            ));
+                queue.entry(dimensions).or_insert_with(Vec::new).push((
+                    loc.pt.lat,
+                    loc.pt.lon,
+                    driver_id.clone(),
+                ));
 
-            let _ = kafka_stream_updates(data.clone(), &merchant_id, &"".to_string(), loc).await;
+                let _ =
+                    kafka_stream_updates(data.clone(), &merchant_id, &"".to_string(), loc).await;
+            }
         }
     }
 
