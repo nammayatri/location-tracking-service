@@ -1,12 +1,16 @@
+use actix_web::dev::{Service, ServiceResponse};
 use actix_web::middleware::Logger;
-use actix_web::{web, App, HttpServer};
+use actix_web::{web, App, Error, HttpServer};
 use env_logger::Env;
+use futures::FutureExt;
 use location_tracking_service::common::utils::get_current_bucket;
 use rdkafka::error::KafkaError;
+use shared::incoming_api;
 use shared::redis::types::{RedisConnectionPool, RedisSettings};
 use shared::tools::error::AppError;
 use shared::utils::{logger::*, prometheus::*};
 use std::env::var;
+use std::time::Instant;
 use tokio::{spawn, sync::Mutex, time::Duration};
 
 use std::{collections::HashMap, sync::Arc};
@@ -184,6 +188,20 @@ async fn start_server() -> std::io::Result<()> {
     HttpServer::new(move || {
         App::new()
             .app_data(data.clone())
+            .wrap_fn(|req, srv| {
+                let start_time = Instant::now();
+                srv.call(req)
+                    .map(move |res: Result<ServiceResponse, Error>| {
+                        let response = res?;
+                        incoming_api!(
+                            response.request().method().as_str(),
+                            response.request().uri().to_string().as_str(),
+                            response.status().as_str(),
+                            start_time
+                        );
+                        Ok(response)
+                    })
+            })
             .wrap(Logger::default())
             .wrap(prometheus_metrics())
             .configure(api::handler)
