@@ -4,7 +4,7 @@ use rdkafka::producer::FutureProducer;
 use serde::{Deserialize, Serialize};
 use shared::redis::types::RedisConnectionPool;
 use shared::tools::error::AppError;
-use shared::utils::logger::*;
+
 use std::{
     collections::HashMap,
     sync::Arc,
