@@ -19,8 +19,7 @@ async fn health_check(data: Data<AppState>) -> Result<Json<ResponseData>, AppErr
     let health_check_resp = data
         .generic_redis
         .get_key(&health_check_key())
-        .await
-        .unwrap();
+        .await?;
 
     if health_check_resp.is_none() {
         return Err(AppError::InternalServerError);

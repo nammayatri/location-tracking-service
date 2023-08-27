@@ -11,19 +11,21 @@ pub async fn push_to_kafka<T>(producer: &Option<FutureProducer>, topic: &str, ke
 where
     T: Serialize,
 {
-    let message = serde_json::to_string(&message).unwrap();
+    let message = serde_json::to_string(&message);
 
-    match producer {
-        Some(producer) => {
-            _ = producer
-                .send(
-                    FutureRecord::to(topic).key(key).payload(&message),
-                    Timeout::After(Duration::from_secs(1)),
-                )
-                .await;
-        }
-        None => {
-            info!("Producer is None, unable to send message");
+    if let Ok(message) = message {
+        match producer {
+            Some(producer) => {
+                _ = producer
+                    .send(
+                        FutureRecord::to(topic).key(key).payload(&message),
+                        Timeout::After(Duration::from_secs(1)),
+                    )
+                    .await;
+            }
+            None => {
+                info!("Producer is None, unable to send message");
+            }
         }
     }
 }

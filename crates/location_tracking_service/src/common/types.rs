@@ -146,11 +146,11 @@ impl AppState {
             .expect("Time went backwards")
             .as_secs() as i64;
 
-        let hits = generic_redis_pool.get_key(key).await.unwrap();
+        let hits = generic_redis_pool.get_key(key).await?;
         match hits {
             Some(hits) => {
-                let hits = serde_json::from_str::<Vec<i64>>(&hits).unwrap();
-                info!("hits: {:?}", hits);
+                let hits = serde_json::from_str::<Vec<i64>>(&hits)
+                    .expect("Failed to parse hits from string.");
                 let (filt_hits, ret) =
                     Self::sliding_window_limiter_pure(curr_time, &hits, frame_hits_lim, frame_len);
 
@@ -159,7 +159,12 @@ impl AppState {
                 }
 
                 let _ = generic_redis_pool
-                    .set_with_expiry(key, serde_json::to_string(&filt_hits).unwrap(), frame_len)
+                    .set_with_expiry(
+                        key,
+                        serde_json::to_string(&filt_hits)
+                            .expect("Failed to parse filt_hits to string."),
+                        frame_len,
+                    )
                     .await;
 
                 Ok(filt_hits)
