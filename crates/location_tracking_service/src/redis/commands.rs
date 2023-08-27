@@ -40,7 +40,7 @@ pub async fn set_driver_details(
         driver_id: driver_id.clone(),
         driver_mode,
     };
-    let value = serde_json::to_string(&value).unwrap();
+    let value = serde_json::to_string(&value).map_err(|err| AppError::InternalError(err.to_string()))?;
 
     data.generic_redis
         .set_with_expiry(&driver_details_key(&driver_id), value, data.redis_expiry)
@@ -148,7 +148,7 @@ pub async fn get_and_set_driver_last_location_update_timestamp(
         .set_with_expiry(
             &driver_loc_ts_key(&driver_id),
             (Utc::now()).to_rfc3339(),
-            data.last_location_timstamp_expiry.try_into().unwrap(),
+            data.last_location_timstamp_expiry.try_into().expect("Failed to parse last_location_timstamp_expiry"),
         )
         .await?;
 

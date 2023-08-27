@@ -206,7 +206,7 @@ async fn start_server() -> std::io::Result<()> {
             .wrap(prometheus_metrics())
             .configure(api::handler)
     })
-    .bind(("127.0.0.1", app_config.port))?
+    .bind(("0.0.0.0", app_config.port))?
     .run()
     .await
 }

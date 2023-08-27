@@ -1,5 +1,5 @@
 use actix_web::web::Data;
-use chrono::{TimeZone, Utc};
+use chrono::{LocalResult, TimeZone, Utc};
 use strum::IntoEnumIterator;
 
 use crate::{
@@ -32,7 +32,13 @@ async fn search_nearby_drivers_with_vehicle(
     )
     .await?;
 
-    let timestamp = Utc.timestamp_opt((bucket * 60) as i64, 0).unwrap();
+    let timestamp = Utc.timestamp_opt((bucket * 60) as i64, 0);
+
+    let timestamp = if let LocalResult::Single(timestamp) = timestamp {
+        timestamp
+    } else {
+        Utc::now()
+    };
 
     let mut resp: Vec<DriverLocation> = Vec::new();
 
