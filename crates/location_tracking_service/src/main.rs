@@ -23,6 +23,7 @@ use location_tracking_service::redis::commands::*;
 use rdkafka::config::ClientConfig;
 use rdkafka::producer::FutureProducer;
 use serde::Deserialize;
+use tracing_actix_web::TracingLogger;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct AppConfig {
@@ -202,7 +203,7 @@ async fn start_server() -> std::io::Result<()> {
                         Ok(response)
                     })
             })
-            .wrap(Logger::default())
+            .wrap(TracingLogger::default())
             .wrap(prometheus_metrics())
             .configure(api::handler)
     })

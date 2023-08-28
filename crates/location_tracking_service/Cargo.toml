@@ -26,8 +26,9 @@ actix = "0.13.0"
 geo = "0.25.1"
 geojson = "0.24.1"
 strum = "0.24.0"
-strum_macros = "0.24.0"
+strum_macros = "0.24.1"
 enum-iterator = "1.4.0"
 rdkafka = {version = "0.33.2", features = ["cmake-build"] }
+tracing-actix-web = "0.7.5"
 
 shared = { version = "0.1.0", path = "../shared" }
