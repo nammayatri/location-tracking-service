@@ -13,7 +13,7 @@
       imageTag = builtins.substring 0 6 (self.rev or "dev");
     in
     {
-      packages = {
+      packages = lib.optionalAttrs pkgs.stdenv.isLinux {
         dockerImage = pkgs.dockerTools.buildImage {
           name = imageName;
           created = "now";
