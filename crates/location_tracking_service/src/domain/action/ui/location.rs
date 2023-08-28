@@ -36,7 +36,10 @@ async fn kafka_stream_updates(
             lat: loc.pt.lat,
             lon: loc.pt.lon,
         },
-        acc: loc.acc,
+        acc: match loc.acc {
+            Some(acc) => acc,
+            None => 0,
+        },
         ride_status: "".to_string(),
         da: true,
         mode: "".to_string(),
@@ -193,8 +196,12 @@ async fn process_driver_locations(
                 .clone()
                 .into_iter()
                 .filter(|request| {
+                    let acc = match request.acc {
+                        Some(acc) => acc,
+                        None => 0,
+                    };
                     request.ts >= last_location_update_ts
-                        && request.acc <= data.min_location_accuracy.try_into().unwrap()
+                        && acc <= data.min_location_accuracy.try_into().unwrap()
                 })
                 .collect();
 

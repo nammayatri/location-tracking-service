@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 pub struct UpdateDriverLocationRequest {
     pub pt: Point,
     pub ts: TimeStamp,
-    pub acc: Accuracy,
+    pub acc: Option<Accuracy>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

@@ -210,7 +210,7 @@ pub async fn push_on_ride_driver_location(
     let multiple_geo_values: MultipleGeoValues = geo_values.into();
 
     let _ = data
-        .location_redis
+        .generic_redis
         .geo_add(
             &on_ride_loc_key(&merchant_id, &city, &driver_id),
             multiple_geo_values,
@@ -229,7 +229,7 @@ pub async fn get_on_ride_driver_location_count(
     city: &CityName,
 ) -> Result<u64, AppError> {
     let driver_location_count = data
-        .location_redis
+        .generic_redis
         .zcard(&on_ride_loc_key(&merchant_id, &city, &driver_id))
         .await?;
 
@@ -243,7 +243,7 @@ pub async fn get_on_ride_driver_locations(
     city: &CityName,
 ) -> Result<Vec<Point>, AppError> {
     let members = data
-        .location_redis
+        .generic_redis
         .zrange(
             &on_ride_loc_key(&merchant_id, &city, &driver_id),
             0,
@@ -256,12 +256,12 @@ pub async fn get_on_ride_driver_locations(
         .await?;
 
     let points = data
-        .location_redis
+        .generic_redis
         .geopos(&on_ride_loc_key(&merchant_id, &city, &driver_id), members)
         .await?;
 
     let _: () = data
-        .location_redis
+        .generic_redis
         .delete_key(&on_ride_loc_key(&merchant_id, &city, &driver_id))
         .await?;
 
