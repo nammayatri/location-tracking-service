@@ -22,7 +22,7 @@ pub async fn set_ride_details(
     };
     let value = serde_json::to_string(&value).unwrap();
 
-    data.generic_redis
+    data.persistent_redis
         .set_with_expiry(
             &on_ride_key(merchant_id, city, driver_id),
             value,
@@ -43,7 +43,7 @@ pub async fn set_driver_details(
     let value =
         serde_json::to_string(&value).map_err(|err| AppError::InternalError(err.to_string()))?;
 
-    data.generic_redis
+    data.persistent_redis
         .set_with_expiry(&driver_details_key(&driver_id), value, data.redis_expiry)
         .await
 }
@@ -58,7 +58,7 @@ pub async fn get_drivers_within_radius(
     radius: f64,
 ) -> Result<Vec<DriverLocationPoint>, AppError> {
     let nearby_drivers = data
-        .location_redis
+        .non_persistent_redis
         .geo_search(
             driver_loc_bucket_key(&merchant_id, &city, &vehicle, &bucket).as_str(),
             None,
@@ -90,7 +90,7 @@ pub async fn get_drivers_within_radius(
                 });
             }
             _ => {
-                info!("Invalid RedisValue variant");
+                info!(tag = "[Redis]", "Invalid RedisValue variant");
             }
         }
     }
@@ -123,7 +123,7 @@ pub async fn push_drainer_driver_location(
     let multiple_geo_values: MultipleGeoValues = geo_values.into();
 
     let _ = data
-        .location_redis
+        .non_persistent_redis
         .geo_add(
             &driver_loc_bucket_key(merchant_id, city, vehicle, bucket),
             multiple_geo_values,
@@ -140,12 +140,12 @@ pub async fn get_and_set_driver_last_location_update_timestamp(
     driver_id: &DriverId,
 ) -> Result<DateTime<Utc>, AppError> {
     let last_location_update_ts = data
-        .generic_redis
+        .persistent_redis
         .get_key(&driver_loc_ts_key(&driver_id))
         .await?;
 
     let _ = data
-        .generic_redis
+        .persistent_redis
         .set_with_expiry(
             &driver_loc_ts_key(&driver_id),
             (Utc::now()).to_rfc3339(),
@@ -161,7 +161,9 @@ pub async fn get_and_set_driver_last_location_update_timestamp(
         }
     }
 
-    return Err(AppError::InternalServerError);
+    return Err(AppError::InternalError(
+        "Failed to get_and_set_driver_last_location_update_timestamp".to_string(),
+    ));
 }
 
 pub async fn get_driver_ride_status(
@@ -171,13 +173,17 @@ pub async fn get_driver_ride_status(
     city: &CityName,
 ) -> Result<RideDetails, AppError> {
     let ride_details = data
-        .generic_redis
+        .persistent_redis
         .get_key(&on_ride_key(&merchant_id, &city, &driver_id))
         .await?;
 
     let ride_details = match ride_details {
         Some(ride_details) => ride_details,
-        None => return Err(AppError::InternalServerError),
+        None => {
+            return Err(AppError::InternalError(
+                "Driver ride details not found".to_string(),
+            ))
+        }
     };
 
     let ride_details = serde_json::from_str::<RideDetails>(&ride_details)
@@ -210,7 +216,7 @@ pub async fn push_on_ride_driver_location(
     let multiple_geo_values: MultipleGeoValues = geo_values.into();
 
     let _ = data
-        .generic_redis
+        .persistent_redis
         .geo_add(
             &on_ride_loc_key(&merchant_id, &city, &driver_id),
             multiple_geo_values,
@@ -229,7 +235,7 @@ pub async fn get_on_ride_driver_location_count(
     city: &CityName,
 ) -> Result<u64, AppError> {
     let driver_location_count = data
-        .generic_redis
+        .persistent_redis
         .zcard(&on_ride_loc_key(&merchant_id, &city, &driver_id))
         .await?;
 
@@ -243,7 +249,7 @@ pub async fn get_on_ride_driver_locations(
     city: &CityName,
 ) -> Result<Vec<Point>, AppError> {
     let members = data
-        .generic_redis
+        .persistent_redis
         .zrange(
             &on_ride_loc_key(&merchant_id, &city, &driver_id),
             0,
@@ -256,12 +262,12 @@ pub async fn get_on_ride_driver_locations(
         .await?;
 
     let points = data
-        .generic_redis
+        .persistent_redis
         .geopos(&on_ride_loc_key(&merchant_id, &city, &driver_id), members)
         .await?;
 
     let _: () = data
-        .generic_redis
+        .persistent_redis
         .delete_key(&on_ride_loc_key(&merchant_id, &city, &driver_id))
         .await?;
 

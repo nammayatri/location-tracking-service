@@ -61,7 +61,7 @@ pub async fn update_driver_location(
         data.polygon.clone(),
     )?;
 
-    let mut driver_id = data.generic_redis.get_key(&token).await?;
+    let mut driver_id = data.persistent_redis.get_key(&token).await?;
 
     if let None = driver_id {
         let response = call_api::<AuthResponseData, String>(
@@ -78,7 +78,7 @@ pub async fn update_driver_location(
         .await?;
 
         let _: () = data
-            .generic_redis
+            .persistent_redis
             .set_with_expiry(&token, &response.driver_id, data.auth_token_expiry)
             .await
             .unwrap();
@@ -93,12 +93,12 @@ pub async fn update_driver_location(
             &driver_id,
             data.location_update_limit,
             data.location_update_interval as u32,
-            &data.generic_redis,
+            &data.persistent_redis,
         )
         .await?;
 
     with_lock_redis(
-        data.generic_redis.clone(),
+        data.persistent_redis.clone(),
         driver_processing_location_update_lock_key(&merchant_id.clone(), &city.clone()).as_str(),
         60,
         process_driver_locations,
@@ -130,7 +130,10 @@ async fn process_driver_locations(
 
     locations.sort_by(|a, b| (a.ts).cmp(&b.ts));
 
-    info!("Got location updates: {driver_id} {:?}", locations);
+    info!(
+        tag = "[Location Updates]",
+        "Got location updates: {driver_id} {:?}", locations
+    );
 
     match get_driver_ride_status(data.clone(), &driver_id, &merchant_id, &city).await {
         Ok(RideDetails {

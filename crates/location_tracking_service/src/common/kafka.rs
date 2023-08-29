@@ -24,7 +24,7 @@ where
                     .await;
             }
             None => {
-                info!("Producer is None, unable to send message");
+                info!(tag = "[Kafka]", "Producer is None, unable to send message");
             }
         }
     }

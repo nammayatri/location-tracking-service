@@ -1,7 +1,5 @@
 use actix_web::dev::{Service, ServiceResponse};
-use actix_web::middleware::Logger;
 use actix_web::{web, App, Error, HttpServer};
-use env_logger::Env;
 use futures::FutureExt;
 use location_tracking_service::common::utils::get_current_bucket;
 use rdkafka::error::KafkaError;
@@ -28,8 +26,9 @@ use tracing_actix_web::TracingLogger;
 #[derive(Debug, Deserialize, Clone)]
 pub struct AppConfig {
     pub port: u16,
-    pub location_redis_cfg: RedisConfig,
-    pub generic_redis_cfg: RedisConfig,
+    pub non_persistent_cfg: RedisConfig,
+    pub drainer_delay: u64,
+    pub persistent_redis_cfg: RedisConfig,
     pub auth_url: String,
     pub auth_api_key: String,
     pub bulk_location_callback_url: String,
@@ -68,21 +67,21 @@ pub fn read_dhall_config(config_path: &str) -> Result<AppConfig, String> {
 }
 
 pub async fn make_app_state(app_config: AppConfig) -> AppState {
-    let location_redis = Arc::new(
+    let non_persistent_redis = Arc::new(
         RedisConnectionPool::new(&RedisSettings::new(
-            app_config.location_redis_cfg.redis_host,
-            app_config.location_redis_cfg.redis_port,
-            app_config.location_redis_cfg.redis_pool_size,
+            app_config.non_persistent_cfg.redis_host,
+            app_config.non_persistent_cfg.redis_port,
+            app_config.non_persistent_cfg.redis_pool_size,
         ))
         .await
         .expect("Failed to create Location Redis connection pool"),
     );
 
-    let generic_redis = Arc::new(
+    let persistent_redis = Arc::new(
         RedisConnectionPool::new(&RedisSettings::new(
-            app_config.generic_redis_cfg.redis_host,
-            app_config.generic_redis_cfg.redis_port,
-            app_config.generic_redis_cfg.redis_pool_size,
+            app_config.persistent_redis_cfg.redis_host,
+            app_config.persistent_redis_cfg.redis_port,
+            app_config.persistent_redis_cfg.redis_pool_size,
         ))
         .await
         .expect("Failed to create Generic Redis connection pool"),
@@ -107,15 +106,19 @@ pub async fn make_app_state(app_config: AppConfig) -> AppState {
         Ok(val) => {
             producer = Some(val);
         }
-        Err(e) => {
+        Err(err) => {
             producer = None;
-            info!("Error connecting to kafka config: {}", e);
+            info!(
+                tag = "[Kafka Connection]",
+                "Error connecting to kafka config: {err}"
+            );
         }
     }
 
     AppState {
-        location_redis,
-        generic_redis,
+        non_persistent_redis,
+        persistent_redis,
+        drainer_delay: app_config.drainer_delay,
         queue,
         polygon: polygons,
         auth_url: app_config.auth_url,
@@ -154,7 +157,7 @@ async fn run_drainer(data: web::Data<AppState>) -> Result<(), AppError> {
                 geo_entries,
             )
             .await;
-            info!("Queue: {:?}\nPushing to redis server", geo_entries);
+            info!(tag = "[Queued Entries For Draining]", length = %geo_entries.len(), "Queue: {:?}\nPushing to redis server", geo_entries);
         }
     }
     queue.clear();
@@ -164,12 +167,12 @@ async fn run_drainer(data: web::Data<AppState>) -> Result<(), AppError> {
 
 #[actix_web::main]
 async fn start_server() -> std::io::Result<()> {
-    env_logger::init_from_env(Env::default().default_filter_or("info"));
+    setup_tracing();
 
     let dhall_config_path = var("DHALL_CONFIG")
         .unwrap_or_else(|_| "./dhall_config/location_tracking_service.dhall".to_string());
     let app_config = read_dhall_config(&dhall_config_path).unwrap_or_else(|err| {
-        error!("{}", err);
+        error!("Dhall Config Reading Error : {}", err);
         std::process::exit(1);
     });
 
@@ -180,8 +183,9 @@ async fn start_server() -> std::io::Result<()> {
     let thread_data = data.clone();
     spawn(async move {
         loop {
-            info!("scheduler executing...");
-            let _ = tokio::time::sleep(Duration::from_secs(10)).await;
+            info!(tag = "[Drainer]", "Draining From Queue to Redis...");
+            let _ =
+                tokio::time::sleep(Duration::from_secs(thread_data.clone().drainer_delay)).await;
             let _ = run_drainer(thread_data.clone()).await;
         }
     });
@@ -191,9 +195,11 @@ async fn start_server() -> std::io::Result<()> {
             .app_data(data.clone())
             .wrap_fn(|req, srv| {
                 let start_time = Instant::now();
+                info!(tag = "[INCOMING REQUEST]", request_method = %req.method(), request_path = %req.path());
                 srv.call(req)
                     .map(move |res: Result<ServiceResponse, Error>| {
                         let response = res?;
+                        info!(tag = "[INCOMING API]", request_method = %response.request().method(), request_path = %response.request().path(), response_status = %response.status(), latency = format!("{:?}ms", start_time.elapsed().as_millis()));
                         incoming_api!(
                             response.request().method().as_str(),
                             response.request().uri().to_string().as_str(),

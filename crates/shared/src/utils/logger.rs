@@ -1,39 +1,25 @@
 pub use tracing::{debug, error, info, instrument, warn};
 
-#[derive(Debug)]
-pub struct TracingGuard {
-    _log_guard: tracing_appender::non_blocking::WorkerGuard,
+use tracing::{subscriber::set_global_default, Subscriber};
+use tracing_bunyan_formatter::{BunyanFormattingLayer, JsonStorageLayer};
+use tracing_log::LogTracer;
+use tracing_subscriber::{layer::SubscriberExt, EnvFilter, Registry};
+
+/// Compose multiple layers into a `tracing`'s subscriber.
+pub fn get_subscriber(name: String, env_filter: String) -> impl Subscriber + Send + Sync {
+    let env_filter = EnvFilter::try_from_default_env().unwrap_or(EnvFilter::new(env_filter));
+    let formatting_layer = BunyanFormattingLayer::new(name.into(), std::io::stdout);
+    Registry::default()
+        .with(env_filter)
+        .with(JsonStorageLayer)
+        .with(formatting_layer)
 }
 
-pub fn setup_tracing(binary_name: &'static str) -> TracingGuard {
-    use tracing::Level;
-    use tracing_subscriber::{
-        filter, fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer,
-    };
-
-    // Create logging layer with non-blocking stdout writer
-    let (console_writer, guard) = tracing_appender::non_blocking(std::io::stdout());
-    let logging_layer = fmt::layer()
-        .with_timer(fmt::time())
-        .pretty()
-        .with_writer(console_writer);
-
-    // Set log/trace level for specific crates, with default level as `WARN`
-    let crate_filter = filter::Targets::new()
-        .with_default(Level::WARN)
-        .with_target(std::env!("CARGO_PKG_NAME"), Level::TRACE)
-        .with_target(binary_name, Level::TRACE);
-
-    tracing_subscriber::
-        // fmt().json()
-        registry()
-    .with(
-        EnvFilter::builder()
-            .with_default_directive(Level::TRACE.into())
-            .from_env_lossy(),
-    )
-    .with(logging_layer.with_filter(crate_filter))
-    .init();
-
-    TracingGuard { _log_guard: guard }
+/// Register a subscriber as global default to process span data.
+///
+/// It should only be called once!
+pub fn setup_tracing() {
+    LogTracer::init().expect("Failed to set logger");
+    let subscriber = get_subscriber("location-tracking-service".into(), "info".into());
+    set_global_default(subscriber).expect("Failed to set subscriber");
 }

@@ -10,7 +10,6 @@ use fred::{
     },
 };
 use std::fmt::Debug;
-use tracing::info;
 
 impl RedisConnectionPool {
     // set key
@@ -150,14 +149,14 @@ impl RedisConnectionPool {
             .hset(key, values)
             .await
             .into_report()
-            .change_context(AppError::SetHashFailed);
+            .change_context(AppError::SetHashFieldFailed);
 
         // setting expiry for the key
         if output.is_ok() {
             self.set_expiry(key, self.config.default_hash_ttl.into())
                 .await?;
         } else {
-            return Err(AppError::SetHashFailed.into());
+            return Err(AppError::SetHashFieldFailed.into());
         }
 
         Ok(())
@@ -257,8 +256,6 @@ impl RedisConnectionPool {
             .await
             .into_report()
             .change_context(AppError::GeoPosFailed);
-
-        info!("output: {:?}", output);
 
         match output {
             Ok(RedisValue::Array(points)) => {

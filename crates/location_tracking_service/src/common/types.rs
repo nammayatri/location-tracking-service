@@ -113,8 +113,9 @@ pub struct Dimensions {
 
 #[derive(Clone)]
 pub struct AppState {
-    pub location_redis: Arc<RedisConnectionPool>,
-    pub generic_redis: Arc<RedisConnectionPool>,
+    pub non_persistent_redis: Arc<RedisConnectionPool>,
+    pub persistent_redis: Arc<RedisConnectionPool>,
+    pub drainer_delay: u64,
     pub queue: Arc<Mutex<HashMap<Dimensions, Vec<(Latitude, Longitude, DriverId)>>>>,
     pub polygon: Vec<MultiPolygonBody>,
     pub auth_url: String,
@@ -139,14 +140,14 @@ impl AppState {
         key: &str,
         frame_hits_lim: usize,
         frame_len: u32,
-        generic_redis_pool: &RedisConnectionPool,
+        persistent_redis_pool: &RedisConnectionPool,
     ) -> Result<Vec<i64>, AppError> {
         let curr_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("Time went backwards")
             .as_secs() as i64;
 
-        let hits = generic_redis_pool.get_key(key).await?;
+        let hits = persistent_redis_pool.get_key(key).await?;
         match hits {
             Some(hits) => {
                 let hits = serde_json::from_str::<Vec<i64>>(&hits)
@@ -158,7 +159,7 @@ impl AppState {
                     return Err(AppError::HitsLimitExceeded);
                 }
 
-                let _ = generic_redis_pool
+                let _ = persistent_redis_pool
                     .set_with_expiry(
                         key,
                         serde_json::to_string(&filt_hits)

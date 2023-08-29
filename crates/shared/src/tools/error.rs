@@ -15,21 +15,21 @@ struct ErrorBody {
 
 #[derive(Debug, Serialize, thiserror::Error)]
 pub enum AppError {
-    #[error("InternalError: {0}")]
+    #[error("Internal Server Error: {0}")]
     InternalError(String),
-    #[error("InternalServerError")]
-    InternalServerError,
-    #[error("SerializationError: {0}")]
+    #[error("External Call API Error: {0}")]
+    ExternalAPICallError(String),
+    #[error("Json Serialization Error: {0}")]
     SerializationError(String),
-    #[error("DeserializationError: {0}")]
+    #[error("Json Deserialization Error: {0}")]
     DeserializationError(String),
-    #[error("Invalid Redis configuration")]
+    #[error("Authentication failed with driver app")]
     DriverAppAuthFailed,
-    #[error("Invalid Redis configuration")]
+    #[error("Location is unserviceable")]
     Unserviceable,
-    #[error("Invalid Redis configuration")]
+    #[error("Hits limit exceeded")]
     HitsLimitExceeded,
-    #[error("Invalid Redis configuration")]
+    #[error("Driver bulk location update failed")]
     DriverBulkLocationUpdateFailed,
     #[error("Invalid Redis configuration: {0}")]
     InvalidConfiguration(String),
@@ -43,34 +43,6 @@ pub enum AppError {
     GetFailed,
     #[error("Failed to delete key value in Redis")]
     DeleteFailed,
-    #[error("Failed to append entry to Redis stream")]
-    StreamAppendFailed,
-    #[error("Failed to read queue from Redis stream")]
-    StreamReadFailed,
-    #[error("Failed to get stream length")]
-    GetLengthFailed,
-    #[error("Failed to delete queue from Redis stream")]
-    StreamDeleteFailed,
-    #[error("Failed to trim queue from Redis stream")]
-    StreamTrimFailed,
-    #[error("Failed to acknowledge Redis stream entry")]
-    StreamAcknowledgeFailed,
-    #[error("Failed to create Redis consumer group")]
-    ConsumerGroupCreateFailed,
-    #[error("Failed to destroy Redis consumer group")]
-    ConsumerGroupDestroyFailed,
-    #[error("Failed to delete consumer from consumer group")]
-    ConsumerGroupRemoveConsumerFailed,
-    #[error("Failed to set last ID on consumer group")]
-    ConsumerGroupSetIdFailed,
-    #[error("Failed to set Redis stream message owner")]
-    ConsumerGroupClaimFailed,
-    #[error("Failed to serialize application type to JSON")]
-    JsonSerializationFailed,
-    #[error("Failed to deserialize application type from JSON")]
-    JsonDeserializationFailed,
-    #[error("Failed to set hash in Redis")]
-    SetHashFailed,
     #[error("Failed to set hash field in Redis")]
     SetHashFieldFailed,
     #[error("Failed to get hash field in Redis")]
@@ -104,17 +76,9 @@ pub enum AppError {
 impl AppError {
     fn error_message(&self) -> ErrorBody {
         match self {
-            AppError::InternalError(err) => ErrorBody {
-                message: err.to_string(),
-                code: "INTERNAL_ERROR".to_string(),
-            },
-            AppError::DriverAppAuthFailed => ErrorBody {
-                message: format!("Authentication Failed With Driver Offer App").to_string(),
-                code: "DRIVER_APP_AUTH_FAILED".to_string(),
-            },
             _ => ErrorBody {
                 message: self.to_string(),
-                code: "ERROR".to_string(),
+                code: self.to_string(),
             },
         }
     }
@@ -130,7 +94,7 @@ impl ResponseError for AppError {
     fn status_code(&self) -> StatusCode {
         match self {
             AppError::InternalError(_) => StatusCode::INTERNAL_SERVER_ERROR,
-            AppError::InternalServerError => StatusCode::INTERNAL_SERVER_ERROR,
+            AppError::ExternalAPICallError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::SerializationError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::DeserializationError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::DriverAppAuthFailed => StatusCode::UNAUTHORIZED,
@@ -143,20 +107,6 @@ impl ResponseError for AppError {
             AppError::SetExpiryFailed => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::GetFailed => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::DeleteFailed => StatusCode::INTERNAL_SERVER_ERROR,
-            AppError::StreamAppendFailed => StatusCode::INTERNAL_SERVER_ERROR,
-            AppError::StreamReadFailed => StatusCode::INTERNAL_SERVER_ERROR,
-            AppError::GetLengthFailed => StatusCode::INTERNAL_SERVER_ERROR,
-            AppError::StreamDeleteFailed => StatusCode::INTERNAL_SERVER_ERROR,
-            AppError::StreamTrimFailed => StatusCode::INTERNAL_SERVER_ERROR,
-            AppError::StreamAcknowledgeFailed => StatusCode::INTERNAL_SERVER_ERROR,
-            AppError::ConsumerGroupCreateFailed => StatusCode::INTERNAL_SERVER_ERROR,
-            AppError::ConsumerGroupDestroyFailed => StatusCode::INTERNAL_SERVER_ERROR,
-            AppError::ConsumerGroupRemoveConsumerFailed => StatusCode::INTERNAL_SERVER_ERROR,
-            AppError::ConsumerGroupSetIdFailed => StatusCode::INTERNAL_SERVER_ERROR,
-            AppError::ConsumerGroupClaimFailed => StatusCode::INTERNAL_SERVER_ERROR,
-            AppError::JsonSerializationFailed => StatusCode::INTERNAL_SERVER_ERROR,
-            AppError::JsonDeserializationFailed => StatusCode::INTERNAL_SERVER_ERROR,
-            AppError::SetHashFailed => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::SetHashFieldFailed => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::GetHashFieldFailed => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::NotFound => StatusCode::NOT_FOUND,

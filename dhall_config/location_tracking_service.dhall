@@ -1,23 +1,24 @@
-let location_redis_cfg = {
-    redis_host = "localhost",
-    redis_port = 6379,
+let non_persistent_cfg = {
+    redis_host = "0.0.0.0",
+    redis_port = 6380,
     redis_pool_size = 10,
 }
 
-let generic_redis_cfg = {
-    redis_host = "localhost",
-    redis_port = 6379,
+let persistent_redis_cfg = {
+    redis_host = "0.0.0.0",
+    redis_port = 6381,
     redis_pool_size = 10,
 }
 
 let kafakCfg = {
     kafka_key = "bootstrap.servers",
-    kafka_host = "localhost:9092"
+    kafka_host = "0.0.0.0:29092"
 }
 
 in {
-    location_redis_cfg,
-    generic_redis_cfg,
+    non_persistent_cfg,
+    persistent_redis_cfg,
+    drainer_delay = 10,
     kafka_cfg = kafakCfg,
     port = 8081,
     auth_url = "http://127.0.0.1:8016/internal/auth",

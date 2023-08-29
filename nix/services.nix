@@ -9,10 +9,11 @@
         ];
         services.redis."redis1" = {
           enable = true;
+          port = 6380;
         };
         services.redis."redis2" = {
           enable = true;
-          port = 6380;
+          port = 6381;
         };
         services.zookeeper."zookeeper1".enable = true;
         services.apache-kafka."kafka1".enable = true;
