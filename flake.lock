@@ -232,16 +232,15 @@
     },
     "services-flake": {
       "locked": {
-        "lastModified": 1693083419,
-        "narHash": "sha256-M0if+wgnppsfwc/j059L3TBvfXiU0kHpTBtHE6lWAno=",
+        "lastModified": 1693308844,
+        "narHash": "sha256-JDOCKKR8kREeKd7/nMPNPhT2F/bGADxyoy3B7GWWKw8=",
         "owner": "juspay",
         "repo": "services-flake",
-        "rev": "e25e9ecaf133ee24169a2658a5daa53b41a2afbc",
+        "rev": "b93a612aa7057fbb395c79a915672f9b6567ffea",
         "type": "github"
       },
       "original": {
         "owner": "juspay",
-        "ref": "zookeeper-kafka",
         "repo": "services-flake",
         "type": "github"
       }
