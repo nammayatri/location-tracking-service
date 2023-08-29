@@ -26,7 +26,7 @@ use tracing_actix_web::TracingLogger;
 #[derive(Debug, Deserialize, Clone)]
 pub struct AppConfig {
     pub port: u16,
-    pub non_persistent_cfg: RedisConfig,
+    pub non_persistent_redis_cfg: RedisConfig,
     pub drainer_delay: u64,
     pub persistent_redis_cfg: RedisConfig,
     pub auth_url: String,
@@ -56,6 +56,7 @@ pub struct RedisConfig {
     pub redis_host: String,
     pub redis_port: u16,
     pub redis_pool_size: usize,
+    pub redis_partition: usize,
 }
 
 pub fn read_dhall_config(config_path: &str) -> Result<AppConfig, String> {
@@ -69,9 +70,10 @@ pub fn read_dhall_config(config_path: &str) -> Result<AppConfig, String> {
 pub async fn make_app_state(app_config: AppConfig) -> AppState {
     let non_persistent_redis = Arc::new(
         RedisConnectionPool::new(&RedisSettings::new(
-            app_config.non_persistent_cfg.redis_host,
-            app_config.non_persistent_cfg.redis_port,
-            app_config.non_persistent_cfg.redis_pool_size,
+            app_config.non_persistent_redis_cfg.redis_host,
+            app_config.non_persistent_redis_cfg.redis_port,
+            app_config.non_persistent_redis_cfg.redis_pool_size,
+            app_config.non_persistent_redis_cfg.redis_partition,
         ))
         .await
         .expect("Failed to create Location Redis connection pool"),
@@ -82,6 +84,7 @@ pub async fn make_app_state(app_config: AppConfig) -> AppState {
             app_config.persistent_redis_cfg.redis_host,
             app_config.persistent_redis_cfg.redis_port,
             app_config.persistent_redis_cfg.redis_pool_size,
+            app_config.persistent_redis_cfg.redis_partition,
         ))
         .await
         .expect("Failed to create Generic Redis connection pool"),
@@ -161,6 +164,8 @@ async fn run_drainer(data: web::Data<AppState>) -> Result<(), AppError> {
         }
     }
     queue.clear();
+
+    drop(queue);
 
     Ok(())
 }

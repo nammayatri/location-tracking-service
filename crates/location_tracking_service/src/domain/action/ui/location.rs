@@ -135,7 +135,7 @@ async fn process_driver_locations(
         "Got location updates: {driver_id} {:?}", locations
     );
 
-    match get_driver_ride_status(data.clone(), &driver_id, &merchant_id, &city).await {
+    match get_driver_ride_details(data.clone(), &driver_id, &merchant_id, &city).await {
         Ok(RideDetails {
             ride_id,
             ride_status: RideStatus::INPROGRESS,
@@ -228,6 +228,8 @@ async fn process_driver_locations(
                 let _ =
                     kafka_stream_updates(data.clone(), &merchant_id, &"".to_string(), loc).await;
             }
+
+            drop(queue);
         }
     }
 

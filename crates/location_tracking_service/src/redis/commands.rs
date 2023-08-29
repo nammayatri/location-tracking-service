@@ -171,8 +171,30 @@ pub async fn get_driver_ride_status(
     driver_id: &DriverId,
     merchant_id: &MerchantId,
     city: &CityName,
+) -> Result<Option<RideStatus>, AppError> {
+    let ride_details: Option<String> = data
+        .persistent_redis
+        .get_key(&on_ride_key(&merchant_id, &city, &driver_id))
+        .await?;
+
+    match ride_details {
+        Some(ride_details) => {
+            let ride_details = serde_json::from_str::<RideDetails>(&ride_details)
+                .map_err(|err| AppError::InternalError(err.to_string()))?;
+
+            Ok(Some(ride_details.ride_status))
+        }
+        None => Ok(None),
+    }
+}
+
+pub async fn get_driver_ride_details(
+    data: Data<AppState>,
+    driver_id: &DriverId,
+    merchant_id: &MerchantId,
+    city: &CityName,
 ) -> Result<RideDetails, AppError> {
-    let ride_details = data
+    let ride_details: Option<String> = data
         .persistent_redis
         .get_key(&on_ride_key(&merchant_id, &city, &driver_id))
         .await?;
@@ -300,7 +322,8 @@ where
         let resp = callback(args).await;
         let _ = redis.delete_key(key).await;
         resp?
+    } else {
+        return Err(AppError::HitsLimitExceeded);
     }
-
     Ok(())
 }

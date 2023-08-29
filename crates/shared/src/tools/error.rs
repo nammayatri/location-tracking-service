@@ -17,6 +17,8 @@ struct ErrorBody {
 pub enum AppError {
     #[error("Internal Server Error: {0}")]
     InternalError(String),
+    #[error("Invalid Ride Status : RideId - {0}")]
+    InvalidRideStatus(String),
     #[error("External Call API Error: {0}")]
     ExternalAPICallError(String),
     #[error("Json Serialization Error: {0}")]
@@ -94,6 +96,7 @@ impl ResponseError for AppError {
     fn status_code(&self) -> StatusCode {
         match self {
             AppError::InternalError(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            AppError::InvalidRideStatus(_) => StatusCode::BAD_REQUEST,
             AppError::ExternalAPICallError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::SerializationError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::DeserializationError(_) => StatusCode::INTERNAL_SERVER_ERROR,

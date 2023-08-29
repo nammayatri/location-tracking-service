@@ -13,6 +13,16 @@ pub async fn ride_start(
     request_body: RideStartRequest,
 ) -> Result<APISuccess, AppError> {
     let city = get_city(request_body.lat, request_body.lon, data.polygon.clone())?;
+    let current_ride_status = get_driver_ride_status(
+        data.clone(),
+        &request_body.driver_id,
+        &request_body.merchant_id,
+        &city,
+    )
+    .await?;
+    if current_ride_status != Some(RideStatus::NEW) {
+        return Err(AppError::InvalidRideStatus(ride_id));
+    }
     set_ride_details(
         data.clone(),
         &request_body.merchant_id,
@@ -32,6 +42,16 @@ pub async fn ride_end(
     request_body: RideEndRequest,
 ) -> Result<RideEndResponse, AppError> {
     let city = get_city(request_body.lat, request_body.lon, data.polygon.clone())?;
+    let current_ride_status = get_driver_ride_status(
+        data.clone(),
+        &request_body.driver_id,
+        &request_body.merchant_id,
+        &city,
+    )
+    .await?;
+    if current_ride_status != Some(RideStatus::INPROGRESS) {
+        return Err(AppError::InvalidRideStatus(ride_id));
+    }
     set_ride_details(
         data.clone(),
         &request_body.merchant_id,

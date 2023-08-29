@@ -29,6 +29,7 @@ pub struct RedisSettings {
     /// TTL for hash-tables in seconds
     pub default_hash_ttl: u32,
     pub stream_read_count: u64,
+    pub partition: usize,
 }
 
 impl Default for RedisSettings {
@@ -45,15 +46,17 @@ impl Default for RedisSettings {
             default_ttl: 3600,
             default_hash_ttl: 3600,
             stream_read_count: 100,
+            partition: 1,
         }
     }
 }
 
 impl RedisSettings {
-    pub fn new(host: String, port: u16, pool_size: usize) -> Self {
+    pub fn new(host: String, port: u16, pool_size: usize, partition: usize) -> Self {
         RedisSettings {
             host,
             port,
+            partition,
             cluster_enabled: false,
             cluster_urls: Vec::new(),
             use_legacy_version: false,
@@ -149,8 +152,8 @@ impl RedisConnectionPool {
                     .collect::<String>()
             ),
             false => format!(
-                "redis://{}:{}", //URI Schema
-                conf.host, conf.port,
+                "redis://{}:{}/{}", //URI Schema
+                conf.host, conf.port, conf.partition
             ),
         };
         let mut config = fred::types::RedisConfig::from_url(&redis_connection_url)
