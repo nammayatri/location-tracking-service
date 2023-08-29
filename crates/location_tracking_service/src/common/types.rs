@@ -148,30 +148,27 @@ impl AppState {
             .as_secs() as i64;
 
         let hits = persistent_redis_pool.get_key(key).await?;
-        match hits {
-            Some(hits) => {
-                let hits = serde_json::from_str::<Vec<i64>>(&hits)
-                    .expect("Failed to parse hits from string.");
-                let (filt_hits, ret) =
-                    Self::sliding_window_limiter_pure(curr_time, &hits, frame_hits_lim, frame_len);
 
-                if !ret {
-                    return Err(AppError::HitsLimitExceeded);
-                }
+        let hits = match hits {
+            Some(hits) => serde_json::from_str::<Vec<i64>>(&hits).unwrap(),
+            None => vec![],
+        };
+        let (filt_hits, ret) =
+            Self::sliding_window_limiter_pure(curr_time, &hits, frame_hits_lim, frame_len);
 
-                let _ = persistent_redis_pool
-                    .set_with_expiry(
-                        key,
-                        serde_json::to_string(&filt_hits)
-                            .expect("Failed to parse filt_hits to string."),
-                        frame_len,
-                    )
-                    .await;
-
-                Ok(filt_hits)
-            }
-            None => Ok(vec![]),
+        if !ret {
+            return Err(AppError::HitsLimitExceeded);
         }
+
+        let _ = persistent_redis_pool
+            .set_with_expiry(
+                key,
+                serde_json::to_string(&filt_hits).expect("Failed to parse filt_hits to string."),
+                frame_len,
+            )
+            .await;
+
+        Ok(filt_hits)
     }
 
     fn sliding_window_limiter_pure(
