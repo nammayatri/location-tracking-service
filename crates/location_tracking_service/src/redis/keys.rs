@@ -8,8 +8,17 @@
 use crate::common::types::*;
 
 // Persistent Redis
-pub fn on_ride_key(merchant_id: &MerchantId, city: &CityName, driver_id: &DriverId) -> String {
-    format!("lts:ds:on_ride:{merchant_id}:{city}:{driver_id}")
+pub fn on_ride_details_key(
+    merchant_id: &MerchantId,
+    city: &CityName,
+    driver_id: &DriverId,
+) -> String {
+    format!("lts:ds:on_ride_details:{merchant_id}:{city}:{driver_id}")
+}
+
+// Persistent Redis
+pub fn on_ride_driver_details_key(ride_id: &RideId) -> String {
+    format!("lts:ds:on_ride_driver_details:{ride_id}")
 }
 
 // Persistent Redis

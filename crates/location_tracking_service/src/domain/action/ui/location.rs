@@ -274,3 +274,38 @@ async fn process_driver_locations(
 
     Ok(())
 }
+
+pub async fn track_driver_location(
+    data: Data<AppState>,
+    ride_id: RideId,
+) -> Result<DriverLocationResponse, AppError> {
+    let driver_details = get_driver_details(data.clone(), &ride_id).await?;
+
+    let current_ride_status = get_driver_ride_status(
+        data.clone(),
+        &driver_details.driver_id,
+        &driver_details.merchant_id,
+        &driver_details.city,
+    )
+    .await?;
+
+    let current_ride_status = if current_ride_status == Some(RideStatus::NEW) {
+        DriverRideStatus::PreRide
+    } else if current_ride_status == Some(RideStatus::INPROGRESS) {
+        DriverRideStatus::ActualRide
+    } else {
+        return Err(AppError::InvalidRequest(
+            "Invalid ride status for tracking driver location".to_string(),
+        ));
+    };
+
+    let driver_last_known_location_details =
+        get_driver_location(data, &driver_details.driver_id).await?;
+
+    Ok(DriverLocationResponse {
+        curr_point: driver_last_known_location_details.location,
+        total_distance: 0.0, // Backward Compatibility : To be removed
+        status: current_ride_status,
+        last_update: driver_last_known_location_details.timestamp,
+    })
+}

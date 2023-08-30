@@ -98,13 +98,39 @@ pub async fn ride_details(
     request_body: RideDetailsRequest,
 ) -> Result<APISuccess, AppError> {
     let city = get_city(request_body.lat, request_body.lon, data.polygon.clone())?;
+    let current_ride_status = get_driver_ride_status(
+        data.clone(),
+        &request_body.driver_id,
+        &request_body.merchant_id,
+        &city,
+    )
+    .await?;
+
+    match request_body.ride_status {
+        RideStatus::NEW => {
+            if current_ride_status == Some(RideStatus::INPROGRESS) {
+                return Err(AppError::InvalidRideStatus(request_body.ride_id));
+            }
+        }
+        _ => return Err(AppError::InvalidRideStatus(request_body.ride_id)),
+    }
+
     set_ride_details(
-        data,
+        data.clone(),
         &request_body.merchant_id,
         &city,
         &request_body.driver_id,
-        request_body.ride_id,
+        request_body.ride_id.clone(),
         request_body.ride_status,
+    )
+    .await?;
+
+    set_driver_details(
+        data.clone(),
+        request_body.merchant_id,
+        city,
+        request_body.driver_id,
+        request_body.ride_id,
     )
     .await?;
 

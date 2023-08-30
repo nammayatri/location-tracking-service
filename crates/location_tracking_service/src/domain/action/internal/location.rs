@@ -133,7 +133,7 @@ pub async fn get_drivers_location(
     let mut driver_locations = Vec::new();
 
     for driver_id in driver_ids {
-        let driver_details = get_driver_location_redis(data.clone(), &driver_id).await;
+        let driver_details = get_driver_location(data.clone(), &driver_id).await;
         if let Ok(driver_details) = driver_details {
             let driver_location = DriverLocation {
                 driver_id: driver_id.clone(),

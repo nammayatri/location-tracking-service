@@ -8,14 +8,14 @@
 use std::str::FromStr;
 
 use actix_web::{
-    post,
-    web::{Data, Json},
+    get, post,
+    web::{Data, Json, Path},
     HttpRequest,
 };
 
 use crate::{
     common::types::*,
-    domain::{action::ui::location, types::ui::location::UpdateDriverLocationRequest},
+    domain::{action::ui::location, types::ui::location::*},
 };
 
 use shared::tools::error::AppError;
@@ -63,4 +63,14 @@ pub async fn update_driver_location(
         location::update_driver_location(token, merchant_id, vehicle_type, data, request_body)
             .await?,
     ))
+}
+
+#[get("/ui/driver/location/{rideId}")]
+async fn track_driver_location(
+    data: Data<AppState>,
+    path: Path<String>,
+) -> Result<Json<DriverLocationResponse>, AppError> {
+    let ride_id = path.into_inner();
+
+    Ok(Json(location::track_driver_location(data, ride_id).await?))
 }

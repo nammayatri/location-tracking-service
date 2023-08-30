@@ -24,27 +24,54 @@ pub async fn set_ride_details(
     ride_id: RideId,
     ride_status: RideStatus,
 ) -> Result<(), AppError> {
-    let value = RideDetails {
+    let ride_details = RideDetails {
         ride_id,
         ride_status,
     };
-    let value = serde_json::to_string(&value).unwrap();
+    let ride_details = serde_json::to_string(&ride_details).unwrap();
 
     data.persistent_redis
         .set_with_expiry(
-            &on_ride_key(merchant_id, city, driver_id),
-            value,
+            &on_ride_details_key(&merchant_id, &city, &driver_id),
+            ride_details,
             data.redis_expiry,
         )
-        .await
+        .await?;
+
+    Ok(())
 }
 
 pub async fn set_driver_details(
     data: Data<AppState>,
+    merchant_id: MerchantId,
+    city: CityName,
+    driver_id: DriverId,
+    ride_id: RideId,
+) -> Result<(), AppError> {
+    let driver_details = DriverDetails {
+        driver_id,
+        merchant_id,
+        city,
+    };
+    let driver_details = serde_json::to_string(&driver_details).unwrap();
+
+    data.persistent_redis
+        .set_with_expiry(
+            &on_ride_driver_details_key(&ride_id),
+            driver_details,
+            data.redis_expiry,
+        )
+        .await;
+
+    Ok(())
+}
+
+pub async fn set_driver_mode_details(
+    data: Data<AppState>,
     driver_id: DriverId,
     driver_mode: DriverMode,
 ) -> Result<(), AppError> {
-    let value = DriverDetails {
+    let value = DriverModeDetails {
         driver_id: driver_id.clone(),
         driver_mode,
     };
@@ -145,7 +172,7 @@ pub async fn push_drainer_driver_location(
     return Ok(());
 }
 
-pub async fn get_driver_location_redis(
+pub async fn get_driver_location(
     data: Data<AppState>,
     driver_id: &DriverId,
 ) -> Result<DriverLastKnownLocation, AppError> {
@@ -161,7 +188,7 @@ pub async fn get_driver_location_redis(
     }
 
     return Err(AppError::InternalError(
-        "Failed to get_driver_location_redis".to_string(),
+        "Failed to get_driver_location".to_string(),
     ));
 }
 
@@ -218,7 +245,7 @@ pub async fn get_driver_ride_status(
 ) -> Result<Option<RideStatus>, AppError> {
     let ride_details: Option<String> = data
         .persistent_redis
-        .get_key(&on_ride_key(&merchant_id, &city, &driver_id))
+        .get_key(&on_ride_details_key(&merchant_id, &city, &driver_id))
         .await?;
 
     match ride_details {
@@ -240,7 +267,7 @@ pub async fn get_driver_ride_details(
 ) -> Result<RideDetails, AppError> {
     let ride_details: Option<String> = data
         .persistent_redis
-        .get_key(&on_ride_key(&merchant_id, &city, &driver_id))
+        .get_key(&on_ride_details_key(&merchant_id, &city, &driver_id))
         .await?;
 
     let ride_details = match ride_details {
@@ -256,6 +283,30 @@ pub async fn get_driver_ride_details(
         .map_err(|err| AppError::InternalError(err.to_string()))?;
 
     Ok(ride_details)
+}
+
+pub async fn get_driver_details(
+    data: Data<AppState>,
+    ride_id: &RideId,
+) -> Result<DriverDetails, AppError> {
+    let driver_details: Option<String> = data
+        .persistent_redis
+        .get_key(&on_ride_driver_details_key(&ride_id))
+        .await?;
+
+    let driver_details = match driver_details {
+        Some(driver_details) => driver_details,
+        None => {
+            return Err(AppError::InternalError(
+                format!("Driver details not found for RideId : {ride_id}").to_string(),
+            ))
+        }
+    };
+
+    let driver_details = serde_json::from_str::<DriverDetails>(&driver_details)
+        .map_err(|err| AppError::InternalError(err.to_string()))?;
+
+    Ok(driver_details)
 }
 
 pub async fn push_on_ride_driver_location(

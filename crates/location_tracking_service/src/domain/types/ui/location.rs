@@ -35,3 +35,18 @@ pub struct LocationUpdate {
     pub da: bool,
     pub mode: String,
 }
+
+#[derive(Serialize, Deserialize, Debug)]
+pub enum DriverRideStatus {
+    PreRide,
+    ActualRide,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct DriverLocationResponse {
+    pub curr_point: Point,
+    pub total_distance: f32,
+    pub status: DriverRideStatus,
+    pub last_update: DateTime<Utc>,
+}

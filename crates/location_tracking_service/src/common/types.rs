@@ -102,6 +102,13 @@ pub struct RideDetails {
 #[derive(Deserialize, Serialize, Clone, Debug, Eq, PartialEq)]
 pub struct DriverDetails {
     pub driver_id: DriverId,
+    pub merchant_id: MerchantId,
+    pub city: CityName,
+}
+
+#[derive(Deserialize, Serialize, Clone, Debug, Eq, PartialEq)]
+pub struct DriverModeDetails {
+    pub driver_id: DriverId,
     pub driver_mode: DriverMode,
 }
 

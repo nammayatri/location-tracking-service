@@ -10,16 +10,13 @@ use actix_web::{
     web::{Data, Json},
 };
 
-use crate::{
-    common::types::*,
-    domain::{action::internal::*, types::internal::driver::*},
-};
+use crate::{common::types::*, domain::action::internal::*};
 use shared::tools::error::AppError;
 
 #[post("/internal/driver/driverDetails")]
 async fn driver_details(
     data: Data<AppState>,
-    param_obj: Json<DriverDetailsRequest>,
+    param_obj: Json<DriverModeDetails>,
 ) -> Result<Json<APISuccess>, AppError> {
     let request_body = param_obj.into_inner();
 
