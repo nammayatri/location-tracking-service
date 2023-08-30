@@ -1,0 +1,506 @@
+{
+	"info": {
+		"_postman_id": "f827779d-3835-4168-ab9a-bdff1483a764",
+		"name": "Location Tracking Service Dev",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "25888056"
+	},
+	"item": [
+		{
+			"name": "Auth",
+			"event": [
+				{
+					"listen": "prerequest",
+					"script": {
+						"exec": [
+							"// Dev",
+							"postman.setEnvironmentVariable(\"driver_merchant_id\", \"favorit0-0000-0000-0000-00000favorit\");",
+							"pm.variables.set(\"mobile_number\", \"6666666666\");"
+						],
+						"type": "text/javascript"
+					}
+				},
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"var jsonData = JSON.parse(responseBody);",
+							"postman.setEnvironmentVariable(\"driver_authId\", jsonData.authId);"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"mobileNumber\": \"{{mobile_number}}\",\n    \"mobileCountryCode\": \"+91\",\n    \"merchantId\": \"{{driver_merchant_id}}\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://localhost:8016/ui/auth",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8016",
+					"path": [
+						"ui",
+						"auth"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Auth Verification",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"var jsonData = JSON.parse(responseBody);",
+							"postman.setEnvironmentVariable(\"driver_token\", jsonData.token);"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"protocolProfileBehavior": {
+				"disabledSystemHeaders": {
+					"connection": true,
+					"accept-encoding": true,
+					"accept": true,
+					"user-agent": true
+				}
+			},
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json;charset=utf-8",
+						"disabled": true
+					},
+					{
+						"key": "Accept",
+						"value": "application/json;charset=utf-8",
+						"disabled": true
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"otp\": \"7891\",\n    \"deviceToken\": \"8e83b5dc-99a0-4306-b90d-2345f3050ddd972\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://localhost:8016/ui/auth/:authId/verify",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8016",
+					"path": [
+						"ui",
+						"auth",
+						":authId",
+						"verify"
+					],
+					"variable": [
+						{
+							"key": "authId",
+							"value": "{{driver_authId}}",
+							"description": "(Requir"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Get Profile",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"const body = JSON.parse(responseBody);",
+							"postman.setEnvironmentVariable(\"vehicle_variant\", body.linkedVehicle.variant);",
+							"postman.setEnvironmentVariable(\"driver_id\", body.id);"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"auth": {
+					"type": "apikey",
+					"apikey": [
+						{
+							"key": "value",
+							"value": "{{driver_token}}",
+							"type": "string"
+						},
+						{
+							"key": "key",
+							"value": "token",
+							"type": "string"
+						},
+						{
+							"key": "in",
+							"value": "header",
+							"type": "string"
+						}
+					]
+				},
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "http://localhost:8016/ui/driver/profile",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8016",
+					"path": [
+						"ui",
+						"driver",
+						"profile"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Healthcheck",
+			"protocolProfileBehavior": {
+				"disableBodyPruning": true
+			},
+			"request": {
+				"method": "GET",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"lat\":  13.21105683994044,\n   \t\"lon\": 77.86952343480942,\n    \"vehicleType\": \"SUV\",\n    \"merchantId\": \"favorit0-0000-0000-0000-00000favorit\",\n    \"radius\": 1000\n}\n",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://localhost:8081/healthcheck",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8081",
+					"path": [
+						"healthcheck"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Update Location",
+			"event": [
+				{
+					"listen": "prerequest",
+					"script": {
+						"exec": [
+							"var moment = require('moment');",
+							"pm.globals.set('CurrentDateAndTime', moment().format());",
+							"pm.globals.set(\"current_time\", moment.utc().format(\"YYYY-MM-DDTHH:mm:ssZ\"));"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "token",
+						"value": "{{driver_token}}",
+						"type": "text"
+					},
+					{
+						"key": "vt",
+						"value": "SUV",
+						"type": "text"
+					},
+					{
+						"key": "mId",
+						"value": "{{driver_merchant_id}}",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "[\n    {\n   \t \"pt\": {\n   \t\t \"lat\":  13.21105683994044,\n   \t\t \"lon\": 77.86952343480942\n   \t },  \n   \t \"ts\": \"{{current_time}}\",\n   \t \"acc\": 0\n    }\n]",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://localhost:8081/ui/driver/location",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8081",
+					"path": [
+						"ui",
+						"driver",
+						"location"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Get Nearby Drivers For All Vehicle Variants",
+			"protocolProfileBehavior": {
+				"disableBodyPruning": true,
+				"disabledSystemHeaders": {}
+			},
+			"request": {
+				"method": "GET",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"lat\":  13.21105683994044,\n   \t\"lon\": 77.86952343480942,\n    \"merchantId\": \"{{driver_merchant_id}}\",\n    \"radius\": 1000\n}\n",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://localhost:8081/internal/drivers/nearby",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8081",
+					"path": [
+						"internal",
+						"drivers",
+						"nearby"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Get Nearby Drivers For Vehicle Variant",
+			"protocolProfileBehavior": {
+				"disableBodyPruning": true,
+				"disabledSystemHeaders": {}
+			},
+			"request": {
+				"method": "GET",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"lat\":  13.21105683994044,\n   \t\"lon\": 77.86952343480942,\n    \"merchantId\": \"{{driver_merchant_id}}\",\n    \"vehicleType\": \"{{vehicle_variant}}\",\n    \"radius\": 1000\n}\n",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://localhost:8081/internal/drivers/nearby",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8081",
+					"path": [
+						"internal",
+						"drivers",
+						"nearby"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "New Ride Created",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"rideId\": \"1234567890\",\n    \"rideStatus\": \"NEW\",\n    \"lat\":  13.21105683994044,\n   \t\"lon\": 77.86952343480942,\n    \"driverId\": \"{{driver_id}}\",\n    \"merchantId\": \"{{driver_merchant_id}}\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://localhost:8081/internal/ride/rideDetails",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8081",
+					"path": [
+						"internal",
+						"ride",
+						"rideDetails"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Ride Start",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"lat\":  13.21105683994044,\n   \t\"lon\": 77.86952343480942,\n    \"driverId\": \"{{driver_id}}\",\n    \"merchantId\": \"{{driver_merchant_id}}\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://localhost:8081/internal/ride/:rideId/start",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8081",
+					"path": [
+						"internal",
+						"ride",
+						":rideId",
+						"start"
+					],
+					"variable": [
+						{
+							"key": "rideId",
+							"value": "1234567890"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Update Location On Ride",
+			"event": [
+				{
+					"listen": "prerequest",
+					"script": {
+						"exec": [
+							"var moment = require('moment');",
+							"pm.globals.set('CurrentDateAndTime', moment().format());",
+							"pm.globals.set(\"current_time\", moment.utc().format(\"YYYY-MM-DDTHH:mm:ssZ\"));"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "token",
+						"value": "{{driver_token}}",
+						"type": "text"
+					},
+					{
+						"key": "vt",
+						"value": "SUV",
+						"type": "text"
+					},
+					{
+						"key": "mId",
+						"value": "{{driver_merchant_id}}",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "[\n    {\n   \t \"pt\": {\n   \t\t \"lat\":  13.21105683994044,\n   \t\t \"lon\": 77.86952343480942\n   \t },  \n   \t \"ts\": \"{{current_time}}\",\n   \t \"acc\": 0\n    }\n]",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://localhost:8081/ui/driver/location",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8081",
+					"path": [
+						"ui",
+						"driver",
+						"location"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Ride End",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"lat\":  13.21105683994044,\n   \t\"lon\": 77.86952343480942,\n    \"driverId\": \"{{driver_id}}\",\n    \"merchantId\": \"{{driver_merchant_id}}\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://localhost:8081/internal/ride/:rideId/end",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8081",
+					"path": [
+						"internal",
+						"ride",
+						":rideId",
+						"end"
+					],
+					"variable": [
+						{
+							"key": "rideId",
+							"value": "1234567890"
+						}
+					]
+				}
+			},
+			"response": []
+		}
+	]
+}

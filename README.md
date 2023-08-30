@@ -40,6 +40,10 @@ Run `just services` to run the service dependencies (example: redis-server) usin
 
 Run `nix build` in the project which produces a `./result` symlink. You can also run `nix run` to run the program immediately after build.
 
+## Postman Collection
+
+Import the [Postman Collection](./Location%20Tracking%20Service%20Dev.postman_collection.json) in postman to test the API flow.
+
 ## Contributing PRs
 
 Run `nix run nixpkgs#nixci` locally to make sure that the project builds. The CI runs the same.
