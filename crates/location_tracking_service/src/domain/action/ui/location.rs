@@ -135,6 +135,15 @@ async fn process_driver_locations(
         "Got location updates: {driver_id} {:?}", locations
     );
 
+    let last_location_update_ts = get_and_set_driver_last_location_update_latlon_and_timestamp(
+        data.clone(),
+        &driver_id,
+        &merchant_id,
+        &locations[locations.len() - 1],
+    )
+    .await
+    .unwrap_or(locations[0].ts);
+
     match get_driver_ride_details(data.clone(), &driver_id, &merchant_id, &city).await {
         Ok(RideDetails {
             ride_id,
@@ -190,10 +199,6 @@ async fn process_driver_locations(
                     locations.len()
                 );
             }
-            let last_location_update_ts =
-                get_and_set_driver_last_location_update_timestamp(data.clone(), &driver_id)
-                    .await
-                    .unwrap_or(locations[0].ts);
 
             let filtered_locations: Vec<UpdateDriverLocationRequest> = locations
                 .clone()

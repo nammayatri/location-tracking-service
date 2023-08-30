@@ -107,3 +107,26 @@ pub async fn get_nearby_drivers(
         }
     }
 }
+
+pub async fn get_drivers_location(
+    data: Data<AppState>,
+    driver_ids: Vec<DriverId>,
+) -> Result<Vec<DriverLocation>, AppError> {
+    let mut driver_locations = Vec::new();
+
+    for driver_id in driver_ids {
+        let driver_details = get_driver_location_redis(data.clone(), &driver_id).await?;
+        let driver_location = DriverLocation {
+            driver_id: driver_id.clone(),
+            lat: driver_details.location.lat,
+            lon: driver_details.location.lon,
+            coordinates_calculated_at: driver_details.timestamp,
+            created_at: driver_details.timestamp,
+            updated_at: driver_details.timestamp,
+            merchant_id: driver_details.merchant_id,
+        };
+        driver_locations.push(driver_location);
+    }
+
+    Ok(driver_locations)
+}
