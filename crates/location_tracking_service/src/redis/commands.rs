@@ -1,4 +1,5 @@
 use crate::common::types::*;
+use crate::domain::types::ui::location::UpdateDriverLocationRequest;
 use crate::redis::keys::*;
 use actix_web::web::Data;
 use chrono::{DateTime, Utc};
@@ -135,34 +136,74 @@ pub async fn push_drainer_driver_location(
     return Ok(());
 }
 
-pub async fn get_and_set_driver_last_location_update_timestamp(
+pub async fn get_driver_location_redis(
     data: Data<AppState>,
     driver_id: &DriverId,
-) -> Result<DateTime<Utc>, AppError> {
-    let last_location_update_ts = data
+) -> Result<DriverLocationAndTS, AppError> {
+    let last_location_update = data
         .persistent_redis
         .get_key(&driver_loc_ts_key(&driver_id))
         .await?;
+
+    if let Some(val) = last_location_update {
+        if let Ok(x) = serde_json::from_str::<DriverLocationAndTS>(&val) {
+            return Ok(x);
+        } else {
+            return Err(AppError::InternalError(
+                "Failed to get_driver_last_location".to_string(),
+            ));
+        }
+    } else {
+        return Ok(DriverLocationAndTS {
+            location: Point { lat: 0.0, lon: 0.0 },
+            timestamp: Utc::now(),
+            merchant_id: "".to_string(),
+        });
+    }
+}
+
+pub async fn get_and_set_driver_last_location_update_latlon_and_timestamp(
+    data: Data<AppState>,
+    driver_id: &DriverId,
+    merchant_id: &MerchantId,
+    last_location: &UpdateDriverLocationRequest,
+) -> Result<DateTime<Utc>, AppError> {
+    let last_location_update = data
+        .persistent_redis
+        .get_key(&driver_loc_ts_key(&driver_id))
+        .await?;
+
+    let value: DriverLocationAndTS = DriverLocationAndTS {
+        location: Point {
+            lat: last_location.pt.lat,
+            lon: last_location.pt.lon,
+        },
+        timestamp: Utc::now(),
+        merchant_id: merchant_id.to_string(),
+    };
+
+    let value =
+        serde_json::to_string(&value).map_err(|err| AppError::InternalError(err.to_string()))?;
 
     let _ = data
         .persistent_redis
         .set_with_expiry(
             &driver_loc_ts_key(&driver_id),
-            (Utc::now()).to_rfc3339(),
+            value,
             data.last_location_timstamp_expiry
                 .try_into()
                 .expect("Failed to parse last_location_timstamp_expiry"),
         )
         .await?;
 
-    if let Some(ts) = last_location_update_ts {
-        if let Ok(x) = DateTime::parse_from_rfc3339(&ts) {
-            return Ok(x.with_timezone(&Utc));
+    if let Some(val) = last_location_update {
+        if let Ok(x) = serde_json::from_str::<DriverLocationAndTS>(&val) {
+            return Ok(x.timestamp.with_timezone(&Utc));
         }
     }
 
     return Err(AppError::InternalError(
-        "Failed to get_and_set_driver_last_location_update_timestamp".to_string(),
+        "Failed to get_and_set_driver_last_location_update".to_string(),
     ));
 }
 

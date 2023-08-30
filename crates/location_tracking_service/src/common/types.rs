@@ -111,6 +111,13 @@ pub struct Dimensions {
     pub vehicle_type: VehicleType,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct DriverLocationAndTS {
+    pub location: Point,
+    pub timestamp: DateTime<Utc>,
+    pub merchant_id: MerchantId,
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub non_persistent_redis: Arc<RedisConnectionPool>,

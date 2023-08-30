@@ -22,3 +22,16 @@ async fn get_nearby_drivers(
         location::get_nearby_drivers(data, request_body).await?,
     ))
 }
+
+#[get("/internal/drivers/location")]
+async fn get_drivers_location(
+    data: Data<AppState>,
+    param_obj: Json<GetDriversLocationRequest>,
+    _req: HttpRequest,
+) -> Result<Json<GetDriversLocationResponse>, AppError> {
+    let request_body = param_obj.into_inner();
+
+    Ok(Json(
+        location::get_drivers_location(data, request_body.driver_ids).await?,
+    ))
+}
