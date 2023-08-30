@@ -179,7 +179,10 @@ async fn process_driver_locations(
             let mut queue = data.queue.lock().await;
 
             for loc in locations {
-                geo_entries.push((loc.pt.lat, loc.pt.lon, loc.ts.to_rfc3339()));
+                geo_entries.push(Point {
+                    lat: loc.pt.lat,
+                    lon: loc.pt.lon,
+                });
 
                 let dimensions = Dimensions {
                     merchant_id: merchant_id.clone(),
@@ -213,9 +216,14 @@ async fn process_driver_locations(
                     .await?;
 
             if on_ride_driver_location_count >= data.batch_size {
-                let on_ride_driver_locations =
-                    get_on_ride_driver_locations(data.clone(), &driver_id, &merchant_id, &city)
-                        .await?;
+                let on_ride_driver_locations = get_on_ride_driver_locations(
+                    data.clone(),
+                    &driver_id,
+                    &merchant_id,
+                    &city,
+                    on_ride_driver_location_count as usize,
+                )
+                .await?;
 
                 let _: APISuccess = call_api(
                     Method::POST,

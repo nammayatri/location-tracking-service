@@ -263,31 +263,21 @@ pub async fn push_on_ride_driver_location(
     driver_id: &DriverId,
     merchant_id: &MerchantId,
     city: &CityName,
-    geo_entries: &Vec<(Latitude, Longitude, String)>,
+    geo_entries: &Vec<Point>,
 ) -> Result<(), AppError> {
-    let geo_values: Vec<GeoValue> = geo_entries
-        .to_owned()
-        .into_iter()
-        .map(|(lon, lat, timestamp)| {
-            prometheus::QUEUE_GUAGE.dec();
-            GeoValue {
-                coordinates: GeoPosition {
-                    longitude: lon,
-                    latitude: lat,
-                },
-                member: timestamp.into(),
-            }
-        })
-        .collect();
-    let multiple_geo_values: MultipleGeoValues = geo_values.into();
+    let mut geo_points: Vec<String> = Vec::new();
+
+    for entry in geo_entries {
+        let value = serde_json::to_string(&entry)
+            .map_err(|err| AppError::InternalError(err.to_string()))?;
+        geo_points.push(value);
+    }
 
     let _ = data
         .persistent_redis
-        .geo_add(
+        .rpush(
             &on_ride_loc_key(&merchant_id, &city, &driver_id),
-            multiple_geo_values,
-            None,
-            false,
+            geo_points,
         )
         .await?;
 
@@ -299,10 +289,10 @@ pub async fn get_on_ride_driver_location_count(
     driver_id: &DriverId,
     merchant_id: &MerchantId,
     city: &CityName,
-) -> Result<u64, AppError> {
+) -> Result<i64, AppError> {
     let driver_location_count = data
         .persistent_redis
-        .zcard(&on_ride_loc_key(&merchant_id, &city, &driver_id))
+        .llen(&on_ride_loc_key(&merchant_id, &city, &driver_id))
         .await?;
 
     Ok(driver_location_count)
@@ -313,39 +303,25 @@ pub async fn get_on_ride_driver_locations(
     driver_id: &DriverId,
     merchant_id: &MerchantId,
     city: &CityName,
+    pop_length: usize,
 ) -> Result<Vec<Point>, AppError> {
-    let members = data
+    let output = data
         .persistent_redis
-        .zrange(
+        .rpop(
             &on_ride_loc_key(&merchant_id, &city, &driver_id),
-            0,
-            -1,
-            None,
-            false,
-            None,
-            false,
+            Some(pop_length),
         )
         .await?;
 
-    let points = data
-        .persistent_redis
-        .geopos(&on_ride_loc_key(&merchant_id, &city, &driver_id), members)
-        .await?;
+    let mut geo_points: Vec<Point> = Vec::new();
 
-    let _: () = data
-        .persistent_redis
-        .delete_key(&on_ride_loc_key(&merchant_id, &city, &driver_id))
-        .await?;
+    for point in output {
+        let geo_point = serde_json::from_str::<Point>(&point)
+            .map_err(|err| AppError::InternalError(err.to_string()))?;
+        geo_points.push(geo_point);
+    }
 
-    Ok(points
-        .into_iter()
-        .map(|point| {
-            return Point {
-                lat: point.lat,
-                lon: point.lon,
-            };
-        })
-        .collect::<Vec<Point>>())
+    Ok(geo_points)
 }
 
 pub async fn with_lock_redis<F, Args, Fut>(

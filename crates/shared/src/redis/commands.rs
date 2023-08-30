@@ -4,6 +4,7 @@ use crate::utils::logger::instrument;
 use error_stack::{IntoReport, ResultExt};
 use fred::{
     interfaces::{GeoInterface, HashesInterface, KeysInterface, SortedSetsInterface},
+    prelude::ListInterface,
     types::{
         Expiration, FromRedis, GeoPosition, GeoRadiusInfo, GeoUnit, Limit, MultipleGeoValues,
         Ordering, RedisMap, RedisValue, SetOptions, SortOrder, ZSort,
@@ -180,6 +181,99 @@ impl RedisConnectionPool {
         }
 
         Ok(output.unwrap())
+    }
+
+    //RPUSH
+    #[instrument(level = "DEBUG", skip(self))]
+    pub async fn rpush<V>(&self, key: &str, values: Vec<V>) -> Result<i64, AppError>
+    where
+        V: TryInto<RedisValue> + Debug + Send + Sync,
+        V::Error: Into<fred::error::RedisError> + Send + Sync,
+    {
+        let output = self
+            .pool
+            .rpush(key, values)
+            .await
+            .into_report()
+            .change_context(AppError::RPushFailed);
+
+        if let Ok(RedisValue::Integer(length)) = output {
+            return Ok(length);
+        } else {
+            return Err(AppError::RPushFailed.into());
+        }
+    }
+
+    //RPOP
+    #[instrument(level = "DEBUG", skip(self))]
+    pub async fn rpop(&self, key: &str, count: Option<usize>) -> Result<Vec<String>, AppError> {
+        let output = self
+            .pool
+            .rpop(key, count)
+            .await
+            .into_report()
+            .change_context(AppError::RPopFailed);
+
+        match output {
+            Ok(RedisValue::Array(val)) => {
+                let mut values = Vec::new();
+                for value in val {
+                    match value {
+                        RedisValue::String(y) => {
+                            values.push(String::from_utf8(y.into_inner().to_vec()).unwrap())
+                        }
+                        _ => (),
+                    }
+                }
+                Ok(values)
+            }
+            Ok(RedisValue::String(value)) => Ok(vec![value.to_string()]),
+            _ => Err(AppError::RPopFailed),
+        }
+    }
+
+    //LRANGE
+    #[instrument(level = "DEBUG", skip(self))]
+    pub async fn lrange(&self, key: &str, min: i64, max: i64) -> Result<Vec<String>, AppError> {
+        let output = self
+            .pool
+            .lrange(key, min, max)
+            .await
+            .into_report()
+            .change_context(AppError::LRangeFailed);
+
+        match output {
+            Ok(RedisValue::Array(val)) => {
+                let mut values = Vec::new();
+                for value in val {
+                    match value {
+                        RedisValue::String(y) => {
+                            values.push(String::from_utf8(y.into_inner().to_vec()).unwrap())
+                        }
+                        _ => (),
+                    }
+                }
+                Ok(values)
+            }
+            _ => Err(AppError::LRangeFailed),
+        }
+    }
+
+    //LLEN
+    #[instrument(level = "DEBUG", skip(self))]
+    pub async fn llen(&self, key: &str) -> Result<i64, AppError> {
+        let output = self
+            .pool
+            .llen(key)
+            .await
+            .into_report()
+            .change_context(AppError::RPushFailed);
+
+        if let Ok(RedisValue::Integer(length)) = output {
+            return Ok(length);
+        } else {
+            return Err(AppError::RPushFailed.into());
+        }
     }
 
     //GEOADD

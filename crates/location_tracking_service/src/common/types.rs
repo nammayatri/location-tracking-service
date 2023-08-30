@@ -146,7 +146,7 @@ pub struct AppState {
     pub producer: Option<FutureProducer>,
     pub driver_location_update_topic: String,
     pub driver_location_update_key: String,
-    pub batch_size: u64,
+    pub batch_size: i64,
 }
 
 impl AppState {

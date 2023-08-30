@@ -51,6 +51,14 @@ pub enum AppError {
     SetHashFieldFailed,
     #[error("Failed to get hash field in Redis")]
     GetHashFieldFailed,
+    #[error("Failed to rpush in Redis")]
+    RPushFailed,
+    #[error("Failed to do rpop in Redis")]
+    RPopFailed,
+    #[error("Failed to get lrange in Redis")]
+    LRangeFailed,
+    #[error("Failed to get llen in Redis")]
+    LLenFailed,
     #[error("The requested value was not found in Redis")]
     NotFound,
     #[error("Invalid RedisEntryId provided")]
@@ -127,6 +135,10 @@ impl ResponseError for AppError {
             AppError::ZCardFailed => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::GeoPosFailed => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::ZRangeFailed => StatusCode::INTERNAL_SERVER_ERROR,
+            AppError::RPushFailed => StatusCode::INTERNAL_SERVER_ERROR,
+            AppError::RPopFailed => StatusCode::INTERNAL_SERVER_ERROR,
+            AppError::LRangeFailed => StatusCode::INTERNAL_SERVER_ERROR,
+            AppError::LLenFailed => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 }
