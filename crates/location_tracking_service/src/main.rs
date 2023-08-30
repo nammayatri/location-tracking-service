@@ -42,7 +42,7 @@ pub struct AppConfig {
     pub auth_token_expiry: u32,
     pub bucket_expiry: u64,
     pub redis_expiry: u32,
-    pub min_location_accuracy: u32,
+    pub min_location_accuracy: i32,
     pub last_location_timstamp_expiry: usize,
     pub location_update_limit: usize,
     pub location_update_interval: u64,
@@ -156,6 +156,7 @@ async fn run_drainer(data: web::Data<AppState>) -> Result<(), AppError> {
         let merchant_id = &dimensions.merchant_id;
         let city = &dimensions.city;
         let vehicle_type = &dimensions.vehicle_type;
+        let on_ride = dimensions.on_ride;
 
         if !geo_entries.is_empty() {
             let _ = push_drainer_driver_location(
@@ -163,6 +164,7 @@ async fn run_drainer(data: web::Data<AppState>) -> Result<(), AppError> {
                 merchant_id,
                 city,
                 vehicle_type,
+                on_ride,
                 &bucket,
                 geo_entries,
             )

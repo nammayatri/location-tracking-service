@@ -28,6 +28,12 @@ pub async fn update_driver_location(
 ) -> Result<Json<APISuccess>, AppError> {
     let request_body = param_obj.into_inner();
 
+    if request_body.is_empty() {
+        return Err(AppError::InvalidRequest(
+            "Vec<UpdateDriverLocationRequest> is empty".to_string(),
+        ));
+    }
+
     let token: Token = req
         .headers()
         .get("token")

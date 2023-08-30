@@ -116,10 +116,11 @@ pub struct Dimensions {
     pub merchant_id: MerchantId,
     pub city: CityName,
     pub vehicle_type: VehicleType,
+    pub on_ride: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct DriverLocationAndTS {
+pub struct DriverLastKnownLocation {
     pub location: Point,
     pub timestamp: DateTime<Utc>,
     pub merchant_id: MerchantId,
@@ -138,7 +139,7 @@ pub struct AppState {
     pub auth_token_expiry: u32,
     pub bucket_expiry: u64,
     pub redis_expiry: u32,
-    pub min_location_accuracy: u32,
+    pub min_location_accuracy: i32,
     pub last_location_timstamp_expiry: usize,
     pub location_update_limit: usize,
     pub location_update_interval: u64,

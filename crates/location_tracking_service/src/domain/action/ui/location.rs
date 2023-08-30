@@ -137,12 +137,13 @@ async fn process_driver_locations(
 
     locations.sort_by(|a, b| (a.ts).cmp(&b.ts));
 
-    info!(
-        tag = "[Location Updates]",
-        "Got location updates: {driver_id} {:?}", locations
-    );
+    let locations: Vec<UpdateDriverLocationRequest> = locations
+        .clone()
+        .into_iter()
+        .filter(|request| request.acc.or(Some(0)) <= Some(data.min_location_accuracy))
+        .collect();
 
-    let last_location_update_ts = get_and_set_driver_last_location_update_latlon_and_timestamp(
+    let last_location_update_ts = get_and_set_driver_last_location_update(
         data.clone(),
         &driver_id,
         &merchant_id,
@@ -150,6 +151,18 @@ async fn process_driver_locations(
     )
     .await
     .unwrap_or(locations[0].ts);
+
+    let locations: Vec<UpdateDriverLocationRequest> = locations
+        .clone()
+        .into_iter()
+        .filter(|request| request.ts >= last_location_update_ts)
+        .collect();
+
+    info!(
+        tag = "[Location Updates]",
+        "Got {} location updates for Driver Id : {driver_id}",
+        locations.len()
+    );
 
     match get_driver_ride_details(data.clone(), &driver_id, &merchant_id, &city).await {
         Ok(RideDetails {
@@ -163,8 +176,26 @@ async fn process_driver_locations(
                 );
             }
             let mut geo_entries = Vec::new();
+            let mut queue = data.queue.lock().await;
+
             for loc in locations {
                 geo_entries.push((loc.pt.lat, loc.pt.lon, loc.ts.to_rfc3339()));
+
+                let dimensions = Dimensions {
+                    merchant_id: merchant_id.clone(),
+                    city: city.clone(),
+                    vehicle_type: vehicle_type.clone(),
+                    on_ride: true,
+                };
+
+                prometheus::QUEUE_GUAGE.inc();
+
+                queue.entry(dimensions).or_insert_with(Vec::new).push((
+                    loc.pt.lat,
+                    loc.pt.lon,
+                    driver_id.clone(),
+                ));
+
                 let _ = kafka_stream_updates(data.clone(), &merchant_id, &ride_id, loc).await;
             }
 
@@ -207,26 +238,14 @@ async fn process_driver_locations(
                 );
             }
 
-            let filtered_locations: Vec<UpdateDriverLocationRequest> = locations
-                .clone()
-                .into_iter()
-                .filter(|request| {
-                    let acc = match request.acc {
-                        Some(acc) => acc,
-                        None => 0,
-                    };
-                    request.ts >= last_location_update_ts
-                        && acc <= data.min_location_accuracy.try_into().unwrap()
-                })
-                .collect();
-
             let mut queue = data.queue.lock().await;
 
-            for loc in filtered_locations {
+            for loc in locations {
                 let dimensions = Dimensions {
                     merchant_id: merchant_id.clone(),
                     city: city.clone(),
                     vehicle_type: vehicle_type.clone(),
+                    on_ride: false,
                 };
 
                 prometheus::QUEUE_GUAGE.inc();

@@ -64,11 +64,12 @@ pub async fn get_drivers_within_radius(
     bucket: &u64,
     location: Point,
     radius: f64,
+    on_ride: bool,
 ) -> Result<Vec<DriverLocationPoint>, AppError> {
     let nearby_drivers = data
         .non_persistent_redis
         .geo_search(
-            driver_loc_bucket_key(&merchant_id, &city, &vehicle, &bucket).as_str(),
+            driver_loc_bucket_key(&merchant_id, &city, &vehicle, &bucket, on_ride).as_str(),
             None,
             Some(GeoPosition::from((location.lon, location.lat))),
             Some((radius, GeoUnit::Meters)),
@@ -111,6 +112,7 @@ pub async fn push_drainer_driver_location(
     merchant_id: &MerchantId,
     city: &CityName,
     vehicle: &VehicleType,
+    on_ride: bool,
     bucket: &u64,
     geo_entries: &Vec<(Latitude, Longitude, DriverId)>,
 ) -> Result<(), AppError> {
@@ -133,7 +135,7 @@ pub async fn push_drainer_driver_location(
     let _ = data
         .non_persistent_redis
         .geo_add(
-            &driver_loc_bucket_key(merchant_id, city, vehicle, bucket),
+            &driver_loc_bucket_key(merchant_id, city, vehicle, bucket, on_ride),
             multiple_geo_values,
             None,
             false,
@@ -146,30 +148,24 @@ pub async fn push_drainer_driver_location(
 pub async fn get_driver_location_redis(
     data: Data<AppState>,
     driver_id: &DriverId,
-) -> Result<DriverLocationAndTS, AppError> {
+) -> Result<DriverLastKnownLocation, AppError> {
     let last_location_update = data
         .persistent_redis
-        .get_key(&driver_loc_ts_key(&driver_id))
+        .get_key(&driver_last_loc_key(&driver_id))
         .await?;
 
     if let Some(val) = last_location_update {
-        if let Ok(x) = serde_json::from_str::<DriverLocationAndTS>(&val) {
-            return Ok(x);
-        } else {
-            return Err(AppError::InternalError(
-                "Failed to get_driver_last_location".to_string(),
-            ));
-        }
-    } else {
-        return Ok(DriverLocationAndTS {
-            location: Point { lat: 0.0, lon: 0.0 },
-            timestamp: Utc::now(),
-            merchant_id: "".to_string(),
-        });
+        let last_known_location = serde_json::from_str::<DriverLastKnownLocation>(&val)
+            .map_err(|err| AppError::InternalError(err.to_string()))?;
+        return Ok(last_known_location);
     }
+
+    return Err(AppError::InternalError(
+        "Failed to get_driver_location_redis".to_string(),
+    ));
 }
 
-pub async fn get_and_set_driver_last_location_update_latlon_and_timestamp(
+pub async fn get_and_set_driver_last_location_update(
     data: Data<AppState>,
     driver_id: &DriverId,
     merchant_id: &MerchantId,
@@ -177,10 +173,10 @@ pub async fn get_and_set_driver_last_location_update_latlon_and_timestamp(
 ) -> Result<DateTime<Utc>, AppError> {
     let last_location_update = data
         .persistent_redis
-        .get_key(&driver_loc_ts_key(&driver_id))
+        .get_key(&driver_last_loc_key(&driver_id))
         .await?;
 
-    let value: DriverLocationAndTS = DriverLocationAndTS {
+    let value: DriverLastKnownLocation = DriverLastKnownLocation {
         location: Point {
             lat: last_location.pt.lat,
             lon: last_location.pt.lon,
@@ -195,7 +191,7 @@ pub async fn get_and_set_driver_last_location_update_latlon_and_timestamp(
     let _ = data
         .persistent_redis
         .set_with_expiry(
-            &driver_loc_ts_key(&driver_id),
+            &driver_last_loc_key(&driver_id),
             value,
             data.last_location_timstamp_expiry
                 .try_into()
@@ -204,7 +200,7 @@ pub async fn get_and_set_driver_last_location_update_latlon_and_timestamp(
         .await?;
 
     if let Some(val) = last_location_update {
-        if let Ok(x) = serde_json::from_str::<DriverLocationAndTS>(&val) {
+        if let Ok(x) = serde_json::from_str::<DriverLastKnownLocation>(&val) {
             return Ok(x.timestamp.with_timezone(&Utc));
         }
     }

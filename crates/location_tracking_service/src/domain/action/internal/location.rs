@@ -17,7 +17,7 @@ use crate::{
     domain::types::internal::location::*,
     redis::commands::*,
 };
-use shared::tools::error::AppError;
+use shared::{tools::error::AppError, utils::logger::*};
 
 async fn search_nearby_drivers_with_vehicle(
     data: Data<AppState>,
@@ -27,6 +27,7 @@ async fn search_nearby_drivers_with_vehicle(
     bucket: u64,
     location: Point,
     radius: Radius,
+    on_ride: bool,
 ) -> Result<Vec<DriverLocation>, AppError> {
     let nearby_drivers = get_drivers_within_radius(
         data,
@@ -36,6 +37,7 @@ async fn search_nearby_drivers_with_vehicle(
         &bucket,
         location,
         radius,
+        on_ride,
     )
     .await?;
 
@@ -82,16 +84,24 @@ pub async fn get_nearby_drivers(
                     data.clone(),
                     request_body.clone().merchant_id,
                     city.clone(),
-                    vehicle,
+                    vehicle.clone(),
                     current_bucket,
                     Point {
                         lat: request_body.clone().lat,
                         lon: request_body.clone().lon,
                     },
                     request_body.clone().radius,
+                    request_body.on_ride.unwrap_or_else(|| false),
                 )
-                .await?;
-                resp.extend(nearby_drivers.iter().cloned());
+                .await;
+                match nearby_drivers {
+                    Ok(nearby_drivers) => {
+                        resp.extend(nearby_drivers.iter().cloned());
+                    }
+                    Err(err) => {
+                        error!(tag="[Nearby Drivers For All Vehicle Types]", vehicle = %vehicle, "{:?}", err)
+                    }
+                }
             }
 
             Ok(resp)
@@ -108,6 +118,7 @@ pub async fn get_nearby_drivers(
                     lon: request_body.clone().lon,
                 },
                 request_body.clone().radius,
+                request_body.on_ride.unwrap_or_else(|| false),
             )
             .await?;
             Ok(resp)
@@ -122,17 +133,19 @@ pub async fn get_drivers_location(
     let mut driver_locations = Vec::new();
 
     for driver_id in driver_ids {
-        let driver_details = get_driver_location_redis(data.clone(), &driver_id).await?;
-        let driver_location = DriverLocation {
-            driver_id: driver_id.clone(),
-            lat: driver_details.location.lat,
-            lon: driver_details.location.lon,
-            coordinates_calculated_at: driver_details.timestamp,
-            created_at: driver_details.timestamp,
-            updated_at: driver_details.timestamp,
-            merchant_id: driver_details.merchant_id,
-        };
-        driver_locations.push(driver_location);
+        let driver_details = get_driver_location_redis(data.clone(), &driver_id).await;
+        if let Ok(driver_details) = driver_details {
+            let driver_location = DriverLocation {
+                driver_id: driver_id.clone(),
+                lat: driver_details.location.lat,
+                lon: driver_details.location.lon,
+                coordinates_calculated_at: driver_details.timestamp,
+                created_at: driver_details.timestamp,
+                updated_at: driver_details.timestamp,
+                merchant_id: driver_details.merchant_id,
+            };
+            driver_locations.push(driver_location);
+        }
     }
 
     Ok(driver_locations)

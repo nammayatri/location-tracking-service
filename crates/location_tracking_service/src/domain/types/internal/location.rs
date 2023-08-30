@@ -15,6 +15,7 @@ use crate::common::types::*;
 pub struct NearbyDriversRequest {
     pub lat: Latitude,
     pub lon: Longitude,
+    pub on_ride: Option<bool>,
     pub vehicle_type: Option<VehicleType>,
     pub radius: Radius,
     pub merchant_id: MerchantId,
