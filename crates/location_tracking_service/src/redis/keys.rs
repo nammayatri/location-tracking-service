@@ -27,11 +27,6 @@ pub fn driver_details_key(driver_id: &DriverId) -> String {
 }
 
 // Persistent Redis
-pub fn driver_last_loc_key(driver_id: &DriverId) -> String {
-    format!("lts:dl:last_loc:{}", driver_id)
-}
-
-// Persistent Redis
 pub fn health_check_key() -> String {
     format!("lts:health_check")
 }

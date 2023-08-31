@@ -61,6 +61,7 @@ pub async fn update_driver_location(
     vehicle_type: VehicleType,
     data: Data<AppState>,
     request_body: Vec<UpdateDriverLocationRequest>,
+    driver_mode: Option<DriverMode>,
 ) -> Result<APISuccess, AppError> {
     let city = get_city(
         request_body[0].pt.lat,
@@ -116,6 +117,7 @@ pub async fn update_driver_location(
             merchant_id.clone(),
             vehicle_type.clone(),
             city.clone(),
+            driver_mode.clone(),
         ),
     )
     .await?;
@@ -131,9 +133,10 @@ async fn process_driver_locations(
         MerchantId,
         VehicleType,
         CityName,
+        Option<DriverMode>,
     ),
 ) -> Result<(), AppError> {
-    let (data, mut locations, driver_id, merchant_id, vehicle_type, city) = args;
+    let (data, mut locations, driver_id, merchant_id, vehicle_type, city, driver_mode) = args;
 
     locations.sort_by(|a, b| (a.ts).cmp(&b.ts));
 
@@ -153,9 +156,14 @@ async fn process_driver_locations(
         lon: driver_location.pt.lon,
     };
 
-    let _ =
-        set_driver_last_location_update(data.clone(), &driver_id, &merchant_id, &driver_location)
-            .await?;
+    let _ = set_driver_last_location_update(
+        data.clone(),
+        &driver_id,
+        &merchant_id,
+        &driver_location,
+        driver_mode,
+    )
+    .await?;
 
     let locations: Vec<UpdateDriverLocationRequest> = locations
         .clone()

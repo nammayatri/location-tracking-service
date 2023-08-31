@@ -13,6 +13,7 @@ use crate::{
 };
 use actix_web::web::Data;
 use shared::tools::error::AppError;
+use tracing::info;
 
 async fn update_driver_location(
     data: Data<AppState>,
@@ -21,12 +22,14 @@ async fn update_driver_location(
     city: &CityName,
     lat: Latitude,
     lon: Longitude,
+    driver_mode: Option<DriverMode>,
 ) -> Result<(), AppError> {
     let _ = set_driver_last_location_update(
         data.clone(),
         &driver_id,
         &merchant_id,
         &Point { lat, lon },
+        driver_mode,
     )
     .await?;
 
@@ -75,6 +78,7 @@ pub async fn ride_start(
         &city,
         request_body.lat,
         request_body.lon,
+        None,
     )
     .await?;
 
@@ -114,6 +118,7 @@ pub async fn ride_end(
         &city,
         request_body.lat,
         request_body.lon,
+        None,
     )
     .await?;
 
@@ -180,6 +185,7 @@ pub async fn ride_details(
         &city,
         request_body.lat,
         request_body.lon,
+        None,
     )
     .await?;
 

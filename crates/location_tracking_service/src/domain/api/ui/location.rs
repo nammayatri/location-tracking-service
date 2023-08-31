@@ -59,9 +59,22 @@ pub async fn update_driver_location(
     )
     .map_err(|err| AppError::InternalError(err.to_string()))?;
 
+    let driver_mode = req
+        .headers()
+        .get("dm")
+        .and_then(|header_value| header_value.to_str().ok())
+        .and_then(|dm_str| DriverMode::from_str(dm_str).ok());
+
     Ok(Json(
-        location::update_driver_location(token, merchant_id, vehicle_type, data, request_body)
-            .await?,
+        location::update_driver_location(
+            token,
+            merchant_id,
+            vehicle_type,
+            data,
+            request_body,
+            driver_mode,
+        )
+        .await?,
     ))
 }
 

@@ -107,6 +107,7 @@ pub struct DriverDetails {
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug, Eq, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct DriverModeDetails {
     pub driver_id: DriverId,
     pub driver_mode: DriverMode,
@@ -131,6 +132,12 @@ pub struct DriverLastKnownLocation {
     pub location: Point,
     pub timestamp: DateTime<Utc>,
     pub merchant_id: MerchantId,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct DriverAllDetails {
+    pub driver_last_known_location: Option<DriverLastKnownLocation>,
+    pub driver_mode: Option<DriverMode>,
 }
 
 #[derive(Clone)]
