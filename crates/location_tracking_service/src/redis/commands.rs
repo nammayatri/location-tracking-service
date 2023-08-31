@@ -232,9 +232,7 @@ pub async fn set_driver_last_location_update(
         )
         .await?;
 
-    return Err(AppError::InternalError(
-        "Failed to get_and_set_driver_last_location_update".to_string(),
-    ));
+    return Ok(());
 }
 
 pub async fn get_driver_ride_status(

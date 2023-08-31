@@ -1,7 +1,7 @@
 {
 	"info": {
 		"_postman_id": "f827779d-3835-4168-ab9a-bdff1483a764",
-		"name": "Location Tracking Service Dev",
+		"name": "LocationTrackingService",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
 		"_exporter_id": "25888056"
 	},
@@ -312,6 +312,17 @@
 		},
 		{
 			"name": "Get Nearby Drivers For All Vehicle Variants",
+			"event": [
+				{
+					"listen": "prerequest",
+					"script": {
+						"exec": [
+							"setTimeout(function() {}, 10000);"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
 			"protocolProfileBehavior": {
 				"disableBodyPruning": true,
 				"disabledSystemHeaders": {}
@@ -498,6 +509,7 @@
 					"listen": "prerequest",
 					"script": {
 						"exec": [
+							"setTimeout(function() {}, 10000);",
 							"var moment = require('moment');",
 							"pm.globals.set('CurrentDateAndTime', moment().format());",
 							"pm.globals.set(\"current_time\", moment.utc().format(\"YYYY-MM-DDTHH:mm:ssZ\"));"
@@ -633,7 +645,7 @@
 					"variable": [
 						{
 							"key": "rideId",
-							"value": "1234567890"
+							"value": "{{ride_id}}"
 						}
 					]
 				}

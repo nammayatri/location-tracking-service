@@ -186,7 +186,7 @@ pub async fn ride_details(
     let driver_details = DriverDetails {
         driver_id: request_body.driver_id,
         merchant_id: request_body.merchant_id,
-        city: request_body.ride_id.clone(),
+        city,
     };
 
     set_driver_details(data.clone(), &request_body.ride_id, driver_details).await?;

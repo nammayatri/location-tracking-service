@@ -42,7 +42,7 @@ Run `nix build` in the project which produces a `./result` symlink. You can also
 
 ## Postman Collection
 
-Import the [Postman Collection](./Location%20Tracking%20Service%20Dev.postman_collection.json) in postman to test the API flow.
+Import the [Postman Collection](./Location%20Tracking%20Service%20Dev.postman_collection.json) in postman to test the API flow or Run `newman run LocationTrackingService.postman_collection.json`.
 
 ## Contributing PRs
 
