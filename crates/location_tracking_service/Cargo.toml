@@ -31,3 +31,5 @@ rdkafka = {version = "0.33.2", features = ["cmake-build"] }
 tracing-actix-web = "0.7.5"
 
 shared = { version = "0.1.0", path = "../shared" }
+tracing = "0.1.37"
+uuid = "1.4.1"

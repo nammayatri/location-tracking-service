@@ -55,7 +55,8 @@ pub async fn set_driver_details(
     };
     let driver_details = serde_json::to_string(&driver_details).unwrap();
 
-    data.persistent_redis
+    let _ = data
+        .persistent_redis
         .set_with_expiry(
             &on_ride_driver_details_key(&ride_id),
             driver_details,

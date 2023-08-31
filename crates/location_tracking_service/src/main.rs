@@ -5,7 +5,8 @@
     or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more details. You should have received a copy of
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-use actix_web::dev::{Service, ServiceResponse};
+use actix_web::body::MessageBody;
+use actix_web::dev::{Service, ServiceRequest, ServiceResponse};
 use actix_web::{web, App, Error, HttpServer};
 use futures::FutureExt;
 use location_tracking_service::common::utils::get_current_bucket;
@@ -17,6 +18,8 @@ use shared::utils::{logger::*, prometheus::*};
 use std::env::var;
 use std::time::Instant;
 use tokio::{spawn, sync::Mutex, time::Duration};
+use tracing::Span;
+use uuid::Uuid;
 
 use std::{collections::HashMap, sync::Arc};
 
@@ -28,7 +31,25 @@ use location_tracking_service::redis::commands::*;
 use rdkafka::config::ClientConfig;
 use rdkafka::producer::FutureProducer;
 use serde::Deserialize;
-use tracing_actix_web::TracingLogger;
+use tracing_actix_web::{DefaultRootSpanBuilder, RootSpanBuilder, TracingLogger};
+
+pub struct DomainRootSpanBuilder;
+
+impl RootSpanBuilder for DomainRootSpanBuilder {
+    fn on_request_start(request: &ServiceRequest) -> Span {
+        let request_id = request.headers().get("x-request-id");
+        let request_id = match request_id {
+            Some(request_id) => request_id.to_str().and_then(|str| Ok(str.to_string())),
+            None => Ok(Uuid::new_v4().to_string()),
+        }
+        .unwrap_or(Uuid::new_v4().to_string());
+        tracing_actix_web::root_span!(request, request_id)
+    }
+
+    fn on_request_end<B: MessageBody>(span: Span, outcome: &Result<ServiceResponse<B>, Error>) {
+        DefaultRootSpanBuilder::on_request_end(span, outcome);
+    }
+}
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct AppConfig {
@@ -223,7 +244,7 @@ async fn start_server() -> std::io::Result<()> {
                         Ok(response)
                     })
             })
-            .wrap(TracingLogger::default())
+            .wrap(TracingLogger::<DomainRootSpanBuilder>::new())
             .wrap(prometheus_metrics())
             .configure(api::handler)
     })
