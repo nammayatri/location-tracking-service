@@ -143,14 +143,19 @@ async fn process_driver_locations(
         .filter(|request| request.acc.or(Some(0)) <= Some(data.min_location_accuracy))
         .collect();
 
-    let last_location_update_ts = get_and_set_driver_last_location_update(
-        data.clone(),
-        &driver_id,
-        &merchant_id,
-        &locations[locations.len() - 1],
-    )
-    .await
-    .unwrap_or(locations[0].ts);
+    let last_location_update_ts = get_driver_last_location_update(data.clone(), &driver_id)
+        .await
+        .unwrap_or(locations[0].ts);
+
+    let driver_location = &locations[locations.len() - 1];
+    let driver_location = Point {
+        lat: driver_location.pt.lat,
+        lon: driver_location.pt.lon,
+    };
+
+    let _ =
+        set_driver_last_location_update(data.clone(), &driver_id, &merchant_id, &driver_location)
+            .await?;
 
     let locations: Vec<UpdateDriverLocationRequest> = locations
         .clone()

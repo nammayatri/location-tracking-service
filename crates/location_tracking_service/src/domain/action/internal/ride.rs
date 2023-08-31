@@ -14,6 +14,34 @@ use crate::{
 use actix_web::web::Data;
 use shared::tools::error::AppError;
 
+async fn update_driver_location(
+    data: Data<AppState>,
+    driver_id: &DriverId,
+    merchant_id: &MerchantId,
+    city: &CityName,
+    lat: Latitude,
+    lon: Longitude,
+) -> Result<(), AppError> {
+    let _ = set_driver_last_location_update(
+        data.clone(),
+        &driver_id,
+        &merchant_id,
+        &Point { lat, lon },
+    )
+    .await?;
+
+    let _ = push_on_ride_driver_location(
+        data,
+        &driver_id,
+        &merchant_id,
+        &city,
+        &vec![Point { lat, lon }],
+    )
+    .await?;
+
+    Ok(())
+}
+
 pub async fn ride_start(
     ride_id: String,
     data: Data<AppState>,
@@ -37,6 +65,16 @@ pub async fn ride_start(
         &request_body.driver_id,
         ride_id.clone(),
         RideStatus::INPROGRESS,
+    )
+    .await?;
+
+    let _ = update_driver_location(
+        data.clone(),
+        &request_body.driver_id,
+        &request_body.merchant_id,
+        &city,
+        request_body.lat,
+        request_body.lon,
     )
     .await?;
 
@@ -66,6 +104,16 @@ pub async fn ride_end(
         &request_body.driver_id,
         ride_id.clone(),
         RideStatus::COMPLETED,
+    )
+    .await?;
+
+    let _ = update_driver_location(
+        data.clone(),
+        &request_body.driver_id,
+        &request_body.merchant_id,
+        &city,
+        request_body.lat,
+        request_body.lon,
     )
     .await?;
 
@@ -125,14 +173,23 @@ pub async fn ride_details(
     )
     .await?;
 
-    set_driver_details(
+    let _ = update_driver_location(
         data.clone(),
-        request_body.merchant_id,
-        city,
-        request_body.driver_id,
-        request_body.ride_id,
+        &request_body.driver_id,
+        &request_body.merchant_id,
+        &city,
+        request_body.lat,
+        request_body.lon,
     )
     .await?;
+
+    let driver_details = DriverDetails {
+        driver_id: request_body.driver_id,
+        merchant_id: request_body.merchant_id,
+        city: request_body.ride_id.clone(),
+    };
+
+    set_driver_details(data.clone(), &request_body.ride_id, driver_details).await?;
 
     Ok(APISuccess::default())
 }

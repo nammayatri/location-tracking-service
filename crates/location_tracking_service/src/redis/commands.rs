@@ -6,7 +6,6 @@
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 use crate::common::types::*;
-use crate::domain::types::ui::location::UpdateDriverLocationRequest;
 use crate::redis::keys::*;
 use actix_web::web::Data;
 use chrono::{DateTime, Utc};
@@ -43,22 +42,15 @@ pub async fn set_ride_details(
 
 pub async fn set_driver_details(
     data: Data<AppState>,
-    merchant_id: MerchantId,
-    city: CityName,
-    driver_id: DriverId,
-    ride_id: RideId,
+    ride_id: &RideId,
+    driver_details: DriverDetails,
 ) -> Result<(), AppError> {
-    let driver_details = DriverDetails {
-        driver_id,
-        merchant_id,
-        city,
-    };
     let driver_details = serde_json::to_string(&driver_details).unwrap();
 
     let _ = data
         .persistent_redis
         .set_with_expiry(
-            &on_ride_driver_details_key(&ride_id),
+            &on_ride_driver_details_key(ride_id),
             driver_details,
             data.redis_expiry,
         )
@@ -193,21 +185,36 @@ pub async fn get_driver_location(
     ));
 }
 
-pub async fn get_and_set_driver_last_location_update(
+pub async fn get_driver_last_location_update(
     data: Data<AppState>,
     driver_id: &DriverId,
-    merchant_id: &MerchantId,
-    last_location: &UpdateDriverLocationRequest,
 ) -> Result<DateTime<Utc>, AppError> {
     let last_location_update = data
         .persistent_redis
         .get_key(&driver_last_loc_key(&driver_id))
         .await?;
 
+    if let Some(val) = last_location_update {
+        if let Ok(x) = serde_json::from_str::<DriverLastKnownLocation>(&val) {
+            return Ok(x.timestamp.with_timezone(&Utc));
+        }
+    }
+
+    return Err(AppError::InternalError(
+        "Failed to get_driver_last_location_update".to_string(),
+    ));
+}
+
+pub async fn set_driver_last_location_update(
+    data: Data<AppState>,
+    driver_id: &DriverId,
+    merchant_id: &MerchantId,
+    last_location: &Point,
+) -> Result<(), AppError> {
     let value: DriverLastKnownLocation = DriverLastKnownLocation {
         location: Point {
-            lat: last_location.pt.lat,
-            lon: last_location.pt.lon,
+            lat: last_location.lat,
+            lon: last_location.lon,
         },
         timestamp: Utc::now(),
         merchant_id: merchant_id.to_string(),
@@ -224,12 +231,6 @@ pub async fn get_and_set_driver_last_location_update(
             data.last_location_timstamp_expiry,
         )
         .await?;
-
-    if let Some(val) = last_location_update {
-        if let Ok(x) = serde_json::from_str::<DriverLastKnownLocation>(&val) {
-            return Ok(x.timestamp.with_timezone(&Utc));
-        }
-    }
 
     return Err(AppError::InternalError(
         "Failed to get_and_set_driver_last_location_update".to_string(),
