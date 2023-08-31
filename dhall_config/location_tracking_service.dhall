@@ -30,7 +30,7 @@ in {
     min_location_accuracy = 50,
     bucket_expiry = 60,
     redis_expiry = 86400,
-    last_location_timstamp_expiry = 90,
+    last_location_timstamp_expiry = 86400,
     location_update_limit = 5,
     location_update_interval = 60,
     driver_location_update_topic = "location-updates",

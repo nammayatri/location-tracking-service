@@ -221,9 +221,7 @@ pub async fn get_and_set_driver_last_location_update(
         .set_with_expiry(
             &driver_last_loc_key(&driver_id),
             value,
-            data.last_location_timstamp_expiry
-                .try_into()
-                .expect("Failed to parse last_location_timstamp_expiry"),
+            data.last_location_timstamp_expiry,
         )
         .await?;
 

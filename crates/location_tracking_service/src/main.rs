@@ -64,7 +64,7 @@ pub struct AppConfig {
     pub bucket_expiry: u64,
     pub redis_expiry: u32,
     pub min_location_accuracy: i32,
-    pub last_location_timstamp_expiry: usize,
+    pub last_location_timstamp_expiry: u32,
     pub location_update_limit: usize,
     pub location_update_interval: u64,
     pub kafka_cfg: KafkaConfig,
