@@ -31,9 +31,22 @@ async fn kafka_stream_updates(
     merchant_id: &String,
     ride_id: &String,
     loc: UpdateDriverLocationRequest,
+    ride_status: Option<RideStatus>,
+    driver_mode: Option<DriverMode>,
 ) {
     let topic = &data.driver_location_update_topic;
     let key = &data.driver_location_update_key;
+
+    let ride_status = match ride_status {
+        Some(ride_status) => ride_status.to_string(),
+        None => "".to_string(),
+    };
+
+    let driver_mode = match driver_mode {
+        Some(driver_mode) => driver_mode.to_string(),
+        None => "".to_string(),
+    };
+
     let loc = LocationUpdate {
         r_id: ride_id.to_string(),
         m_id: merchant_id.to_string(),
@@ -47,9 +60,9 @@ async fn kafka_stream_updates(
             Some(acc) => acc,
             None => 0,
         },
-        ride_status: "".to_string(),
+        ride_status: ride_status.to_string(),
         da: true,
-        mode: "".to_string(),
+        mode: driver_mode.to_string(),
     };
 
     push_to_kafka(&data.producer, topic, key, loc).await;
@@ -168,7 +181,7 @@ async fn process_driver_locations(
         &driver_id,
         &merchant_id,
         &driver_location,
-        driver_mode,
+        driver_mode.clone(),
     )
     .await?;
 
@@ -219,7 +232,15 @@ async fn process_driver_locations(
                     driver_id.clone(),
                 ));
 
-                let _ = kafka_stream_updates(data.clone(), &merchant_id, &ride_id, loc).await;
+                let _ = kafka_stream_updates(
+                    data.clone(),
+                    &merchant_id,
+                    &ride_id,
+                    loc,
+                    Some(RideStatus::INPROGRESS),
+                    driver_mode.clone(),
+                )
+                .await;
             }
 
             let _ = push_on_ride_driver_location(
@@ -284,8 +305,23 @@ async fn process_driver_locations(
                     driver_id.clone(),
                 ));
 
-                let _ =
-                    kafka_stream_updates(data.clone(), &merchant_id, &"".to_string(), loc).await;
+                let current_ride_status = get_driver_ride_status(
+                    data.clone(),
+                    &driver_id.clone(),
+                    &merchant_id.clone(),
+                    &city.clone(),
+                )
+                .await?;
+
+                let _ = kafka_stream_updates(
+                    data.clone(),
+                    &merchant_id,
+                    &"".to_string(),
+                    loc,
+                    current_ride_status,
+                    driver_mode.clone(),
+                )
+                .await;
             }
 
             drop(queue);

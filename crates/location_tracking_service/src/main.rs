@@ -181,7 +181,6 @@ async fn run_drainer(data: web::Data<AppState>) -> Result<(), AppError> {
         let merchant_id = &dimensions.merchant_id;
         let city = &dimensions.city;
         let vehicle_type = &dimensions.vehicle_type;
-        let on_ride = dimensions.on_ride;
 
         if !geo_entries.is_empty() {
             let _ = push_drainer_driver_location(
@@ -189,7 +188,6 @@ async fn run_drainer(data: web::Data<AppState>) -> Result<(), AppError> {
                 merchant_id,
                 city,
                 vehicle_type,
-                on_ride,
                 &bucket,
                 geo_entries,
             )

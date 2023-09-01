@@ -47,10 +47,8 @@ pub fn driver_loc_bucket_key(
     city: &CityName,
     vehicle_type: &VehicleType,
     bucket: &u64,
-    on_ride: bool,
 ) -> String {
-    let on_ride = if on_ride { "onride:" } else { "" };
-    format!("lts:dl:loc:{on_ride}{merchant_id}:{city}:{vehicle_type}:{bucket}")
+    format!("lts:dl:loc:{merchant_id}:{city}:{vehicle_type}:{bucket}")
 }
 
 // Persistent Redis
