@@ -36,4 +36,6 @@ in {
     driver_location_update_topic = "location-updates",
     driver_location_update_key = "loc",
     batch_size = 100,
+    bucket_size = 30,
+    nearby_bucket_threshold = 2,
 }

@@ -55,6 +55,29 @@ async fn kafka_stream_updates(
     push_to_kafka(&data.producer, topic, key, loc).await;
 }
 
+async fn get_driver_id_from_authentication(
+    data: Data<AppState>,
+    token: &Token,
+    merchant_id: &MerchantId,
+) -> Result<Option<DriverId>, AppError> {
+    let response = call_api::<AuthResponseData, String>(
+        Method::GET,
+        &data.auth_url,
+        vec![
+            ("content-type", "application/json"),
+            ("token", token),
+            ("api-key", &data.auth_api_key),
+            ("merchant-id", merchant_id),
+        ],
+        None,
+    )
+    .await?;
+
+    set_driver_id(data.clone(), token, &response.driver_id).await?;
+
+    Ok(Some(response.driver_id))
+}
+
 pub async fn update_driver_location(
     token: Token,
     merchant_id: MerchantId,
@@ -69,60 +92,44 @@ pub async fn update_driver_location(
         data.polygon.clone(),
     )?;
 
-    let mut driver_id = data.persistent_redis.get_key(&token).await?;
+    let driver_id = get_driver_id(data.clone(), &token)
+        .await
+        .or(get_driver_id_from_authentication(data.clone(), &token, &merchant_id).await)?;
 
-    if let None = driver_id {
-        let response = call_api::<AuthResponseData, String>(
-            Method::GET,
-            &data.auth_url,
-            vec![
-                ("content-type", "application/json"),
-                ("token", &token),
-                ("api-key", &data.auth_api_key),
-                ("merchant-id", &merchant_id),
-            ],
-            None,
+    if let Some(driver_id) = driver_id {
+        let _ = data
+            .sliding_window_limiter(
+                &driver_id,
+                data.location_update_limit,
+                data.location_update_interval as u32,
+                &data.persistent_redis,
+            )
+            .await?;
+
+        with_lock_redis(
+            data.persistent_redis.clone(),
+            driver_processing_location_update_lock_key(&merchant_id.clone(), &city.clone())
+                .as_str(),
+            60,
+            process_driver_locations,
+            (
+                data.clone(),
+                request_body.clone(),
+                driver_id.clone(),
+                merchant_id.clone(),
+                vehicle_type.clone(),
+                city.clone(),
+                driver_mode.clone(),
+            ),
         )
         .await?;
 
-        let _: () = data
-            .persistent_redis
-            .set_with_expiry(&token, &response.driver_id, data.auth_token_expiry)
-            .await
-            .unwrap();
-
-        driver_id = Some(response.driver_id);
+        Ok(APISuccess::default())
+    } else {
+        Err(AppError::InternalError(
+            "Failed to authenticate and get driver_id".to_string(),
+        ))
     }
-
-    let driver_id = driver_id.unwrap();
-
-    let _ = data
-        .sliding_window_limiter(
-            &driver_id,
-            data.location_update_limit,
-            data.location_update_interval as u32,
-            &data.persistent_redis,
-        )
-        .await?;
-
-    with_lock_redis(
-        data.persistent_redis.clone(),
-        driver_processing_location_update_lock_key(&merchant_id.clone(), &city.clone()).as_str(),
-        60,
-        process_driver_locations,
-        (
-            data.clone(),
-            request_body.clone(),
-            driver_id.clone(),
-            merchant_id.clone(),
-            vehicle_type.clone(),
-            city.clone(),
-            driver_mode.clone(),
-        ),
-    )
-    .await?;
-
-    Ok(APISuccess::default())
 }
 
 async fn process_driver_locations(

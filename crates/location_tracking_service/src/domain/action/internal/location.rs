@@ -73,7 +73,7 @@ pub async fn get_nearby_drivers(
 ) -> Result<NearbyDriverResponse, AppError> {
     let city = get_city(request_body.lat, request_body.lon, data.polygon.clone())?;
 
-    let current_bucket = get_current_bucket(data.bucket_expiry)?;
+    let current_bucket = get_current_bucket(data.bucket_size)?;
 
     match request_body.clone().vehicle_type {
         None => {

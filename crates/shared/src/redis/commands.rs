@@ -302,6 +302,38 @@ impl RedisConnectionPool {
         Ok(())
     }
 
+    //GEOADD with expiry
+    #[instrument(level = "DEBUG", skip(self))]
+    pub async fn geo_add_with_expiry<V>(
+        &self,
+        key: &str,
+        values: V,
+        options: Option<SetOptions>,
+        changed: bool,
+        expiry: u64,
+    ) -> Result<(), AppError>
+    where
+        V: Into<MultipleGeoValues> + Send + Debug,
+    {
+        let output: Result<RedisValue, _> = self
+            .pool
+            .geoadd(key, options, changed, values)
+            .await
+            .into_report()
+            .change_context(AppError::GeoAddFailed);
+
+        if !output.is_ok() {
+            return Err(AppError::GeoAddFailed.into());
+        }
+
+        if let Ok(RedisValue::Integer(1)) = output {
+            self.set_expiry(key, expiry as i64).await?;
+            return Ok(());
+        }
+
+        Err(AppError::SetExFailed.into())
+    }
+
     //GEOSEARCH
     #[instrument(level = "DEBUG", skip(self))]
     pub async fn geo_search(

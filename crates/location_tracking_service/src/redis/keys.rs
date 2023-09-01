@@ -52,3 +52,8 @@ pub fn driver_loc_bucket_key(
     let on_ride = if on_ride { "onride:" } else { "" };
     format!("lts:dl:loc:{on_ride}{merchant_id}:{city}:{vehicle_type}:{bucket}")
 }
+
+// Persistent Redis
+pub fn set_driver_id_key(token: &Token) -> String {
+    format!("lts:dl:driver_id:{token}")
+}

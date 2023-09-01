@@ -121,7 +121,7 @@ impl RedisClient {
             .await
             .into_report()
             .change_context(AppError::RedisConnectionError)
-            .unwrap();
+            .expect("Failed to connect to Redis");
         Ok(Self { inner: client })
     }
 }
@@ -159,7 +159,7 @@ impl RedisConnectionPool {
         let mut config = fred::types::RedisConfig::from_url(&redis_connection_url)
             .into_report()
             .change_context(AppError::RedisConnectionError)
-            .unwrap();
+            .expect("Failed to parse Redis connection URL");
 
         if !conf.use_legacy_version {
             config.version = fred::types::RespVersion::RESP3;
@@ -178,14 +178,14 @@ impl RedisConnectionPool {
         let pool = fred::pool::RedisPool::new(config, None, Some(reconnect_policy), conf.pool_size)
             .into_report()
             .change_context(AppError::RedisConnectionError)
-            .unwrap();
+            .expect("Failed to create Redis connection pool");
 
         let join_handles = pool.connect();
         pool.wait_for_connect()
             .await
             .into_report()
             .change_context(AppError::RedisConnectionError)
-            .unwrap();
+            .expect("Failed to connect to Redis");
 
         let config = RedisConfig::from(conf);
 

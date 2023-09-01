@@ -34,30 +34,28 @@ pub async fn update_driver_location(
         ));
     }
 
-    let token: Token = req
+    let token = req
         .headers()
         .get("token")
-        .expect("token not found in headers")
-        .to_str()
-        .map_err(|err| AppError::InternalError(err.to_string()))?
-        .to_string();
+        .and_then(|header_value| header_value.to_str().ok())
+        .and_then(|dm_str| Some(dm_str.to_string()))
+        .ok_or(AppError::InvalidRequest("Token not found".to_string()))?;
 
-    let merchant_id: MerchantId = req
+    let merchant_id = req
         .headers()
         .get("mId")
-        .expect("mId not found in headers")
-        .to_str()
-        .map_err(|err| AppError::InternalError(err.to_string()))?
-        .to_string();
+        .and_then(|header_value| header_value.to_str().ok())
+        .and_then(|dm_str| Some(dm_str.to_string()))
+        .ok_or(AppError::InvalidRequest("mId not found".to_string()))?;
 
-    let vehicle_type: VehicleType = VehicleType::from_str(
-        req.headers()
-            .get("vt")
-            .expect("vt not found in headers")
-            .to_str()
-            .map_err(|err| AppError::InternalError(err.to_string()))?,
-    )
-    .map_err(|err| AppError::InternalError(err.to_string()))?;
+    let vehicle_type = req
+        .headers()
+        .get("vt")
+        .and_then(|header_value| header_value.to_str().ok())
+        .and_then(|dm_str| VehicleType::from_str(dm_str).ok())
+        .ok_or(AppError::InvalidRequest(
+            "VehicleType not found".to_string(),
+        ))?;
 
     let driver_mode = req
         .headers()

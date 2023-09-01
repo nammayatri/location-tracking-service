@@ -161,6 +161,8 @@ pub struct AppState {
     pub driver_location_update_topic: String,
     pub driver_location_update_key: String,
     pub batch_size: i64,
+    pub bucket_size: u64,
+    pub nearby_bucket_threshold: u64,
 }
 
 impl AppState {
@@ -179,7 +181,9 @@ impl AppState {
         let hits = persistent_redis_pool.get_key(key).await?;
 
         let hits = match hits {
-            Some(hits) => serde_json::from_str::<Vec<i64>>(&hits).unwrap(),
+            Some(hits) => serde_json::from_str::<Vec<i64>>(&hits).map_err(|_| {
+                AppError::InternalError("Failed to parse hits from redis.".to_string())
+            })?,
             None => vec![],
         };
         let (filt_hits, ret) =
