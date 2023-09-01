@@ -151,7 +151,6 @@ pub struct AppState {
     pub auth_api_key: String,
     pub bulk_location_callback_url: String,
     pub auth_token_expiry: u32,
-    pub bucket_expiry: u64,
     pub redis_expiry: u32,
     pub min_location_accuracy: i32,
     pub last_location_timstamp_expiry: u32,

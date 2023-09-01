@@ -28,7 +28,6 @@ in {
     bulk_location_callback_url = "http://127.0.0.1:8016/internal/bulkLocUpdate",
     auth_token_expiry = 86400,
     min_location_accuracy = 50,
-    bucket_expiry = 60,
     redis_expiry = 86400,
     last_location_timstamp_expiry = 86400,
     location_update_limit = 5,

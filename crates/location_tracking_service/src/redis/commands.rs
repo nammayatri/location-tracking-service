@@ -71,7 +71,7 @@ pub async fn get_drivers_within_radius(
 ) -> Result<Vec<DriverLocationPoint>, AppError> {
     let mut nearby_drivers = Vec::new();
     for bucket_idx in 0..data.nearby_bucket_threshold {
-        let nearby_drivers_for_bucket = data
+        let nearby_drivers_by_bucket = data
             .non_persistent_redis
             .geo_search(
                 driver_loc_bucket_key(&merchant_id, &city, &vehicle, &(bucket - bucket_idx))
@@ -87,7 +87,7 @@ pub async fn get_drivers_within_radius(
                 false,
             )
             .await?;
-        nearby_drivers.extend(x);
+        nearby_drivers.extend(nearby_drivers_by_bucket);
     }
 
     info!("Get Nearby Drivers {:?}", nearby_drivers);
@@ -200,7 +200,7 @@ pub async fn push_drainer_driver_location(
             multiple_geo_values,
             None,
             false,
-            data.bucket_expiry * data.nearby_bucket_threshold,
+            data.bucket_size * data.nearby_bucket_threshold,
         )
         .await?;
 
