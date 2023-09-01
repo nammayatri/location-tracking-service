@@ -40,13 +40,21 @@ Run `just services` to run the service dependencies (example: redis-server) usin
 
 Run `nix build` in the project which produces a `./result` symlink. You can also run `nix run` to run the program immediately after build.
 
+## Upstream Dependent Service
+
+Clone and Run [dynamic-driver-offer-app](https://github.com/nammayatri/nammayatri) as it will be used for Internal Authentication and Testing postman flow.
+
 ## Postman Collection
 
-Import the [Postman Collection](./Location%20Tracking%20Service%20Dev.postman_collection.json) in postman to test the API flow or Run `newman run LocationTrackingService.postman_collection.json`.
+Import the [Postman Collection](./Location%20Tracking%20Service%20Dev.postman_collection.json) in postman to test the API flow or Run `newman run LocationTrackingService.postman_collection.json --delay-request 2000`.
 
 ## Contributing PRs
 
 Run `nix run nixpkgs#nixci` locally to make sure that the project builds. The CI runs the same.
+
+## Profiling
+
+`sudo cargo flamegraph --bin location_tracking_service`
 
 # Redis key-value details
 

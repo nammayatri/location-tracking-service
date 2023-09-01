@@ -509,7 +509,6 @@
 					"listen": "prerequest",
 					"script": {
 						"exec": [
-							"setTimeout(function() {}, 10000);",
 							"var moment = require('moment');",
 							"pm.globals.set('CurrentDateAndTime', moment().format());",
 							"pm.globals.set(\"current_time\", moment.utc().format(\"YYYY-MM-DDTHH:mm:ssZ\"));"

@@ -1,3 +1,7 @@
+[profile.dev]
+debug = true
+debug-assertions = false
+
 [workspace]
 resolver = "2"
 members = ["crates/*"]

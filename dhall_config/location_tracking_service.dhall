@@ -22,6 +22,7 @@ in {
     persistent_redis_cfg,
     drainer_delay = 10,
     kafka_cfg = kafkaCfg,
+    profiling = True,
     port = 8081,
     auth_url = "http://127.0.0.1:8016/internal/auth",
     auth_api_key = "ae288466-2add-11ee-be56-0242ac120002",

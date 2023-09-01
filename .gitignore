@@ -1,6 +1,7 @@
 .vscode
 .DS_Store
 /target
+/profiling
 data
 
 # Nix

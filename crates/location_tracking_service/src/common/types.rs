@@ -138,6 +138,7 @@ pub struct AppState {
     pub non_persistent_redis: Arc<RedisConnectionPool>,
     pub persistent_redis: Arc<RedisConnectionPool>,
     pub drainer_delay: u64,
+    pub profiling: bool,
     pub queue: Arc<Mutex<HashMap<Dimensions, Vec<(Latitude, Longitude, DriverId)>>>>,
     pub polygon: Vec<MultiPolygonBody>,
     pub auth_url: String,

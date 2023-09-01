@@ -7,6 +7,7 @@
 */
 use actix_web::body::MessageBody;
 use actix_web::dev::{Service, ServiceRequest, ServiceResponse};
+use actix_web::web::Data;
 use actix_web::{web, App, Error, HttpServer};
 use futures::FutureExt;
 use location_tracking_service::common::utils::get_current_bucket;
@@ -16,6 +17,8 @@ use shared::redis::types::{RedisConnectionPool, RedisSettings};
 use shared::tools::error::AppError;
 use shared::utils::{logger::*, prometheus::*};
 use std::env::var;
+use std::fs::{File, self};
+use std::io::Write;
 use std::time::Instant;
 use tokio::{spawn, sync::Mutex, time::Duration};
 use tracing::Span;
@@ -56,6 +59,7 @@ pub struct AppConfig {
     pub port: u16,
     pub non_persistent_redis_cfg: RedisConfig,
     pub drainer_delay: u64,
+    pub profiling: bool,
     pub persistent_redis_cfg: RedisConfig,
     pub auth_url: String,
     pub auth_api_key: String,
@@ -149,6 +153,7 @@ pub async fn make_app_state(app_config: AppConfig) -> AppState {
     AppState {
         non_persistent_redis,
         persistent_redis,
+        profiling: app_config.profiling,
         drainer_delay: app_config.drainer_delay,
         queue,
         polygon: polygons,
@@ -228,6 +233,29 @@ async fn start_server() -> std::io::Result<()> {
     HttpServer::new(move || {
         App::new()
             .app_data(data.clone())
+            .wrap_fn(|req, srv| {
+                let data = req.app_data::<Data<AppState>>();
+                let guard = if let Some(data) = data {
+                    if data.profiling {
+                        Some(pprof::ProfilerGuardBuilder::default().frequency(1000).blocklist(&["libc", "libgcc", "pthread", "vdso"]).build().unwrap())
+                    } else {
+                        None
+                    }
+                } else { None };
+                srv.call(req)
+                    .map(move |res| {
+                        if let Some(guard) = guard {
+                            if let Ok(report) = guard.report().build() {
+                                fs::create_dir_all("./profiling")?;
+                                let flamegraph_file = File::create("./profiling/flamegraph.svg")?;
+                                let mut prof_file = File::create("./profiling/profiling.prof")?;
+                                let _ = report.flamegraph(flamegraph_file).map_err(|err| err.to_string());
+                                prof_file.write_all(format!("{:?}", report).as_bytes())?;
+                            };
+                        }                        
+                        Ok(res?)
+                    })
+            })
             .wrap_fn(|req, srv| {
                 let start_time = Instant::now();
                 info!(tag = "[INCOMING REQUEST]", request_method = %req.method(), request_path = %req.path());
