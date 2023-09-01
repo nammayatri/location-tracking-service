@@ -616,6 +616,40 @@
 			"response": []
 		},
 		{
+			"name": "Get Nearby Drivers For All Vehicle Variants - On Ride",
+			"protocolProfileBehavior": {
+				"disableBodyPruning": true,
+				"disabledSystemHeaders": {}
+			},
+			"request": {
+				"method": "GET",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"lat\":  13.21105683994044,\n   \t\"lon\": 77.86952343480942,\n    \"merchantId\": \"{{driver_merchant_id}}\",\n    \"onRide\": true,\n    \"radius\": 1000\n}\n",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://localhost:8081/internal/drivers/nearby",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8081",
+					"path": [
+						"internal",
+						"drivers",
+						"nearby"
+					]
+				}
+			},
+			"response": []
+		},
+		{
 			"name": "Ride End",
 			"request": {
 				"method": "POST",
