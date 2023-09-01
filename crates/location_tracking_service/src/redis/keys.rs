@@ -50,3 +50,8 @@ pub fn driver_loc_bucket_key(
 ) -> String {
     format!("lts:dl:loc:{merchant_id}:{city}:{vehicle_type}:{bucket}")
 }
+
+// Persistent Redis
+pub fn set_driver_id_key(token: &Token) -> String {
+    format!("lts:dl:driver_id:{token}")
+}

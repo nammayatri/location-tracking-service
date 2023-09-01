@@ -151,7 +151,6 @@ pub struct AppState {
     pub auth_api_key: String,
     pub bulk_location_callback_url: String,
     pub auth_token_expiry: u32,
-    pub bucket_expiry: u64,
     pub redis_expiry: u32,
     pub min_location_accuracy: i32,
     pub last_location_timstamp_expiry: u32,
@@ -161,6 +160,8 @@ pub struct AppState {
     pub driver_location_update_topic: String,
     pub driver_location_update_key: String,
     pub batch_size: i64,
+    pub bucket_size: u64,
+    pub nearby_bucket_threshold: u64,
 }
 
 impl AppState {
@@ -179,7 +180,9 @@ impl AppState {
         let hits = persistent_redis_pool.get_key(key).await?;
 
         let hits = match hits {
-            Some(hits) => serde_json::from_str::<Vec<i64>>(&hits).unwrap(),
+            Some(hits) => serde_json::from_str::<Vec<i64>>(&hits).map_err(|_| {
+                AppError::InternalError("Failed to parse hits from redis.".to_string())
+            })?,
             None => vec![],
         };
         let (filt_hits, ret) =

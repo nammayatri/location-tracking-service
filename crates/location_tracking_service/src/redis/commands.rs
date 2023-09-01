@@ -69,21 +69,28 @@ pub async fn get_drivers_within_radius(
     radius: f64,
     on_ride: bool,
 ) -> Result<Vec<DriverLocationPoint>, AppError> {
-    let nearby_drivers = data
-        .non_persistent_redis
-        .geo_search(
-            driver_loc_bucket_key(&merchant_id, &city, &vehicle, &bucket).as_str(),
-            None,
-            Some(GeoPosition::from((location.lon, location.lat))),
-            Some((radius, GeoUnit::Meters)),
-            None,
-            Some(SortOrder::Asc),
-            None,
-            true,
-            true,
-            false,
-        )
-        .await?;
+    let mut nearby_drivers = Vec::new();
+    for bucket_idx in 0..data.nearby_bucket_threshold {
+        let nearby_drivers_by_bucket = data
+            .non_persistent_redis
+            .geo_search(
+                driver_loc_bucket_key(&merchant_id, &city, &vehicle, &(bucket - bucket_idx))
+                    .as_str(),
+                None,
+                Some(GeoPosition::from((location.lon, location.lat))),
+                Some((radius, GeoUnit::Meters)),
+                None,
+                Some(SortOrder::Asc),
+                None,
+                true,
+                true,
+                false,
+            )
+            .await?;
+        nearby_drivers.extend(nearby_drivers_by_bucket);
+    }
+
+    info!("Get Nearby Drivers {:?}", nearby_drivers);
 
     let mut resp: Vec<DriverLocationPoint> = Vec::new();
 
@@ -188,11 +195,12 @@ pub async fn push_drainer_driver_location(
 
     let _ = data
         .non_persistent_redis
-        .geo_add(
+        .geo_add_with_expiry(
             &driver_loc_bucket_key(merchant_id, city, vehicle, bucket),
             multiple_geo_values,
             None,
             false,
+            data.bucket_size * data.nearby_bucket_threshold,
         )
         .await?;
 
@@ -470,6 +478,31 @@ pub async fn get_on_ride_driver_locations(
     }
 
     Ok(geo_points)
+}
+
+pub async fn set_driver_id(
+    data: Data<AppState>,
+    token: &String,
+    driver_id: &DriverId,
+) -> Result<(), AppError> {
+    let _: () = data
+        .persistent_redis
+        .set_with_expiry(&set_driver_id_key(token), driver_id, data.auth_token_expiry)
+        .await
+        .unwrap();
+
+    Ok(())
+}
+
+pub async fn get_driver_id(
+    data: Data<AppState>,
+    token: &String,
+) -> Result<Option<String>, AppError> {
+    let driver_id: Option<String> = data
+        .persistent_redis
+        .get_key(&set_driver_id_key(token))
+        .await?;
+    Ok(driver_id)
 }
 
 pub async fn with_lock_redis<F, Args, Fut>(

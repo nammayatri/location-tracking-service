@@ -47,7 +47,7 @@ pub fn prometheus_metrics() -> PrometheusMetrics {
     let prometheus = PrometheusMetricsBuilder::new("api")
         .endpoint("/metrics")
         .build()
-        .unwrap();
+        .expect("Failed to create Prometheus Metrics");
 
     prometheus
         .registry

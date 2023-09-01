@@ -61,7 +61,6 @@ pub struct AppConfig {
     pub auth_api_key: String,
     pub bulk_location_callback_url: String,
     pub auth_token_expiry: u32,
-    pub bucket_expiry: u64,
     pub redis_expiry: u32,
     pub min_location_accuracy: i32,
     pub last_location_timstamp_expiry: u32,
@@ -71,6 +70,8 @@ pub struct AppConfig {
     pub driver_location_update_topic: String,
     pub driver_location_update_key: String,
     pub batch_size: i64,
+    pub bucket_size: u64,
+    pub nearby_bucket_threshold: u64,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -156,7 +157,6 @@ pub async fn make_app_state(app_config: AppConfig) -> AppState {
         auth_api_key: app_config.auth_api_key,
         bulk_location_callback_url: app_config.bulk_location_callback_url,
         auth_token_expiry: app_config.auth_token_expiry,
-        bucket_expiry: app_config.bucket_expiry,
         min_location_accuracy: app_config.min_location_accuracy,
         redis_expiry: app_config.redis_expiry,
         last_location_timstamp_expiry: app_config.last_location_timstamp_expiry,
@@ -166,11 +166,13 @@ pub async fn make_app_state(app_config: AppConfig) -> AppState {
         driver_location_update_topic: app_config.driver_location_update_topic,
         driver_location_update_key: app_config.driver_location_update_key,
         batch_size: app_config.batch_size,
+        bucket_size: app_config.bucket_size,
+        nearby_bucket_threshold: app_config.nearby_bucket_threshold,
     }
 }
 
 async fn run_drainer(data: web::Data<AppState>) -> Result<(), AppError> {
-    let bucket = get_current_bucket(data.bucket_expiry)?;
+    let bucket = get_current_bucket(data.bucket_size)?;
     let mut queue = data.queue.lock().await;
 
     for (dimensions, geo_entries) in queue.iter() {
