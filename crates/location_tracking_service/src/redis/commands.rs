@@ -72,7 +72,7 @@ pub async fn get_drivers_within_radius(
     let nearby_drivers = data
         .non_persistent_redis
         .geo_search(
-            driver_loc_bucket_key(&merchant_id, &city, &vehicle, &bucket, on_ride).as_str(),
+            driver_loc_bucket_key(&merchant_id, &city, &vehicle, &bucket).as_str(),
             None,
             Some(GeoPosition::from((location.lon, location.lat))),
             Some((radius, GeoUnit::Meters)),
@@ -87,26 +87,78 @@ pub async fn get_drivers_within_radius(
 
     let mut resp: Vec<DriverLocationPoint> = Vec::new();
 
-    for driver in nearby_drivers {
-        match driver.member {
-            RedisValue::String(driver_id) => {
-                let pos = driver
-                    .position
-                    .expect("GeoPosition not found for geo search");
-                let lon = pos.longitude;
-                let lat = pos.latitude;
+    if on_ride {
+        for driver in nearby_drivers {
+            match driver.member {
+                RedisValue::String(driver_id) => {
+                    let pos = driver
+                        .position
+                        .expect("GeoPosition not found for geo search");
+                    let lon = pos.longitude;
+                    let lat = pos.latitude;
 
-                resp.push(DriverLocationPoint {
-                    driver_id: driver_id.to_string(),
-                    location: Point { lat: lat, lon: lon },
-                });
+                    let driver_ride_status = get_driver_ride_status(
+                        data.clone(),
+                        &driver_id.to_string(),
+                        merchant_id,
+                        city,
+                    )
+                    .await?;
+                    if let Some(ride_status) = driver_ride_status {
+                        if (ride_status == RideStatus::INPROGRESS)
+                            || (ride_status == RideStatus::NEW)
+                        {
+                            resp.push(DriverLocationPoint {
+                                driver_id: driver_id.to_string(),
+                                location: Point { lat: lat, lon: lon },
+                            });
+                        }
+                    }
+                }
+                _ => {
+                    info!(tag = "[Redis]", "Invalid RedisValue variant");
+                }
             }
-            _ => {
-                info!(tag = "[Redis]", "Invalid RedisValue variant");
+        }
+    } else {
+        for driver in nearby_drivers {
+            match driver.member {
+                RedisValue::String(driver_id) => {
+                    let pos = driver
+                        .position
+                        .expect("GeoPosition not found for geo search");
+                    let lon = pos.longitude;
+                    let lat = pos.latitude;
+
+                    let driver_ride_status = get_driver_ride_status(
+                        data.clone(),
+                        &driver_id.to_string(),
+                        merchant_id,
+                        city,
+                    )
+                    .await?;
+                    if let Some(ride_status) = driver_ride_status {
+                        if (ride_status != RideStatus::INPROGRESS)
+                            && (ride_status != RideStatus::NEW)
+                        {
+                            resp.push(DriverLocationPoint {
+                                driver_id: driver_id.to_string(),
+                                location: Point { lat: lat, lon: lon },
+                            });
+                        }
+                    } else {
+                        resp.push(DriverLocationPoint {
+                            driver_id: driver_id.to_string(),
+                            location: Point { lat: lat, lon: lon },
+                        });
+                    }
+                }
+                _ => {
+                    info!(tag = "[Redis]", "Invalid RedisValue variant");
+                }
             }
         }
     }
-
     return Ok(resp);
 }
 
@@ -115,7 +167,6 @@ pub async fn push_drainer_driver_location(
     merchant_id: &MerchantId,
     city: &CityName,
     vehicle: &VehicleType,
-    on_ride: bool,
     bucket: &u64,
     geo_entries: &Vec<(Latitude, Longitude, DriverId)>,
 ) -> Result<(), AppError> {
@@ -138,7 +189,7 @@ pub async fn push_drainer_driver_location(
     let _ = data
         .non_persistent_redis
         .geo_add(
-            &driver_loc_bucket_key(merchant_id, city, vehicle, bucket, on_ride),
+            &driver_loc_bucket_key(merchant_id, city, vehicle, bucket),
             multiple_geo_values,
             None,
             false,

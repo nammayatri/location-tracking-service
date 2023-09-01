@@ -13,7 +13,6 @@ use crate::{
 };
 use actix_web::web::Data;
 use shared::tools::error::AppError;
-use tracing::info;
 
 async fn update_driver_location(
     data: Data<AppState>,
