@@ -218,11 +218,8 @@ impl RedisConnectionPool {
             Ok(RedisValue::Array(val)) => {
                 let mut values = Vec::new();
                 for value in val {
-                    match value {
-                        RedisValue::String(y) => {
-                            values.push(String::from_utf8(y.into_inner().to_vec()).unwrap())
-                        }
-                        _ => (),
+                    if let RedisValue::String(y) = value {
+                        values.push(String::from_utf8(y.into_inner().to_vec()).unwrap())
                     }
                 }
                 Ok(values)
@@ -246,11 +243,8 @@ impl RedisConnectionPool {
             Ok(RedisValue::Array(val)) => {
                 let mut values = Vec::new();
                 for value in val {
-                    match value {
-                        RedisValue::String(y) => {
-                            values.push(String::from_utf8(y.into_inner().to_vec()).unwrap())
-                        }
-                        _ => (),
+                    if let RedisValue::String(y) = value {
+                        values.push(String::from_utf8(y.into_inner().to_vec()).unwrap())
                     }
                 }
                 Ok(values)
@@ -391,14 +385,11 @@ impl RedisConnectionPool {
                         let mut resp = Vec::new();
                         for point in points {
                             let point = point.as_geo_position().expect("Unable to parse point");
-                            match point {
-                                Some(pos) => {
-                                    resp.push(Point {
-                                        lat: pos.latitude,
-                                        lon: pos.longitude,
-                                    });
-                                }
-                                _ => {}
+                            if let Some(pos) = point {
+                                resp.push(Point {
+                                    lat: pos.latitude,
+                                    lon: pos.longitude,
+                                });
                             }
                         }
                         Ok(resp)
@@ -505,11 +496,8 @@ impl RedisConnectionPool {
             Ok(RedisValue::Array(val)) => {
                 let mut members = Vec::new();
                 for member in val {
-                    match member {
-                        RedisValue::String(y) => {
-                            members.push(String::from_utf8(y.into_inner().to_vec()).unwrap())
-                        }
-                        _ => (),
+                    if let RedisValue::String(y) = member {
+                        members.push(String::from_utf8(y.into_inner().to_vec()).unwrap())
                     }
                 }
                 members.sort();
