@@ -370,6 +370,7 @@ impl RedisConnectionPool {
     }
 
     //GEOPOS
+    #[instrument(level = "DEBUG", skip(self))]
     pub async fn geopos(&self, key: &str, members: Vec<String>) -> Result<Vec<Point>, AppError> {
         let output: Result<RedisValue, _> = self
             .pool
@@ -475,6 +476,7 @@ impl RedisConnectionPool {
 
     //ZRANGE
     #[allow(clippy::too_many_arguments)]
+    #[instrument(level = "DEBUG", skip(self))]
     pub async fn zrange(
         &self,
         key: &str,
