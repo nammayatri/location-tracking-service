@@ -87,11 +87,9 @@ pub enum AppError {
 
 impl AppError {
     fn error_message(&self) -> ErrorBody {
-        match self {
-            _ => ErrorBody {
-                message: self.to_string(),
-                code: self.to_string(),
-            },
+        ErrorBody {
+            message: self.to_string(),
+            code: self.to_string(),
         }
     }
 }

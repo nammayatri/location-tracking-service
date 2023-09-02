@@ -39,7 +39,7 @@ impl RootSpanBuilder for DomainRootSpanBuilder {
     fn on_request_start(request: &ServiceRequest) -> Span {
         let request_id = request.headers().get("x-request-id");
         let request_id = match request_id {
-            Some(request_id) => request_id.to_str().and_then(|str| Ok(str.to_string())),
+            Some(request_id) => request_id.to_str().map(|str| str.to_string()),
             None => Ok(Uuid::new_v4().to_string()),
         }
         .unwrap_or(Uuid::new_v4().to_string());

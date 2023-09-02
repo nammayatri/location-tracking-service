@@ -8,7 +8,7 @@ use tracing_subscriber::{layer::SubscriberExt, EnvFilter, Registry};
 /// Compose multiple layers into a `tracing`'s subscriber.
 pub fn get_subscriber(name: String, env_filter: String) -> impl Subscriber + Send + Sync {
     let env_filter = EnvFilter::try_from_default_env().unwrap_or(EnvFilter::new(env_filter));
-    let formatting_layer = BunyanFormattingLayer::new(name.into(), std::io::stdout);
+    let formatting_layer = BunyanFormattingLayer::new(name, std::io::stdout);
     Registry::default()
         .with(env_filter)
         .with(JsonStorageLayer)

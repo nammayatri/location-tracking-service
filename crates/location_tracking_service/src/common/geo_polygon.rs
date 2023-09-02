@@ -49,15 +49,11 @@ fn parse_geojson_multi_polygon(region: &str, geojson_str: &str) -> Result<MultiP
     let geom: Geometry = from_str(geojson_str)?;
 
     match geom.value {
-        Value::MultiPolygon(multi_polygon) => {
-            return Ok(create_multipolygon_body(region, multi_polygon))
-        }
-        _ => {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                "GeoJSON is not a valid MultiPolygon.",
-            ))
-        }
+        Value::MultiPolygon(multi_polygon) => Ok(create_multipolygon_body(region, multi_polygon)),
+        _ => Err(io::Error::new(
+            io::ErrorKind::Other,
+            "GeoJSON is not a valid MultiPolygon.",
+        )),
     }
 }
 
@@ -72,7 +68,7 @@ pub fn to_multipolygon(polygons: Vec<PolygonType>) -> MultiPolygon<f64> {
     MultiPolygon::new(
         polygons
             .into_iter()
-            .map(|polygon| to_polygon(polygon))
+            .map(to_polygon)
             .collect::<Vec<Polygon<f64>>>(),
     )
 }
@@ -81,7 +77,7 @@ fn to_polygon(polygon: Vec<Vec<Position>>) -> Polygon<f64> {
     Polygon::new(
         polygon
             .into_iter()
-            .map(|line_string: Vec<Position>| to_line_string(line_string))
+            .map(to_line_string)
             .collect::<Vec<LineString<f64>>>()
             .into_iter()
             .flatten()
@@ -94,7 +90,7 @@ fn to_line_string(line_string: Vec<Position>) -> LineString<f64> {
     LineString::new(
         line_string
             .into_iter()
-            .map(|position: Position| to_coord(position))
+            .map(to_coord)
             .collect::<Vec<Coord<f64>>>(),
     )
 }

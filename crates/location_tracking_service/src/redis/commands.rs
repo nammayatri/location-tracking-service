@@ -31,7 +31,7 @@ pub async fn set_ride_details(
 
     data.persistent_redis
         .set_with_expiry(
-            &on_ride_details_key(&merchant_id, &city, &driver_id),
+            &on_ride_details_key(merchant_id, city, driver_id),
             ride_details,
             data.redis_expiry,
         )
@@ -59,6 +59,7 @@ pub async fn set_driver_details(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn get_drivers_within_radius(
     data: Data<AppState>,
     merchant_id: &MerchantId,
@@ -74,8 +75,7 @@ pub async fn get_drivers_within_radius(
         let nearby_drivers_by_bucket = data
             .non_persistent_redis
             .geo_search(
-                driver_loc_bucket_key(&merchant_id, &city, &vehicle, &(bucket - bucket_idx))
-                    .as_str(),
+                driver_loc_bucket_key(merchant_id, city, vehicle, &(bucket - bucket_idx)).as_str(),
                 None,
                 Some(GeoPosition::from((location.lon, location.lat))),
                 Some((radius, GeoUnit::Meters)),
@@ -117,7 +117,7 @@ pub async fn get_drivers_within_radius(
                         {
                             resp.push(DriverLocationPoint {
                                 driver_id: driver_id.to_string(),
-                                location: Point { lat: lat, lon: lon },
+                                location: Point { lat, lon },
                             });
                         }
                     }
@@ -150,13 +150,13 @@ pub async fn get_drivers_within_radius(
                         {
                             resp.push(DriverLocationPoint {
                                 driver_id: driver_id.to_string(),
-                                location: Point { lat: lat, lon: lon },
+                                location: Point { lat, lon },
                             });
                         }
                     } else {
                         resp.push(DriverLocationPoint {
                             driver_id: driver_id.to_string(),
-                            location: Point { lat: lat, lon: lon },
+                            location: Point { lat, lon },
                         });
                     }
                 }
@@ -166,7 +166,7 @@ pub async fn get_drivers_within_radius(
             }
         }
     }
-    return Ok(resp);
+    Ok(resp)
 }
 
 pub async fn push_drainer_driver_location(
@@ -175,17 +175,16 @@ pub async fn push_drainer_driver_location(
     city: &CityName,
     vehicle: &VehicleType,
     bucket: &u64,
-    geo_entries: &Vec<(Latitude, Longitude, DriverId)>,
+    geo_entries: &[(Latitude, Longitude, DriverId)],
 ) -> Result<(), AppError> {
     let geo_values: Vec<GeoValue> = geo_entries
-        .to_owned()
-        .into_iter()
+        .iter()
         .map(|(lat, lon, driver_id)| {
             prometheus::QUEUE_GUAGE.dec();
             GeoValue {
                 coordinates: GeoPosition {
-                    latitude: lat,
-                    longitude: lon,
+                    latitude: *lat,
+                    longitude: *lon,
                 },
                 member: driver_id.into(),
             }
@@ -193,8 +192,7 @@ pub async fn push_drainer_driver_location(
         .collect();
     let multiple_geo_values: MultipleGeoValues = geo_values.into();
 
-    let _ = data
-        .non_persistent_redis
+    data.non_persistent_redis
         .geo_add_with_expiry(
             &driver_loc_bucket_key(merchant_id, city, vehicle, bucket),
             multiple_geo_values,
@@ -204,7 +202,7 @@ pub async fn push_drainer_driver_location(
         )
         .await?;
 
-    return Ok(());
+    Ok(())
 }
 
 pub async fn get_driver_location(
@@ -213,7 +211,7 @@ pub async fn get_driver_location(
 ) -> Result<DriverLastKnownLocation, AppError> {
     let last_location_update = data
         .persistent_redis
-        .get_key(&driver_details_key(&driver_id))
+        .get_key(&driver_details_key(driver_id))
         .await?;
 
     if let Some(val) = last_location_update {
@@ -224,9 +222,9 @@ pub async fn get_driver_location(
         }
     }
 
-    return Err(AppError::InternalError(
+    Err(AppError::InternalError(
         "Failed to get_driver_location".to_string(),
-    ));
+    ))
 }
 
 pub async fn get_driver_last_location_update(
@@ -235,7 +233,7 @@ pub async fn get_driver_last_location_update(
 ) -> Result<DateTime<Utc>, AppError> {
     let last_location_update = data
         .persistent_redis
-        .get_key(&driver_details_key(&driver_id))
+        .get_key(&driver_details_key(driver_id))
         .await?;
 
     if let Some(val) = last_location_update {
@@ -246,9 +244,9 @@ pub async fn get_driver_last_location_update(
         }
     }
 
-    return Err(AppError::InternalError(
+    Err(AppError::InternalError(
         "Failed to get_driver_last_location_update".to_string(),
-    ));
+    ))
 }
 
 pub async fn set_driver_mode_details(
@@ -273,15 +271,14 @@ pub async fn set_driver_mode_details(
     };
     let value = serde_json::to_string(&driver_all_details)
         .map_err(|err| AppError::InternalError(err.to_string()))?;
-    let _ = data
-        .persistent_redis
+    data.persistent_redis
         .set_with_expiry(
             &driver_details_key(&driver_id),
             value,
             data.last_location_timstamp_expiry,
         )
         .await?;
-    return Ok(());
+    Ok(())
 }
 
 pub async fn set_driver_last_location_update(
@@ -293,7 +290,7 @@ pub async fn set_driver_last_location_update(
 ) -> Result<(), AppError> {
     let last_location_update = data
         .persistent_redis
-        .get_key(&driver_details_key(&driver_id))
+        .get_key(&driver_details_key(driver_id))
         .await?;
 
     let driver_all_details = if let Some(val) = last_location_update {
@@ -314,7 +311,7 @@ pub async fn set_driver_last_location_update(
         }
         value
     } else {
-        let value = DriverAllDetails {
+        DriverAllDetails {
             driver_mode,
             driver_last_known_location: Some(DriverLastKnownLocation {
                 location: Point {
@@ -324,22 +321,20 @@ pub async fn set_driver_last_location_update(
                 timestamp: Utc::now(),
                 merchant_id: merchant_id.to_string(),
             }),
-        };
-        value
+        }
     };
     let value = serde_json::to_string(&driver_all_details)
         .map_err(|err| AppError::InternalError(err.to_string()))?;
 
-    let _ = data
-        .persistent_redis
+    data.persistent_redis
         .set_with_expiry(
-            &driver_details_key(&driver_id),
+            &driver_details_key(driver_id),
             value,
             data.last_location_timstamp_expiry,
         )
         .await?;
 
-    return Ok(());
+    Ok(())
 }
 
 pub async fn get_driver_ride_status(
@@ -350,7 +345,7 @@ pub async fn get_driver_ride_status(
 ) -> Result<Option<RideStatus>, AppError> {
     let ride_details: Option<String> = data
         .persistent_redis
-        .get_key(&on_ride_details_key(&merchant_id, &city, &driver_id))
+        .get_key(&on_ride_details_key(merchant_id, city, driver_id))
         .await?;
 
     match ride_details {
@@ -372,7 +367,7 @@ pub async fn get_driver_ride_details(
 ) -> Result<RideDetails, AppError> {
     let ride_details: Option<String> = data
         .persistent_redis
-        .get_key(&on_ride_details_key(&merchant_id, &city, &driver_id))
+        .get_key(&on_ride_details_key(merchant_id, city, driver_id))
         .await?;
 
     let ride_details = match ride_details {
@@ -396,7 +391,7 @@ pub async fn get_driver_details(
 ) -> Result<DriverDetails, AppError> {
     let driver_details: Option<String> = data
         .persistent_redis
-        .get_key(&on_ride_driver_details_key(&ride_id))
+        .get_key(&on_ride_driver_details_key(ride_id))
         .await?;
 
     let driver_details = match driver_details {
@@ -431,13 +426,10 @@ pub async fn push_on_ride_driver_location(
 
     let _ = data
         .persistent_redis
-        .rpush(
-            &on_ride_loc_key(&merchant_id, &city, &driver_id),
-            geo_points,
-        )
+        .rpush(&on_ride_loc_key(merchant_id, city, driver_id), geo_points)
         .await?;
 
-    return Ok(());
+    Ok(())
 }
 
 pub async fn get_on_ride_driver_location_count(
@@ -448,7 +440,7 @@ pub async fn get_on_ride_driver_location_count(
 ) -> Result<i64, AppError> {
     let driver_location_count = data
         .persistent_redis
-        .llen(&on_ride_loc_key(&merchant_id, &city, &driver_id))
+        .llen(&on_ride_loc_key(merchant_id, city, driver_id))
         .await?;
 
     Ok(driver_location_count)
@@ -464,7 +456,7 @@ pub async fn get_on_ride_driver_locations(
     let output = data
         .persistent_redis
         .rpop(
-            &on_ride_loc_key(&merchant_id, &city, &driver_id),
+            &on_ride_loc_key(merchant_id, city, driver_id),
             Some(pop_length),
         )
         .await?;
@@ -519,7 +511,7 @@ where
 {
     let lock = redis.setnx_with_expiry(key, true, expiry).await;
 
-    if let Ok(_) = lock {
+    if lock.is_ok() {
         let resp = callback(args).await;
         let _ = redis.delete_key(key).await;
         resp?

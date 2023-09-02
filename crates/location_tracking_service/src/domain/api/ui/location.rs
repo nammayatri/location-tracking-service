@@ -38,14 +38,14 @@ pub async fn update_driver_location(
         .headers()
         .get("token")
         .and_then(|header_value| header_value.to_str().ok())
-        .and_then(|dm_str| Some(dm_str.to_string()))
+        .map(|dm_str| dm_str.to_string())
         .ok_or(AppError::InvalidRequest("Token not found".to_string()))?;
 
     let merchant_id = req
         .headers()
         .get("mId")
         .and_then(|header_value| header_value.to_str().ok())
-        .and_then(|dm_str| Some(dm_str.to_string()))
+        .map(|dm_str| dm_str.to_string())
         .ok_or(AppError::InvalidRequest("mId not found".to_string()))?;
 
     let vehicle_type = req

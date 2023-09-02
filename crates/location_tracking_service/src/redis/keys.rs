@@ -28,7 +28,7 @@ pub fn driver_details_key(driver_id: &DriverId) -> String {
 
 // Persistent Redis
 pub fn health_check_key() -> String {
-    format!("lts:health_check")
+    "lts:health_check".to_string()
 }
 
 // Persistent Redis
