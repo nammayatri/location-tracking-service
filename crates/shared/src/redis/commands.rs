@@ -335,6 +335,7 @@ impl RedisConnectionPool {
     }
 
     //GEOSEARCH
+    #[allow(clippy::too_many_arguments)]
     #[instrument(level = "DEBUG", skip(self))]
     pub async fn geo_search(
         &self,
@@ -482,6 +483,7 @@ impl RedisConnectionPool {
     }
 
     //ZRANGE
+    #[allow(clippy::too_many_arguments)]
     pub async fn zrange(
         &self,
         key: &str,

@@ -59,6 +59,7 @@ pub async fn set_driver_details(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn get_drivers_within_radius(
     data: Data<AppState>,
     merchant_id: &MerchantId,

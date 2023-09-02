@@ -19,6 +19,7 @@ use crate::{
 };
 use shared::{tools::error::AppError, utils::logger::*};
 
+#[allow(clippy::too_many_arguments)]
 async fn search_nearby_drivers_with_vehicle(
     data: Data<AppState>,
     merchant_id: MerchantId,
