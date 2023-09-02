@@ -23,20 +23,20 @@ async fn update_driver_location(
     lon: Longitude,
     driver_mode: Option<DriverMode>,
 ) -> Result<(), AppError> {
-    let _ = set_driver_last_location_update(
+    set_driver_last_location_update(
         data.clone(),
-        &driver_id,
-        &merchant_id,
+        driver_id,
+        merchant_id,
         &Point { lat, lon },
         driver_mode,
     )
     .await?;
 
-    let _ = push_on_ride_driver_location(
+    push_on_ride_driver_location(
         data,
-        &driver_id,
-        &merchant_id,
-        &city,
+        driver_id,
+        merchant_id,
+        city,
         &vec![Point { lat, lon }],
     )
     .await?;
@@ -70,7 +70,7 @@ pub async fn ride_start(
     )
     .await?;
 
-    let _ = update_driver_location(
+    update_driver_location(
         data.clone(),
         &request_body.driver_id,
         &request_body.merchant_id,
@@ -110,7 +110,7 @@ pub async fn ride_end(
     )
     .await?;
 
-    let _ = update_driver_location(
+    update_driver_location(
         data.clone(),
         &request_body.driver_id,
         &request_body.merchant_id,
@@ -139,7 +139,7 @@ pub async fn ride_end(
     .await?;
 
     Ok(RideEndResponse {
-        ride_id: ride_id,
+        ride_id,
         driver_id: request_body.driver_id,
         loc: on_ride_driver_locations,
     })
@@ -177,7 +177,7 @@ pub async fn ride_details(
     )
     .await?;
 
-    let _ = update_driver_location(
+    update_driver_location(
         data.clone(),
         &request_body.driver_id,
         &request_body.merchant_id,

@@ -56,10 +56,7 @@ async fn kafka_stream_updates(
             lat: loc.pt.lat,
             lon: loc.pt.lon,
         },
-        acc: match loc.acc {
-            Some(acc) => acc,
-            None => 0,
-        },
+        acc: loc.acc.unwrap_or(0),
         ride_status: ride_status.to_string(),
         da: true,
         mode: driver_mode.to_string(),
@@ -176,7 +173,7 @@ async fn process_driver_locations(
         lon: driver_location.pt.lon,
     };
 
-    let _ = set_driver_last_location_update(
+    set_driver_last_location_update(
         data.clone(),
         &driver_id,
         &merchant_id,
@@ -243,7 +240,7 @@ async fn process_driver_locations(
                 .await;
             }
 
-            let _ = push_on_ride_driver_location(
+            push_on_ride_driver_location(
                 data.clone(),
                 &driver_id,
                 &merchant_id,

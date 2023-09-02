@@ -33,8 +33,8 @@ impl RedisConnectionPool {
             .into_report()
             .change_context(AppError::SetFailed);
 
-        if !output.is_ok() {
-            return Err(AppError::SetFailed.into());
+        if output.is_err() {
+            return Err(AppError::SetFailed);
         }
 
         Ok(())
@@ -54,8 +54,8 @@ impl RedisConnectionPool {
             .into_report()
             .change_context(AppError::SetFailed);
 
-        if !output.is_ok() {
-            return Err(AppError::SetFailed.into());
+        if output.is_err() {
+            return Err(AppError::SetFailed);
         }
 
         Ok(())
@@ -85,7 +85,7 @@ impl RedisConnectionPool {
             return Ok(());
         }
 
-        Err(AppError::SetExFailed.into())
+        Err(AppError::SetExFailed)
     }
 
     #[instrument(level = "DEBUG", skip(self))]
@@ -97,8 +97,8 @@ impl RedisConnectionPool {
             .into_report()
             .change_context(AppError::SetExpiryFailed);
 
-        if !output.is_ok() {
-            return Err(AppError::SetExpiryFailed.into());
+        if output.is_err() {
+            return Err(AppError::SetExpiryFailed);
         }
 
         Ok(())
@@ -131,8 +131,8 @@ impl RedisConnectionPool {
             .into_report()
             .change_context(AppError::DeleteFailed);
 
-        if !output.is_ok() {
-            return Err(AppError::DeleteFailed.into());
+        if output.is_err() {
+            return Err(AppError::DeleteFailed);
         }
 
         Ok(())
@@ -157,7 +157,7 @@ impl RedisConnectionPool {
             self.set_expiry(key, self.config.default_hash_ttl.into())
                 .await?;
         } else {
-            return Err(AppError::SetHashFieldFailed.into());
+            return Err(AppError::SetHashFieldFailed);
         }
 
         Ok(())
@@ -176,8 +176,8 @@ impl RedisConnectionPool {
             .into_report()
             .change_context(AppError::GetHashFieldFailed);
 
-        if !output.is_ok() {
-            return Err(AppError::GetHashFieldFailed.into());
+        if output.is_err() {
+            return Err(AppError::GetHashFieldFailed);
         }
 
         Ok(output.unwrap())
@@ -198,9 +198,9 @@ impl RedisConnectionPool {
             .change_context(AppError::RPushFailed);
 
         if let Ok(RedisValue::Integer(length)) = output {
-            return Ok(length);
+            Ok(length)
         } else {
-            return Err(AppError::RPushFailed.into());
+            Err(AppError::RPushFailed)
         }
     }
 
@@ -270,9 +270,9 @@ impl RedisConnectionPool {
             .change_context(AppError::RPushFailed);
 
         if let Ok(RedisValue::Integer(length)) = output {
-            return Ok(length);
+            Ok(length)
         } else {
-            return Err(AppError::RPushFailed.into());
+            Err(AppError::RPushFailed)
         }
     }
 
@@ -295,8 +295,8 @@ impl RedisConnectionPool {
             .into_report()
             .change_context(AppError::GeoAddFailed);
 
-        if !output.is_ok() {
-            return Err(AppError::GeoAddFailed.into());
+        if output.is_err() {
+            return Err(AppError::GeoAddFailed);
         }
 
         Ok(())
@@ -322,8 +322,8 @@ impl RedisConnectionPool {
             .into_report()
             .change_context(AppError::GeoAddFailed);
 
-        if !output.is_ok() {
-            return Err(AppError::GeoAddFailed.into());
+        if output.is_err() {
+            return Err(AppError::GeoAddFailed);
         }
 
         if let Ok(RedisValue::Integer(1)) = output {
@@ -331,7 +331,7 @@ impl RedisConnectionPool {
             return Ok(());
         }
 
-        Err(AppError::SetExFailed.into())
+        Err(AppError::SetExFailed)
     }
 
     //GEOSEARCH
@@ -367,8 +367,8 @@ impl RedisConnectionPool {
             .into_report()
             .change_context(AppError::GeoSearchFailed);
 
-        if !output.is_ok() {
-            return Err(AppError::GeoSearchFailed.into());
+        if output.is_err() {
+            return Err(AppError::GeoSearchFailed);
         }
 
         Ok(output.unwrap())
@@ -400,7 +400,7 @@ impl RedisConnectionPool {
                                 _ => {}
                             }
                         }
-                        return Ok(resp);
+                        Ok(resp)
                     } else if points.len() == 2 && points[0].is_double() && points[1].is_double() {
                         return Ok(vec![Point {
                             lat: points[1].as_f64().expect("Unable to parse lat"),
@@ -410,7 +410,7 @@ impl RedisConnectionPool {
                         return Ok(vec![]);
                     }
                 } else {
-                    return Ok(vec![]);
+                    Ok(vec![])
                 }
             }
             _ => Err(AppError::GeoPosFailed),
@@ -432,8 +432,8 @@ impl RedisConnectionPool {
             .into_report()
             .change_context(AppError::ZremrangeByRankFailed);
 
-        if !output.is_ok() {
-            return Err(AppError::ZremrangeByRankFailed.into());
+        if output.is_err() {
+            return Err(AppError::ZremrangeByRankFailed);
         }
 
         Ok(())
@@ -457,8 +457,8 @@ impl RedisConnectionPool {
             .into_report()
             .change_context(AppError::ZAddFailed);
 
-        if !output.is_ok() {
-            return Err(AppError::ZAddFailed.into());
+        if output.is_err() {
+            return Err(AppError::ZAddFailed);
         }
 
         Ok(())
@@ -474,8 +474,8 @@ impl RedisConnectionPool {
             .into_report()
             .change_context(AppError::ZCardFailed);
 
-        if !output.is_ok() {
-            return Err(AppError::ZCardFailed.into());
+        if output.is_err() {
+            return Err(AppError::ZCardFailed);
         }
 
         Ok(output.unwrap())

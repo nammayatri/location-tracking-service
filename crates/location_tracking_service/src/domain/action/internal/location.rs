@@ -56,9 +56,9 @@ async fn search_nearby_drivers_with_vehicle(
             driver_id: driver.driver_id.to_string(),
             lat: driver.location.lat,
             lon: driver.location.lon,
-            coordinates_calculated_at: timestamp.clone(),
-            created_at: timestamp.clone(),
-            updated_at: timestamp.clone(),
+            coordinates_calculated_at: timestamp,
+            created_at: timestamp,
+            updated_at: timestamp,
             merchant_id: merchant_id.clone(),
         };
         resp.push(driver_location);
@@ -91,7 +91,7 @@ pub async fn get_nearby_drivers(
                         lon: request_body.clone().lon,
                     },
                     request_body.clone().radius,
-                    request_body.on_ride.unwrap_or_else(|| false),
+                    request_body.on_ride.unwrap_or(false),
                 )
                 .await;
                 match nearby_drivers {
@@ -118,7 +118,7 @@ pub async fn get_nearby_drivers(
                     lon: request_body.clone().lon,
                 },
                 request_body.clone().radius,
-                request_body.on_ride.unwrap_or_else(|| false),
+                request_body.on_ride.unwrap_or(false),
             )
             .await?;
             Ok(resp)
