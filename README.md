@@ -54,7 +54,9 @@ Run `nix run nixpkgs#nixci` locally to make sure that the project builds. The CI
 
 ## Profiling
 
-`sudo cargo flamegraph --bin location_tracking_service`
+For **Protobuf pprof**, Install Go, Graphviz `brew install go && brew install graphviz` & Run `go tool pprof -svg ./profiling/profile.pb`.
+
+For **Flamegraph**, Open `profiling/flamegraph.svg`
 
 # Redis key-value details
 

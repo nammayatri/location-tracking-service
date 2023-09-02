@@ -23,6 +23,7 @@ use std::time::Instant;
 use tokio::{spawn, sync::Mutex, time::Duration};
 use tracing::Span;
 use uuid::Uuid;
+use protobuf::Message;
 
 use std::{collections::HashMap, sync::Arc};
 
@@ -248,9 +249,10 @@ async fn start_server() -> std::io::Result<()> {
                             if let Ok(report) = guard.report().build() {
                                 fs::create_dir_all("./profiling")?;
                                 let flamegraph_file = File::create("./profiling/flamegraph.svg")?;
-                                let mut prof_file = File::create("./profiling/profiling.prof")?;
                                 let _ = report.flamegraph(flamegraph_file).map_err(|err| err.to_string());
-                                prof_file.write_all(format!("{:?}", report).as_bytes())?;
+                                let profile = report.pprof().unwrap();
+                                let mut prof_file = File::create("./profiling/profile.pb")?;
+                                profile.write_to_writer(&mut prof_file).unwrap();
                             };
                         }                        
                         Ok(res?)
