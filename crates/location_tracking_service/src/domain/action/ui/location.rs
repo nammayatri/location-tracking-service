@@ -103,8 +103,8 @@ pub async fn update_driver_location(
     )?;
 
     let driver_id = get_driver_id(data.clone(), &token)
-        .await
-        .or(get_driver_id_from_authentication(data.clone(), &token, &merchant_id).await)?;
+        .await?
+        .or(get_driver_id_from_authentication(data.clone(), &token, &merchant_id).await?);
 
     if let Some(driver_id) = driver_id {
         let _ = data

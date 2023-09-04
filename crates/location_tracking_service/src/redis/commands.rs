@@ -27,7 +27,8 @@ pub async fn set_ride_details(
         ride_id,
         ride_status,
     };
-    let ride_details = serde_json::to_string(&ride_details).unwrap();
+    let ride_details = serde_json::to_string(&ride_details)
+        .map_err(|err| AppError::DeserializationError(err.to_string()))?;
 
     data.persistent_redis
         .set_with_expiry(
@@ -45,7 +46,8 @@ pub async fn set_driver_details(
     ride_id: &RideId,
     driver_details: DriverDetails,
 ) -> Result<(), AppError> {
-    let driver_details = serde_json::to_string(&driver_details).unwrap();
+    let driver_details = serde_json::to_string(&driver_details)
+        .map_err(|err| AppError::DeserializationError(err.to_string()))?;
 
     let _ = data
         .persistent_redis
@@ -94,75 +96,79 @@ pub async fn get_drivers_within_radius(
 
     let mut resp: Vec<DriverLocationPoint> = Vec::new();
 
-    if on_ride {
-        for driver in nearby_drivers {
-            match driver.member {
-                RedisValue::String(driver_id) => {
-                    let pos = driver
-                        .position
-                        .expect("GeoPosition not found for geo search");
-                    let lon = pos.longitude;
-                    let lat = pos.latitude;
+    let driver_ids_with_geopostions = nearby_drivers
+        .iter()
+        .map(|driver| match &driver.member {
+            RedisValue::String(driver_id) => {
+                let pos = driver
+                    .position
+                    .clone()
+                    .expect("GeoPosition not found for geo search");
+                (driver_id.to_string(), pos)
+            }
+            _ => ("".to_string(), GeoPosition::from((0.0, 0.0))),
+        })
+        .collect::<Vec<(String, GeoPosition)>>();
 
-                    let driver_ride_status = get_driver_ride_status(
-                        data.clone(),
-                        &driver_id.to_string(),
-                        merchant_id,
-                        city,
-                    )
-                    .await?;
-                    if let Some(ride_status) = driver_ride_status {
-                        if (ride_status == RideStatus::INPROGRESS)
-                            || (ride_status == RideStatus::NEW)
-                        {
-                            resp.push(DriverLocationPoint {
-                                driver_id: driver_id.to_string(),
-                                location: Point { lat, lon },
-                            });
-                        }
-                    }
-                }
-                _ => {
-                    info!(tag = "[Redis]", "Invalid RedisValue variant");
+    let driver_ids = driver_ids_with_geopostions
+        .iter()
+        .map(|(driver_id, _)| driver_id.to_string())
+        .collect::<Vec<String>>();
+
+    let drivers_ride_status =
+        get_all_drivers_ride_details(data.clone(), &driver_ids, merchant_id, city).await?;
+
+    let drivers_ride_details = driver_ids_with_geopostions
+        .iter()
+        .zip(drivers_ride_status.iter())
+        .map(|(driver_id, ride_status)| {
+            let driver_status = DriversRideStatus {
+                driver_id: driver_id.0.clone(),
+                ride_status: ride_status.clone(),
+                location: Point {
+                    lat: driver_id.1.latitude,
+                    lon: driver_id.1.longitude,
+                },
+            };
+            driver_status
+        })
+        .collect::<Vec<DriversRideStatus>>();
+
+    if on_ride {
+        for driver_ride_detail in drivers_ride_details {
+            let ride_status = driver_ride_detail.ride_status;
+            let driver_id = driver_ride_detail.driver_id;
+            let lat = driver_ride_detail.location.lat;
+            let lon = driver_ride_detail.location.lon;
+
+            if let Some(ride_status) = ride_status {
+                if (ride_status == RideStatus::INPROGRESS) || (ride_status == RideStatus::NEW) {
+                    resp.push(DriverLocationPoint {
+                        driver_id: driver_id.to_string(),
+                        location: Point { lat, lon },
+                    });
                 }
             }
         }
     } else {
-        for driver in nearby_drivers {
-            match driver.member {
-                RedisValue::String(driver_id) => {
-                    let pos = driver
-                        .position
-                        .expect("GeoPosition not found for geo search");
-                    let lon = pos.longitude;
-                    let lat = pos.latitude;
+        for driver_ride_detail in drivers_ride_details {
+            let ride_status = driver_ride_detail.ride_status;
+            let driver_id = driver_ride_detail.driver_id;
+            let lat = driver_ride_detail.location.lat;
+            let lon = driver_ride_detail.location.lon;
 
-                    let driver_ride_status = get_driver_ride_status(
-                        data.clone(),
-                        &driver_id.to_string(),
-                        merchant_id,
-                        city,
-                    )
-                    .await?;
-                    if let Some(ride_status) = driver_ride_status {
-                        if (ride_status != RideStatus::INPROGRESS)
-                            && (ride_status != RideStatus::NEW)
-                        {
-                            resp.push(DriverLocationPoint {
-                                driver_id: driver_id.to_string(),
-                                location: Point { lat, lon },
-                            });
-                        }
-                    } else {
-                        resp.push(DriverLocationPoint {
-                            driver_id: driver_id.to_string(),
-                            location: Point { lat, lon },
-                        });
-                    }
+            if let Some(ride_status) = ride_status {
+                if (ride_status != RideStatus::INPROGRESS) && (ride_status != RideStatus::NEW) {
+                    resp.push(DriverLocationPoint {
+                        driver_id: driver_id.to_string(),
+                        location: Point { lat, lon },
+                    });
                 }
-                _ => {
-                    info!(tag = "[Redis]", "Invalid RedisValue variant");
-                }
+            } else {
+                resp.push(DriverLocationPoint {
+                    driver_id: driver_id.to_string(),
+                    location: Point { lat, lon },
+                });
             }
         }
     }
@@ -359,6 +365,41 @@ pub async fn get_driver_ride_status(
     }
 }
 
+pub async fn get_all_drivers_ride_details(
+    data: Data<AppState>,
+    driver_id: &Vec<DriverId>,
+    merchant_id: &MerchantId,
+    city: &CityName,
+) -> Result<Vec<Option<RideStatus>>, AppError> {
+    let on_ride_details_keys = driver_id
+        .iter()
+        .map(|driver_id| on_ride_details_key(merchant_id, city, driver_id))
+        .collect::<Vec<String>>();
+
+    let ride_details: Vec<Option<String>> = data
+        .persistent_redis
+        .mget_keys(on_ride_details_keys)
+        .await?;
+
+    let ride_status: Vec<Option<RideStatus>> = ride_details
+        .into_iter()
+        .map(|ride_details| {
+            if let Some(ride_details) = ride_details {
+                Some(
+                    serde_json::from_str::<RideDetails>(&ride_details)
+                        .map_err(|err| AppError::InternalError(err.to_string()))
+                        .expect("Todo :: Handle")
+                        .ride_status,
+                )
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    Ok(ride_status)
+}
+
 pub async fn get_driver_ride_details(
     data: Data<AppState>,
     driver_id: &DriverId,
@@ -480,8 +521,7 @@ pub async fn set_driver_id(
     let _: () = data
         .persistent_redis
         .set_with_expiry(&set_driver_id_key(token), driver_id, data.auth_token_expiry)
-        .await
-        .unwrap();
+        .await?;
 
     Ok(())
 }
