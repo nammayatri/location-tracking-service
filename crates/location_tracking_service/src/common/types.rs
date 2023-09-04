@@ -106,6 +106,13 @@ pub struct DriverDetails {
     pub city: CityName,
 }
 
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub struct DriversRideStatus {
+    pub driver_id: DriverId,
+    pub ride_status: Option<RideStatus>,
+    pub location: Point,
+}
+
 #[derive(Deserialize, Serialize, Clone, Debug, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct DriverModeDetails {

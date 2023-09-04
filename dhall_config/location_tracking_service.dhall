@@ -2,14 +2,14 @@ let non_persistent_redis_cfg = {
     redis_host = "0.0.0.0",
     redis_port = 6380,
     redis_pool_size = 10,
-    redis_partition = 2
+    redis_partition = 0
 }
 
 let persistent_redis_cfg = {
     redis_host = "0.0.0.0",
     redis_port = 6381,
     redis_pool_size = 10,
-    redis_partition = 3
+    redis_partition = 0
 }
 
 let kafkaCfg = {
@@ -36,5 +36,5 @@ in {
     driver_location_update_key = "loc",
     batch_size = 100,
     bucket_size = 30,
-    nearby_bucket_threshold = 2,
+    nearby_bucket_threshold = 4,
 }

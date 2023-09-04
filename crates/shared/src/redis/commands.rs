@@ -7,7 +7,7 @@ use fred::{
     prelude::ListInterface,
     types::{
         Expiration, FromRedis, GeoPosition, GeoRadiusInfo, GeoUnit, Limit, MultipleGeoValues,
-        Ordering, RedisMap, RedisValue, SetOptions, SortOrder, ZSort,
+        MultipleKeys, Ordering, RedisKey, RedisMap, RedisValue, SetOptions, SortOrder, ZSort,
     },
 };
 use std::fmt::Debug;
@@ -121,6 +121,30 @@ impl RedisConnectionPool {
         }
     }
 
+    // mget key
+    #[instrument(level = "DEBUG", skip(self))]
+    pub async fn mget_keys(&self, keys: Vec<String>) -> Result<Vec<Option<String>>, AppError> {
+        if keys.is_empty() {
+            return Ok(vec![None]);
+        }
+
+        let keys: Vec<RedisKey> = keys.into_iter().map(|key| RedisKey::from(key)).collect();
+
+        let output: Result<RedisValue, _> = self
+            .pool
+            .mget(MultipleKeys::from(keys))
+            .await
+            .into_report()
+            .change_context(AppError::MGetFailed);
+
+        match output {
+            Ok(RedisValue::Array(val)) => Ok(val.into_iter().map(|v| v.into_string()).collect()),
+            Ok(RedisValue::String(val)) => Ok(vec![Some(val.to_string())]),
+            Ok(RedisValue::Null) => Ok(vec![None]),
+            _ => Err(AppError::MGetFailed),
+        }
+    }
+
     // delete key
     #[instrument(level = "DEBUG", skip(self))]
     pub async fn delete_key(&self, key: &str) -> Result<(), AppError> {
@@ -185,11 +209,15 @@ impl RedisConnectionPool {
 
     //RPUSH
     #[instrument(level = "DEBUG", skip(self))]
-    pub async fn rpush<V>(&self, key: &str, values: Vec<V>) -> Result<i64, AppError>
+    pub async fn rpush<V>(&self, key: &str, values: Vec<V>) -> Result<(), AppError>
     where
-        V: TryInto<RedisValue> + Debug + Send + Sync,
+        V: TryInto<RedisValue> + Debug + Send + Sync + Clone,
         V::Error: Into<fred::error::RedisError> + Send + Sync,
     {
+        if values.is_empty() {
+            return Ok(());
+        }
+
         let output = self
             .pool
             .rpush(key, values)
@@ -197,8 +225,8 @@ impl RedisConnectionPool {
             .into_report()
             .change_context(AppError::RPushFailed);
 
-        if let Ok(RedisValue::Integer(length)) = output {
-            Ok(length)
+        if let Ok(RedisValue::Integer(_length)) = output {
+            Ok(())
         } else {
             Err(AppError::RPushFailed)
         }

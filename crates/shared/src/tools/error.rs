@@ -45,6 +45,8 @@ pub enum AppError {
     SetExpiryFailed,
     #[error("Failed to get key value in Redis")]
     GetFailed,
+    #[error("Failed to mget key value in Redis")]
+    MGetFailed,
     #[error("Failed to delete key value in Redis")]
     DeleteFailed,
     #[error("Failed to set hash field in Redis")]
@@ -118,6 +120,7 @@ impl ResponseError for AppError {
             AppError::SetExFailed => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::SetExpiryFailed => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::GetFailed => StatusCode::INTERNAL_SERVER_ERROR,
+            AppError::MGetFailed => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::DeleteFailed => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::SetHashFieldFailed => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::GetHashFieldFailed => StatusCode::INTERNAL_SERVER_ERROR,
