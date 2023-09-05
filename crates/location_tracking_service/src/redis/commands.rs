@@ -13,6 +13,7 @@ use fred::types::{GeoPosition, GeoUnit, GeoValue, MultipleGeoValues, RedisValue,
 use futures::Future;
 use shared::utils::{logger::*, prometheus};
 use shared::{redis::types::RedisConnectionPool, tools::error::AppError};
+use std::collections::HashSet;
 use std::sync::Arc;
 
 pub async fn set_ride_details(
@@ -172,7 +173,18 @@ pub async fn get_drivers_within_radius(
             }
         }
     }
-    Ok(resp)
+
+    let mut driver_ids: HashSet<String> = HashSet::new();
+    let mut result: Vec<DriverLocationPoint> = Vec::new();
+
+    for item in resp {
+        if !(driver_ids.contains(&item.driver_id)) {
+            driver_ids.insert((item.driver_id).clone());
+            result.push(item);
+        }
+    }
+
+    Ok(result)
 }
 
 pub async fn push_drainer_driver_location(
@@ -387,7 +399,7 @@ pub async fn get_all_drivers_ride_details(
             if let Some(ride_details) = ride_details {
                 Some(
                     serde_json::from_str::<RideDetails>(&ride_details)
-                        .map_err(|err| AppError::InternalError(err.to_string()))
+                        .map_err(|err| AppError::DeserializationError(err.to_string()))
                         .expect("Todo :: Handle")
                         .ride_status,
                 )
@@ -559,4 +571,44 @@ where
         return Err(AppError::HitsLimitExceeded);
     }
     Ok(())
+}
+
+pub async fn get_all_driver_last_locations(
+    data: Data<AppState>,
+    nearby_drivers: &Vec<DriverLocationPoint>,
+) -> Result<Vec<Option<DateTime<Utc>>>, AppError> {
+    let driver_last_location_updates_keys = nearby_drivers
+        .iter()
+        .map(|driver| driver_details_key(&driver.driver_id.to_string()))
+        .collect::<Vec<String>>();
+
+    let driver_last_locs_ts = data
+        .persistent_redis
+        .mget_keys(driver_last_location_updates_keys)
+        .await?;
+
+    let driver_last_ts = driver_last_locs_ts
+        .iter()
+        .map(|driver_all_details| {
+            let driver_all_details: Option<DriverAllDetails> =
+                if let Some(driver_all_details) = driver_all_details {
+                    Some(
+                        serde_json::from_str::<DriverAllDetails>(driver_all_details)
+                            .map_err(|err| AppError::DeserializationError(err.to_string()))
+                            .expect("Todo :: Handle"),
+                    )
+                } else {
+                    None
+                };
+
+            let driver_last_ts = driver_all_details
+                .map(|driver_all_details| driver_all_details.driver_last_known_location)
+                .flatten()
+                .map(|driver_last_known_location| driver_last_known_location.timestamp);
+
+            driver_last_ts
+        })
+        .collect::<Vec<Option<DateTime<Utc>>>>();
+
+    return Ok(driver_last_ts);
 }
