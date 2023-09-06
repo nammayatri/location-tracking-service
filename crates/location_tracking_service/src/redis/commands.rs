@@ -504,14 +504,10 @@ pub async fn get_on_ride_driver_locations(
     driver_id: &DriverId,
     merchant_id: &MerchantId,
     city: &CityName,
-    pop_length: usize,
 ) -> Result<Vec<Point>, AppError> {
     let output = data
         .persistent_redis
-        .rpop(
-            &on_ride_loc_key(merchant_id, city, driver_id),
-            Some(pop_length),
-        )
+        .lrange(&on_ride_loc_key(merchant_id, city, driver_id), 0, -1)
         .await?;
 
     let mut geo_points: Vec<Point> = Vec::new();

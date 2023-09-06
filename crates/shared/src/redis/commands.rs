@@ -128,7 +128,7 @@ impl RedisConnectionPool {
             return Ok(vec![None]);
         }
 
-        let keys: Vec<RedisKey> = keys.into_iter().map(|key| RedisKey::from(key)).collect();
+        let keys: Vec<RedisKey> = keys.into_iter().map(RedisKey::from).collect();
 
         let output: Result<RedisValue, _> = self
             .pool
@@ -254,6 +254,31 @@ impl RedisConnectionPool {
             }
             Ok(RedisValue::String(value)) => Ok(vec![value.to_string()]),
             _ => Err(AppError::RPopFailed),
+        }
+    }
+
+    //LPOP
+    #[instrument(level = "DEBUG", skip(self))]
+    pub async fn lpop(&self, key: &str, count: Option<usize>) -> Result<Vec<String>, AppError> {
+        let output = self
+            .pool
+            .lpop(key, count)
+            .await
+            .into_report()
+            .change_context(AppError::LPopFailed);
+
+        match output {
+            Ok(RedisValue::Array(val)) => {
+                let mut values = Vec::new();
+                for value in val {
+                    if let RedisValue::String(y) = value {
+                        values.push(String::from_utf8(y.into_inner().to_vec()).unwrap())
+                    }
+                }
+                Ok(values)
+            }
+            Ok(RedisValue::String(value)) => Ok(vec![value.to_string()]),
+            _ => Err(AppError::LPopFailed),
         }
     }
 

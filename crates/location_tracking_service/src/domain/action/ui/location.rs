@@ -254,14 +254,9 @@ async fn process_driver_locations(
                     .await?;
 
             if on_ride_driver_location_count >= data.batch_size {
-                let on_ride_driver_locations = get_on_ride_driver_locations(
-                    data.clone(),
-                    &driver_id,
-                    &merchant_id,
-                    &city,
-                    on_ride_driver_location_count as usize,
-                )
-                .await?;
+                let on_ride_driver_locations =
+                    get_on_ride_driver_locations(data.clone(), &driver_id, &merchant_id, &city)
+                        .await?;
 
                 let _: APISuccess = call_api(
                     Method::POST,
