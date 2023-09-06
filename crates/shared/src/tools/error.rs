@@ -57,6 +57,8 @@ pub enum AppError {
     RPushFailed,
     #[error("Failed to do rpop in Redis")]
     RPopFailed,
+    #[error("Failed to do lpop in Redis")]
+    LPopFailed,
     #[error("Failed to get lrange in Redis")]
     LRangeFailed,
     #[error("Failed to get llen in Redis")]
@@ -138,6 +140,7 @@ impl ResponseError for AppError {
             AppError::ZRangeFailed => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::RPushFailed => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::RPopFailed => StatusCode::INTERNAL_SERVER_ERROR,
+            AppError::LPopFailed => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::LRangeFailed => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::LLenFailed => StatusCode::INTERNAL_SERVER_ERROR,
         }

@@ -121,20 +121,11 @@ pub async fn ride_end(
     )
     .await?;
 
-    let on_ride_driver_location_count = get_on_ride_driver_location_count(
-        data.clone(),
-        &request_body.driver_id,
-        &request_body.merchant_id,
-        &city,
-    )
-    .await?;
-
     let on_ride_driver_locations = get_on_ride_driver_locations(
         data,
         &request_body.driver_id,
         &request_body.merchant_id,
         &city,
-        on_ride_driver_location_count as usize,
     )
     .await?;
 
@@ -174,17 +165,6 @@ pub async fn ride_details(
         &request_body.driver_id,
         request_body.ride_id.clone(),
         request_body.ride_status,
-    )
-    .await?;
-
-    update_driver_location(
-        data.clone(),
-        &request_body.driver_id,
-        &request_body.merchant_id,
-        &city,
-        request_body.lat,
-        request_body.lon,
-        None,
     )
     .await?;
 
