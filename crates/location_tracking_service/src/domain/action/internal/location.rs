@@ -6,7 +6,7 @@
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 use actix_web::web::Data;
-use chrono::Utc;
+use chrono::{LocalResult, TimeZone, Utc};
 use strum::IntoEnumIterator;
 
 use crate::{
@@ -42,24 +42,30 @@ async fn search_nearby_drivers_with_vehicle(
     )
     .await?;
 
-    let driver_last_locs = get_all_driver_last_locations(data, &nearby_drivers).await?;
+    // let driver_last_locs = get_all_driver_last_locations(data, &nearby_drivers).await?; //removed for now as to remove Redis calls
 
-    let resp = nearby_drivers
-        .iter()
-        .zip(driver_last_locs.iter())
-        .map(|(driver, last_location_update_ts)| {
-            let driver_loc = DriverLocation {
-                driver_id: driver.driver_id.to_string(),
-                lat: driver.location.lat,
-                lon: driver.location.lon,
-                coordinates_calculated_at: last_location_update_ts.unwrap_or(Utc::now()),
-                created_at: last_location_update_ts.unwrap_or(Utc::now()),
-                updated_at: last_location_update_ts.unwrap_or(Utc::now()),
-                merchant_id: merchant_id.clone(),
-            };
-            driver_loc
-        })
-        .collect::<Vec<DriverLocation>>();
+    let timestamp = Utc.timestamp_opt((bucket * data.bucket_size) as i64, 0);
+
+    let timestamp = if let LocalResult::Single(timestamp) = timestamp {
+        timestamp
+    } else {
+        Utc::now()
+    };
+
+    let mut resp: Vec<DriverLocation> = Vec::new();
+
+    for driver in nearby_drivers {
+        let driver_location = DriverLocation {
+            driver_id: driver.driver_id.to_string(),
+            lat: driver.location.lat,
+            lon: driver.location.lon,
+            coordinates_calculated_at: timestamp,
+            created_at: timestamp,
+            updated_at: timestamp,
+            merchant_id: merchant_id.clone(),
+        };
+        resp.push(driver_location);
+    }
 
     Ok(resp)
 }
