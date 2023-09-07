@@ -121,11 +121,20 @@ pub async fn ride_end(
     )
     .await?;
 
+    let on_ride_driver_location_count = get_on_ride_driver_location_count(
+        data.clone(),
+        &request_body.driver_id,
+        &request_body.merchant_id,
+        &city,
+    )
+    .await?;
+
     let on_ride_driver_locations = get_on_ride_driver_locations(
         data,
         &request_body.driver_id,
         &request_body.merchant_id,
         &city,
+        on_ride_driver_location_count,
     )
     .await?;
 
