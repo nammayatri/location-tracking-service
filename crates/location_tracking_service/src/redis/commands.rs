@@ -510,7 +510,7 @@ pub async fn get_on_ride_driver_locations(
         .persistent_redis
         .lpop(
             &on_ride_loc_key(merchant_id, city, driver_id),
-            Some(len.try_into().unwrap()),
+            Some(len as usize),
         )
         .await?;
 
