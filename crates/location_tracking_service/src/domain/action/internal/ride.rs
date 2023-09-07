@@ -164,6 +164,11 @@ pub async fn ride_details(
                 return Err(AppError::InvalidRideStatus(request_body.ride_id));
             }
         }
+        RideStatus::CANCELLED => {
+            if current_ride_status != Some(RideStatus::NEW) {
+                return Err(AppError::InvalidRideStatus(request_body.ride_id));
+            }
+        }
         _ => return Err(AppError::InvalidRideStatus(request_body.ride_id)),
     }
 

@@ -86,6 +86,11 @@ pub struct RedisConfig {
     pub redis_port: u16,
     pub redis_pool_size: usize,
     pub redis_partition: usize,
+    pub reconnect_max_attempts: u32,
+    pub reconnect_delay: u32,
+    pub default_ttl: u32,
+    pub default_hash_ttl: u32,
+    pub stream_read_count: u64,
 }
 
 pub fn read_dhall_config(config_path: &str) -> Result<AppConfig, String> {
@@ -103,6 +108,11 @@ pub async fn make_app_state(app_config: AppConfig) -> AppState {
             app_config.non_persistent_redis_cfg.redis_port,
             app_config.non_persistent_redis_cfg.redis_pool_size,
             app_config.non_persistent_redis_cfg.redis_partition,
+            app_config.non_persistent_redis_cfg.reconnect_max_attempts,
+            app_config.non_persistent_redis_cfg.reconnect_delay,
+            app_config.non_persistent_redis_cfg.default_ttl,
+            app_config.non_persistent_redis_cfg.default_hash_ttl,
+            app_config.non_persistent_redis_cfg.stream_read_count,
         ))
         .await
         .expect("Failed to create Location Redis connection pool"),
@@ -114,6 +124,11 @@ pub async fn make_app_state(app_config: AppConfig) -> AppState {
             app_config.persistent_redis_cfg.redis_port,
             app_config.persistent_redis_cfg.redis_pool_size,
             app_config.persistent_redis_cfg.redis_partition,
+            app_config.persistent_redis_cfg.reconnect_max_attempts,
+            app_config.persistent_redis_cfg.reconnect_delay,
+            app_config.persistent_redis_cfg.default_ttl,
+            app_config.persistent_redis_cfg.default_hash_ttl,
+            app_config.persistent_redis_cfg.stream_read_count,
         ))
         .await
         .expect("Failed to create Generic Redis connection pool"),
