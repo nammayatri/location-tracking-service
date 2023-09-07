@@ -52,7 +52,17 @@ impl Default for RedisSettings {
 }
 
 impl RedisSettings {
-    pub fn new(host: String, port: u16, pool_size: usize, partition: usize) -> Self {
+    pub fn new(
+        host: String,
+        port: u16,
+        pool_size: usize,
+        partition: usize,
+        reconnect_max_attempts: u32,
+        reconnect_delay: u32,
+        default_ttl: u32,
+        default_hash_ttl: u32,
+        stream_read_count: u64,
+    ) -> Self {
         RedisSettings {
             host,
             port,
@@ -61,11 +71,11 @@ impl RedisSettings {
             cluster_urls: Vec::new(),
             use_legacy_version: false,
             pool_size,
-            reconnect_max_attempts: 5,
-            reconnect_delay: 1000,
-            default_ttl: 3600,
-            default_hash_ttl: 3600,
-            stream_read_count: 100,
+            reconnect_max_attempts,
+            reconnect_delay,
+            default_ttl,
+            default_hash_ttl,
+            stream_read_count,
         }
     }
 }
@@ -130,8 +140,8 @@ pub struct RedisConnectionPool {
     pub pool: fred::pool::RedisPool,
     pub config: RedisConfig,
     join_handles: Vec<fred::types::ConnectHandle>,
-    pub subscriber: RedisClient,
-    pub publisher: RedisClient,
+    // pub subscriber: RedisClient,
+    // pub publisher: RedisClient,
     pub is_redis_available: Arc<atomic::AtomicBool>,
 }
 
@@ -171,9 +181,9 @@ impl RedisConnectionPool {
             conf.reconnect_delay,
         );
 
-        let subscriber = RedisClient::new(config.clone(), reconnect_policy.clone()).await?;
+        // let subscriber = RedisClient::new(config.clone(), reconnect_policy.clone()).await?;
 
-        let publisher = RedisClient::new(config.clone(), reconnect_policy.clone()).await?;
+        // let publisher = RedisClient::new(config.clone(), reconnect_policy.clone()).await?;
 
         let pool = fred::pool::RedisPool::new(config, None, Some(reconnect_policy), conf.pool_size)
             .into_report()
@@ -194,8 +204,8 @@ impl RedisConnectionPool {
             config,
             join_handles,
             is_redis_available: Arc::new(atomic::AtomicBool::new(true)),
-            subscriber,
-            publisher,
+            // subscriber,
+            // publisher,
         })
     }
 
