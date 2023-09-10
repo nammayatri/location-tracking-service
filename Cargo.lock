@@ -1418,6 +1418,7 @@ dependencies = [
  "geo",
  "geojson",
  "log",
+ "once_cell",
  "rand",
  "rdkafka",
  "reqwest",

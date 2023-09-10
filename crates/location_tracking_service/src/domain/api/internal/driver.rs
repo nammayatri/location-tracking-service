@@ -10,7 +10,7 @@ use actix_web::{
     web::{Data, Json},
 };
 
-use crate::{common::types::*, domain::action::internal::*};
+use crate::{common::types::*, domain::action::internal::*, environment::AppState};
 use shared::tools::error::AppError;
 
 #[post("/internal/driver/driverDetails")]

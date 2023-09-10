@@ -15,6 +15,7 @@ use crate::{
         utils::{get_city, get_current_bucket},
     },
     domain::types::internal::location::*,
+    environment::AppState,
     redis::commands::*,
 };
 use shared::{tools::error::AppError, utils::logger::*};
