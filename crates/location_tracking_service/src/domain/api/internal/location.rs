@@ -12,8 +12,8 @@ use actix_web::{
 };
 
 use crate::{
-    common::types::*,
     domain::{action::internal::*, types::internal::location::*},
+    environment::AppState,
 };
 use shared::tools::error::AppError;
 

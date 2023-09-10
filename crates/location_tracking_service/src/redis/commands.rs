@@ -6,12 +6,13 @@
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 use crate::common::types::*;
+use crate::environment::AppState;
 use crate::redis::keys::*;
 use actix_web::web::Data;
 use chrono::{DateTime, Utc};
 use fred::types::{GeoPosition, GeoUnit, GeoValue, MultipleGeoValues, RedisValue, SortOrder};
 use futures::Future;
-use shared::utils::{logger::*, prometheus};
+use shared::utils::logger::*;
 use shared::{redis::types::RedisConnectionPool, tools::error::AppError};
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -197,15 +198,12 @@ pub async fn push_drainer_driver_location(
 ) -> Result<(), AppError> {
     let geo_values: Vec<GeoValue> = geo_entries
         .iter()
-        .map(|(lat, lon, driver_id)| {
-            prometheus::QUEUE_GUAGE.dec();
-            GeoValue {
-                coordinates: GeoPosition {
-                    latitude: *lat,
-                    longitude: *lon,
-                },
-                member: driver_id.into(),
-            }
+        .map(|(lat, lon, driver_id)| GeoValue {
+            coordinates: GeoPosition {
+                latitude: *lat,
+                longitude: *lon,
+            },
+            member: driver_id.into(),
         })
         .collect();
     let multiple_geo_values: MultipleGeoValues = geo_values.into();
@@ -397,12 +395,15 @@ pub async fn get_all_drivers_ride_details(
         .into_iter()
         .map(|ride_details| {
             if let Some(ride_details) = ride_details {
-                Some(
-                    serde_json::from_str::<RideDetails>(&ride_details)
-                        .map_err(|err| AppError::DeserializationError(err.to_string()))
-                        .expect("Todo :: Handle")
-                        .ride_status,
-                )
+                let ride_details = serde_json::from_str::<RideDetails>(&ride_details)
+                    .map_err(|err| AppError::DeserializationError(err.to_string()));
+                match ride_details {
+                    Ok(ride_details) => Some(ride_details.ride_status),
+                    Err(err) => {
+                        error!("RideDetails DeserializationError : {}", err);
+                        None
+                    }
+                }
             } else {
                 None
             }
@@ -417,25 +418,21 @@ pub async fn get_driver_ride_details(
     driver_id: &DriverId,
     merchant_id: &MerchantId,
     city: &CityName,
-) -> Result<RideDetails, AppError> {
+) -> Result<Option<RideDetails>, AppError> {
     let ride_details: Option<String> = data
         .persistent_redis
         .get_key(&on_ride_details_key(merchant_id, city, driver_id))
         .await?;
 
-    let ride_details = match ride_details {
-        Some(ride_details) => ride_details,
-        None => {
-            return Err(AppError::InternalError(
-                "Driver ride details not found".to_string(),
-            ))
+    match ride_details {
+        Some(ride_details) => {
+            let ride_details = serde_json::from_str::<RideDetails>(&ride_details)
+                .map_err(|err| AppError::InternalError(err.to_string()))?;
+
+            Ok(Some(ride_details))
         }
-    };
-
-    let ride_details = serde_json::from_str::<RideDetails>(&ride_details)
-        .map_err(|err| AppError::InternalError(err.to_string()))?;
-
-    Ok(ride_details)
+        None => Ok(None),
+    }
 }
 
 pub async fn get_driver_details(
@@ -551,26 +548,23 @@ pub async fn get_driver_id(
 
 pub async fn with_lock_redis<F, Args, Fut>(
     redis: Arc<RedisConnectionPool>,
-    key: &str,
+    key: String,
     expiry: i64,
     callback: F,
     args: Args,
-) -> Result<(), AppError>
+) -> ()
 where
     F: Fn(Args) -> Fut,
     Args: Send + 'static,
-    Fut: Future<Output = Result<(), AppError>>,
+    Fut: Future<Output = ()>,
 {
-    let lock = redis.setnx_with_expiry(key, true, expiry).await;
+    let lock = redis.setnx_with_expiry(&key, true, expiry).await;
 
     if lock.is_ok() {
         let resp = callback(args).await;
-        let _ = redis.delete_key(key).await;
-        resp?
-    } else {
-        return Err(AppError::HitsLimitExceeded);
+        let _ = redis.delete_key(&key).await;
+        resp
     }
-    Ok(())
 }
 
 pub async fn get_all_driver_last_locations(
@@ -592,11 +586,16 @@ pub async fn get_all_driver_last_locations(
         .map(|driver_all_details| {
             let driver_all_details: Option<DriverAllDetails> =
                 if let Some(driver_all_details) = driver_all_details {
-                    Some(
+                    let driver_all_details =
                         serde_json::from_str::<DriverAllDetails>(driver_all_details)
-                            .map_err(|err| AppError::DeserializationError(err.to_string()))
-                            .expect("Todo :: Handle"),
-                    )
+                            .map_err(|err| AppError::DeserializationError(err.to_string()));
+                    match driver_all_details {
+                        Ok(driver_all_details) => Some(driver_all_details),
+                        Err(err) => {
+                            error!("DriverAllDetails DeserializationError : {}", err);
+                            None
+                        }
+                    }
                 } else {
                     None
                 };

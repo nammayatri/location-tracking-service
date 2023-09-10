@@ -7,4 +7,6 @@
 */
 pub mod common;
 pub mod domain;
+pub mod environment;
+pub mod middleware;
 pub mod redis;

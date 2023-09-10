@@ -30,6 +30,7 @@ let kafkaCfg = {
 in {
     non_persistent_redis_cfg,
     persistent_redis_cfg,
+    include_on_ride_driver_for_nearby = False,
     drainer_delay = 10,
     kafka_cfg = kafkaCfg,
     port = 8081,
@@ -40,7 +41,7 @@ in {
     min_location_accuracy = 50,
     redis_expiry = 86400,
     last_location_timstamp_expiry = 86400,
-    location_update_limit = 5,
+    location_update_limit = 6000000000,
     location_update_interval = 60,
     driver_location_update_topic = "location-updates",
     driver_location_update_key = "loc",

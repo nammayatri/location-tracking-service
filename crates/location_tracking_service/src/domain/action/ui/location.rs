@@ -5,10 +5,11 @@
     or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more details. You should have received a copy of
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-use crate::common::kafka::push_to_kafka;
-use crate::common::{types::*, utils::get_city};
+use crate::common::{kafka::push_to_kafka, types::*, utils::get_city};
 use crate::domain::types::ui::location::*;
+use crate::environment::AppState;
 use crate::redis::{commands::*, keys::*};
+use actix::Arbiter;
 use actix_web::web::Data;
 use chrono::Utc;
 
@@ -17,7 +18,6 @@ use serde::{Deserialize, Serialize};
 use shared::tools::error::AppError;
 use shared::utils::callapi::*;
 use shared::utils::logger::*;
-use shared::utils::prometheus;
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -102,9 +102,10 @@ pub async fn update_driver_location(
         data.polygon.clone(),
     )?;
 
-    let driver_id = get_driver_id(data.clone(), &token)
-        .await?
-        .or(get_driver_id_from_authentication(data.clone(), &token, &merchant_id).await?);
+    let driver_id = match get_driver_id(data.clone(), &token).await? {
+        Some(driver_id) => Some(driver_id),
+        None => get_driver_id_from_authentication(data.clone(), &token, &merchant_id).await?,
+    };
 
     if let Some(driver_id) = driver_id {
         let _ = data
@@ -114,12 +115,11 @@ pub async fn update_driver_location(
                 data.location_update_interval as u32,
                 &data.persistent_redis,
             )
-            .await?;
+            .await;
 
-        with_lock_redis(
+        Arbiter::current().spawn(with_lock_redis(
             data.persistent_redis.clone(),
-            driver_processing_location_update_lock_key(&merchant_id.clone(), &city.clone())
-                .as_str(),
+            driver_processing_location_update_lock_key(&merchant_id.clone(), &city.clone()),
             60,
             process_driver_locations,
             (
@@ -131,8 +131,7 @@ pub async fn update_driver_location(
                 city.clone(),
                 driver_mode.clone(),
             ),
-        )
-        .await?;
+        ));
 
         Ok(APISuccess::default())
     } else {
@@ -152,7 +151,7 @@ async fn process_driver_locations(
         CityName,
         Option<DriverMode>,
     ),
-) -> Result<(), AppError> {
+) -> () {
     let (data, mut locations, driver_id, merchant_id, vehicle_type, city, driver_mode) = args;
 
     locations.sort_by(|a, b| (a.ts).cmp(&b.ts));
@@ -173,14 +172,14 @@ async fn process_driver_locations(
         lon: driver_location.pt.lon,
     };
 
-    set_driver_last_location_update(
+    let _ = set_driver_last_location_update(
         data.clone(),
         &driver_id,
         &merchant_id,
         &driver_location,
         driver_mode.clone(),
     )
-    .await?;
+    .await;
 
     let locations: Vec<UpdateDriverLocationRequest> = locations
         .clone()
@@ -194,76 +193,124 @@ async fn process_driver_locations(
         locations.len()
     );
 
-    match get_driver_ride_details(data.clone(), &driver_id, &merchant_id, &city).await {
-        Ok(RideDetails {
-            ride_id,
-            ride_status: RideStatus::INPROGRESS,
-        }) => {
-            if locations.len() > 100 {
-                error!(
-                    "Way points more than 100 points {} on_ride: True",
-                    locations.len()
-                );
-            }
-            let mut geo_entries = Vec::new();
-            let mut queue = data.queue.lock().await;
+    let driver_ride_details =
+        get_driver_ride_details(data.clone(), &driver_id, &merchant_id, &city).await;
 
-            for loc in locations {
-                geo_entries.push(Point {
-                    lat: loc.pt.lat,
-                    lon: loc.pt.lon,
-                });
+    if let Ok(Some(RideDetails {
+        ride_id,
+        ride_status,
+    })) = driver_ride_details
+    {
+        if ride_status == RideStatus::INPROGRESS {
+            process_on_ride_driver_location(
+                data.clone(),
+                merchant_id,
+                city,
+                vehicle_type,
+                ride_id,
+                driver_id,
+                driver_mode,
+                RideStatus::INPROGRESS,
+                locations,
+            )
+            .await;
+        } else {
+            process_on_ride_driver_location(
+                data.clone(),
+                merchant_id,
+                city,
+                vehicle_type,
+                ride_id,
+                driver_id,
+                driver_mode,
+                RideStatus::INPROGRESS,
+                locations,
+            )
+            .await;
+        }
+    } else {
+        process_off_ride_driver_location(
+            data.clone(),
+            merchant_id,
+            city,
+            vehicle_type,
+            driver_id,
+            driver_mode,
+            None,
+            locations,
+        )
+        .await;
+    }
+}
 
-                let dimensions = Dimensions {
-                    merchant_id: merchant_id.clone(),
-                    city: city.clone(),
-                    vehicle_type: vehicle_type.clone(),
-                    on_ride: true,
-                };
+async fn process_on_ride_driver_location(
+    data: Data<AppState>,
+    merchant_id: MerchantId,
+    city: CityName,
+    vehicle_type: VehicleType,
+    ride_id: RideId,
+    driver_id: DriverId,
+    driver_mode: Option<DriverMode>,
+    ride_status: RideStatus,
+    locations: Vec<UpdateDriverLocationRequest>,
+) -> () {
+    if locations.len() > 100 {
+        error!(
+            "Way points more than 100 points {} on_ride: True",
+            locations.len()
+        );
+    }
+    let mut geo_entries = Vec::new();
 
-                prometheus::QUEUE_GUAGE.inc();
+    for loc in locations {
+        geo_entries.push(Point {
+            lat: loc.pt.lat,
+            lon: loc.pt.lon,
+        });
 
-                queue.entry(dimensions).or_insert_with(Vec::new).push((
-                    loc.pt.lat,
-                    loc.pt.lon,
-                    driver_id.clone(),
-                ));
+        let dimensions = Dimensions {
+            merchant_id: merchant_id.clone(),
+            city: city.clone(),
+            vehicle_type: vehicle_type.clone(),
+            on_ride: true,
+        };
 
-                let _ = kafka_stream_updates(
-                    data.clone(),
-                    &merchant_id,
-                    &ride_id,
-                    loc,
-                    Some(RideStatus::INPROGRESS),
-                    driver_mode.clone(),
-                )
+        if data.include_on_ride_driver_for_nearby {
+            data.push_queue(dimensions, loc.clone().pt, driver_id.clone())
                 .await;
-            }
+        }
 
-            push_on_ride_driver_location(
+        let _ = kafka_stream_updates(
+            data.clone(),
+            &merchant_id,
+            &ride_id,
+            loc,
+            Some(ride_status.clone()),
+            driver_mode.clone(),
+        )
+        .await;
+    }
+
+    let _ =
+        push_on_ride_driver_location(data.clone(), &driver_id, &merchant_id, &city, &geo_entries)
+            .await;
+
+    let on_ride_driver_location_count =
+        get_on_ride_driver_location_count(data.clone(), &driver_id, &merchant_id, &city).await;
+
+    if let Ok(on_ride_driver_location_count) = on_ride_driver_location_count {
+        if on_ride_driver_location_count >= data.batch_size {
+            let on_ride_driver_locations = get_on_ride_driver_locations(
                 data.clone(),
                 &driver_id,
                 &merchant_id,
                 &city,
-                &geo_entries,
+                on_ride_driver_location_count,
             )
-            .await?;
+            .await;
 
-            let on_ride_driver_location_count =
-                get_on_ride_driver_location_count(data.clone(), &driver_id, &merchant_id, &city)
-                    .await?;
-
-            if on_ride_driver_location_count >= data.batch_size {
-                let on_ride_driver_locations = get_on_ride_driver_locations(
-                    data.clone(),
-                    &driver_id,
-                    &merchant_id,
-                    &city,
-                    on_ride_driver_location_count,
-                )
-                .await?;
-
-                let _: APISuccess = call_api(
+            if let Ok(on_ride_driver_locations) = on_ride_driver_locations {
+                let _ = call_api::<APISuccess, BulkDataReq>(
                     Method::POST,
                     &data.bulk_location_callback_url,
                     vec![("content-type", "application/json")],
@@ -273,59 +320,57 @@ async fn process_driver_locations(
                         loc: on_ride_driver_locations,
                     }),
                 )
-                .await?;
-            }
-        }
-        _ => {
-            if locations.len() > 100 {
-                error!(
-                    "Way points more than 100 points {} on_ride: False",
-                    locations.len()
-                );
-            }
-
-            let mut queue = data.queue.lock().await;
-
-            for loc in locations {
-                let dimensions = Dimensions {
-                    merchant_id: merchant_id.clone(),
-                    city: city.clone(),
-                    vehicle_type: vehicle_type.clone(),
-                    on_ride: false,
-                };
-
-                prometheus::QUEUE_GUAGE.inc();
-
-                queue.entry(dimensions).or_insert_with(Vec::new).push((
-                    loc.pt.lat,
-                    loc.pt.lon,
-                    driver_id.clone(),
-                ));
-
-                let current_ride_status = get_driver_ride_status(
-                    data.clone(),
-                    &driver_id.clone(),
-                    &merchant_id.clone(),
-                    &city.clone(),
-                )
-                .await?;
-
-                let _ = kafka_stream_updates(
-                    data.clone(),
-                    &merchant_id,
-                    &"".to_string(),
-                    loc,
-                    current_ride_status,
-                    driver_mode.clone(),
-                )
                 .await;
             }
-
-            drop(queue);
         }
     }
+}
 
-    Ok(())
+async fn process_off_ride_driver_location(
+    data: Data<AppState>,
+    merchant_id: MerchantId,
+    city: CityName,
+    vehicle_type: VehicleType,
+    driver_id: DriverId,
+    driver_mode: Option<DriverMode>,
+    ride_status: Option<RideStatus>,
+    locations: Vec<UpdateDriverLocationRequest>,
+) -> () {
+    if locations.len() > 100 {
+        error!(
+            "Way points more than 100 points {} on_ride: False",
+            locations.len()
+        );
+    }
+
+    for loc in locations {
+        let dimensions = Dimensions {
+            merchant_id: merchant_id.clone(),
+            city: city.clone(),
+            vehicle_type: vehicle_type.clone(),
+            on_ride: false,
+        };
+
+        data.push_queue(
+            dimensions,
+            Point {
+                lat: loc.pt.lat,
+                lon: loc.pt.lon,
+            },
+            driver_id.clone(),
+        )
+        .await;
+
+        let _ = kafka_stream_updates(
+            data.clone(),
+            &merchant_id,
+            &"".to_string(),
+            loc,
+            ride_status.clone(),
+            driver_mode.clone(),
+        )
+        .await;
+    }
 }
 
 pub async fn track_driver_location(

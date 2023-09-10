@@ -11,7 +11,8 @@ use actix_web::{
 };
 
 use crate::{
-    common::types::*, domain::types::internal::ride::ResponseData, redis::keys::health_check_key,
+    domain::types::internal::ride::ResponseData, environment::AppState,
+    redis::keys::health_check_key,
 };
 
 use shared::tools::error::AppError;

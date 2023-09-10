@@ -8,7 +8,7 @@
 use actix_web::web::Data;
 use shared::tools::error::AppError;
 
-use crate::{common::types::*, redis::commands::set_driver_mode_details};
+use crate::{common::types::*, environment::AppState, redis::commands::set_driver_mode_details};
 
 pub async fn driver_details(
     data: Data<AppState>,
