@@ -22,17 +22,25 @@ let persistent_redis_cfg = {
     stream_read_count = 100,
 }
 
-let kafkaCfg = {
+let kafka_cfg = {
     kafka_key = "bootstrap.servers",
     kafka_host = "0.0.0.0:29092"
 }
 
+let LogLevel = < TRACE | DEBUG | INFO | WARN | ERROR | OFF >
+
+let logger_cfg = {
+    level = LogLevel.TRACE,
+    log_to_file = False
+}
+
 in {
-    non_persistent_redis_cfg,
-    persistent_redis_cfg,
+    logger_cfg = logger_cfg,
+    non_persistent_redis_cfg = non_persistent_redis_cfg,
+    persistent_redis_cfg = persistent_redis_cfg,
     include_on_ride_driver_for_nearby = False,
     drainer_delay = 10,
-    kafka_cfg = kafkaCfg,
+    kafka_cfg = kafka_cfg,
     port = 8081,
     auth_url = "http://127.0.0.1:8016/internal/auth",
     auth_api_key = "ae288466-2add-11ee-be56-0242ac120002",

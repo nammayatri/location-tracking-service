@@ -54,14 +54,14 @@ async fn run_drainer(data: web::Data<AppState>) -> Result<(), AppError> {
 
 #[actix_web::main]
 async fn start_server() -> std::io::Result<()> {
-    setup_tracing();
-
     let dhall_config_path = var("DHALL_CONFIG")
         .unwrap_or_else(|_| "./dhall_config/location_tracking_service.dhall".to_string());
     let app_config = read_dhall_config(&dhall_config_path).unwrap_or_else(|err| {
         error!("Dhall Config Reading Error : {}", err);
         std::process::exit(1);
     });
+
+    let _guard = setup_tracing(app_config.logger_cfg);
 
     let port = app_config.port;
 

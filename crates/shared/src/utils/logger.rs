@@ -1,25 +1,71 @@
+use serde::Deserialize;
+use tracing::subscriber::set_global_default;
 pub use tracing::{debug, error, info, instrument, warn};
-
-use tracing::{subscriber::set_global_default, Subscriber};
+use tracing_appender::non_blocking::WorkerGuard;
 use tracing_bunyan_formatter::{BunyanFormattingLayer, JsonStorageLayer};
 use tracing_log::LogTracer;
-use tracing_subscriber::{layer::SubscriberExt, EnvFilter, Registry};
+use tracing_subscriber::{filter::LevelFilter, layer::SubscriberExt, Registry};
 
-/// Compose multiple layers into a `tracing`'s subscriber.
-pub fn get_subscriber(name: String, env_filter: String) -> impl Subscriber + Send + Sync {
-    let env_filter = EnvFilter::try_from_default_env().unwrap_or(EnvFilter::new(env_filter));
-    let formatting_layer = BunyanFormattingLayer::new(name, std::io::stdout);
-    Registry::default()
-        .with(env_filter)
-        .with(JsonStorageLayer)
-        .with(formatting_layer)
+#[derive(Debug, Deserialize, Clone, Copy)]
+pub enum LogLevel {
+    TRACE,
+    DEBUG,
+    INFO,
+    WARN,
+    ERROR,
+    OFF,
 }
 
-/// Register a subscriber as global default to process span data.
-///
-/// It should only be called once!
-pub fn setup_tracing() {
-    LogTracer::init().expect("Failed to set logger");
-    let subscriber = get_subscriber("location-tracking-service".into(), "info".into());
-    set_global_default(subscriber).expect("Failed to set subscriber");
+impl From<LogLevel> for LevelFilter {
+    fn from(log_level: LogLevel) -> Self {
+        match log_level {
+            LogLevel::TRACE => LevelFilter::TRACE,
+            LogLevel::DEBUG => LevelFilter::DEBUG,
+            LogLevel::INFO => LevelFilter::INFO,
+            LogLevel::WARN => LevelFilter::WARN,
+            LogLevel::ERROR => LevelFilter::ERROR,
+            LogLevel::OFF => LevelFilter::OFF,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Clone, Copy)]
+pub struct LoggerConfig {
+    pub level: LogLevel,
+    pub log_to_file: bool,
+}
+
+pub fn setup_tracing(logger_cfg: LoggerConfig) -> WorkerGuard {
+    LogTracer::init().expect("Failed to setup logger");
+
+    let app_name = concat!(env!("CARGO_PKG_NAME"), "-", env!("CARGO_PKG_VERSION")).to_string();
+
+    let (non_blocking_console_writer, guard) = tracing_appender::non_blocking(std::io::stdout());
+
+    let bunyan_console_formatting_layer =
+        BunyanFormattingLayer::new(app_name.clone(), non_blocking_console_writer);
+
+    if logger_cfg.log_to_file {
+        let non_blocking_file_writer =
+            tracing_appender::rolling::daily("logs", format!("{app_name}.log"));
+        let bunyan_file_formatting_layer =
+            BunyanFormattingLayer::new(app_name.clone(), non_blocking_file_writer);
+
+        let subscriber = Registry::default()
+            .with(LevelFilter::from(logger_cfg.level))
+            .with(JsonStorageLayer)
+            .with(bunyan_file_formatting_layer)
+            .with(bunyan_console_formatting_layer);
+
+        set_global_default(subscriber).expect("Unable to set global tracing subscriber");
+    } else {
+        let subscriber = Registry::default()
+            .with(LevelFilter::from(logger_cfg.level))
+            .with(JsonStorageLayer)
+            .with(bunyan_console_formatting_layer);
+
+        set_global_default(subscriber).expect("Unable to set global tracing subscriber");
+    }
+
+    guard
 }

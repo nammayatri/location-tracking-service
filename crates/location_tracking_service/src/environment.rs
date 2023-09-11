@@ -19,6 +19,7 @@ use crate::common::{geo_polygon::read_geo_polygon, types::*};
 #[derive(Debug, Deserialize, Clone)]
 pub struct AppConfig {
     pub port: u16,
+    pub logger_cfg: LoggerConfig,
     pub non_persistent_redis_cfg: RedisConfig,
     pub drainer_delay: u64,
     pub include_on_ride_driver_for_nearby: bool,
