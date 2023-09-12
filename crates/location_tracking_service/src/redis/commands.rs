@@ -158,10 +158,16 @@ pub async fn get_drivers_within_radius(
                     let lat = driver_ride_detail.location.lat;
                     let lon = driver_ride_detail.location.lon;
 
-                    resp.push(DriverLocationPoint {
-                        driver_id: driver_id.to_string(),
-                        location: Point { lat, lon },
-                    });
+                    if let Some(ride_status) = ride_status {
+                        if (ride_status == RideStatus::INPROGRESS)
+                            || (ride_status == RideStatus::NEW)
+                        {
+                            resp.push(DriverLocationPoint {
+                                driver_id: driver_id.to_string(),
+                                location: Point { lat, lon },
+                            });
+                        }
+                    }
                 }
             } else {
                 for driver_ride_detail in drivers_ride_details {
