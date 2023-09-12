@@ -196,6 +196,18 @@ async fn process_driver_locations(
     let driver_ride_details =
         get_driver_ride_details(data.clone(), &driver_id, &merchant_id, &city).await;
 
+    let dimensions = Dimensions {
+        merchant_id: merchant_id.clone(),
+        city: city.clone(),
+        vehicle_type: vehicle_type.clone(),
+    };
+
+    let loc = locations[locations.len() - 1].clone();
+    let _ = &data
+        .sender
+        .send((dimensions, loc.pt.lat, loc.pt.lon, driver_id.clone()))
+        .await;
+
     if let Ok(Some(RideDetails {
         ride_id,
         ride_status,
@@ -267,20 +279,6 @@ async fn process_on_ride_driver_location(
             lon: loc.pt.lon,
         });
 
-        let dimensions = Dimensions {
-            merchant_id: merchant_id.clone(),
-            city: city.clone(),
-            vehicle_type: vehicle_type.clone(),
-        };
-
-        if data.include_on_ride_driver_for_nearby {
-            let loc = loc.clone();
-            let _ = &data
-                .sender
-                .send((dimensions, loc.pt.lat, loc.pt.lon, driver_id.clone()))
-                .await;
-        }
-
         let _ = kafka_stream_updates(
             data.clone(),
             &merchant_id,
@@ -345,19 +343,6 @@ async fn process_off_ride_driver_location(
     }
 
     for loc in locations {
-        let dimensions = Dimensions {
-            merchant_id: merchant_id.clone(),
-            city: city.clone(),
-            vehicle_type: vehicle_type.clone(),
-        };
-
-        let loc = loc.clone();
-
-        let _ = &data
-            .sender
-            .send((dimensions, loc.pt.lat, loc.pt.lon, driver_id.clone()))
-            .await;
-
         let _ = kafka_stream_updates(
             data.clone(),
             &merchant_id,

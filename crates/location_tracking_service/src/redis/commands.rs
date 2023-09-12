@@ -72,7 +72,7 @@ pub async fn get_drivers_within_radius(
     bucket: &u64,
     location: Point,
     radius: f64,
-    on_ride: bool,
+    on_ride: Option<bool>,
 ) -> Result<Vec<DriverLocationPoint>, AppError> {
     let mut nearby_drivers = Vec::new();
     for bucket_idx in 0..data.nearby_bucket_threshold {
@@ -136,41 +136,56 @@ pub async fn get_drivers_within_radius(
         })
         .collect::<Vec<DriversRideStatus>>();
 
-    if on_ride {
-        for driver_ride_detail in drivers_ride_details {
-            let ride_status = driver_ride_detail.ride_status;
-            let driver_id = driver_ride_detail.driver_id;
-            let lat = driver_ride_detail.location.lat;
-            let lon = driver_ride_detail.location.lon;
+    match on_ride {
+        None => {
+            for driver_ride_detail in drivers_ride_details {
+                let ride_status = driver_ride_detail.ride_status;
+                let driver_id = driver_ride_detail.driver_id;
+                let lat = driver_ride_detail.location.lat;
+                let lon = driver_ride_detail.location.lon;
 
-            if let Some(ride_status) = ride_status {
-                if (ride_status == RideStatus::INPROGRESS) || (ride_status == RideStatus::NEW) {
-                    resp.push(DriverLocationPoint {
-                        driver_id: driver_id.to_string(),
-                        location: Point { lat, lon },
-                    });
-                }
+                resp.push(DriverLocationPoint {
+                    driver_id: driver_id.to_string(),
+                    location: Point { lat, lon },
+                });
             }
         }
-    } else {
-        for driver_ride_detail in drivers_ride_details {
-            let ride_status = driver_ride_detail.ride_status;
-            let driver_id = driver_ride_detail.driver_id;
-            let lat = driver_ride_detail.location.lat;
-            let lon = driver_ride_detail.location.lon;
+        Some(ride) => {
+            if ride {
+                for driver_ride_detail in drivers_ride_details {
+                    let ride_status = driver_ride_detail.ride_status;
+                    let driver_id = driver_ride_detail.driver_id;
+                    let lat = driver_ride_detail.location.lat;
+                    let lon = driver_ride_detail.location.lon;
 
-            if let Some(ride_status) = ride_status {
-                if (ride_status != RideStatus::INPROGRESS) && (ride_status != RideStatus::NEW) {
                     resp.push(DriverLocationPoint {
                         driver_id: driver_id.to_string(),
                         location: Point { lat, lon },
                     });
                 }
             } else {
-                resp.push(DriverLocationPoint {
-                    driver_id: driver_id.to_string(),
-                    location: Point { lat, lon },
-                });
+                for driver_ride_detail in drivers_ride_details {
+                    let ride_status = driver_ride_detail.ride_status;
+                    let driver_id = driver_ride_detail.driver_id;
+                    let lat = driver_ride_detail.location.lat;
+                    let lon = driver_ride_detail.location.lon;
+
+                    if let Some(ride_status) = ride_status {
+                        if (ride_status != RideStatus::INPROGRESS)
+                            && (ride_status != RideStatus::NEW)
+                        {
+                            resp.push(DriverLocationPoint {
+                                driver_id: driver_id.to_string(),
+                                location: Point { lat, lon },
+                            });
+                        }
+                    } else {
+                        resp.push(DriverLocationPoint {
+                            driver_id: driver_id.to_string(),
+                            location: Point { lat, lon },
+                        });
+                    }
+                }
             }
         }
     }
