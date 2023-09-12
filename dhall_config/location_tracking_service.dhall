@@ -38,7 +38,6 @@ in {
     logger_cfg = logger_cfg,
     non_persistent_redis_cfg = non_persistent_redis_cfg,
     persistent_redis_cfg = persistent_redis_cfg,
-    include_on_ride_driver_for_nearby = False,
     drainer_size = 41943040,
     drainer_delay = 10,
     kafka_cfg = kafka_cfg,

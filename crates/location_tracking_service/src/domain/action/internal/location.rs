@@ -29,7 +29,7 @@ async fn search_nearby_drivers_with_vehicle(
     bucket: u64,
     location: Point,
     radius: Radius,
-    on_ride: bool,
+    on_ride: Option<bool>,
 ) -> Result<Vec<DriverLocation>, AppError> {
     let nearby_drivers = get_drivers_within_radius(
         data.clone(),
@@ -89,7 +89,7 @@ pub async fn get_nearby_drivers(
                         lon: request_body.clone().lon,
                     },
                     request_body.clone().radius,
-                    request_body.on_ride.unwrap_or(false),
+                    request_body.on_ride,
                 )
                 .await;
                 match nearby_drivers {
@@ -116,7 +116,7 @@ pub async fn get_nearby_drivers(
                     lon: request_body.clone().lon,
                 },
                 request_body.clone().radius,
-                request_body.on_ride.unwrap_or(false),
+                request_body.on_ride,
             )
             .await?;
             Ok(resp)
