@@ -121,7 +121,6 @@ pub struct Dimensions {
     pub merchant_id: MerchantId,
     pub city: CityName,
     pub vehicle_type: VehicleType,
-    pub on_ride: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

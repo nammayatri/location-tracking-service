@@ -189,12 +189,14 @@ pub async fn get_drivers_within_radius(
 }
 
 pub async fn push_drainer_driver_location(
-    data: Data<AppState>,
     merchant_id: &MerchantId,
     city: &CityName,
     vehicle: &VehicleType,
     bucket: &u64,
     geo_entries: &[(Latitude, Longitude, DriverId)],
+    bucket_size: u64,
+    nearby_bucket_threshold: u64,
+    non_persistent_redis: Arc<RedisConnectionPool>,
 ) -> Result<(), AppError> {
     let geo_values: Vec<GeoValue> = geo_entries
         .iter()
@@ -208,13 +210,13 @@ pub async fn push_drainer_driver_location(
         .collect();
     let multiple_geo_values: MultipleGeoValues = geo_values.into();
 
-    data.non_persistent_redis
+    non_persistent_redis
         .geo_add_with_expiry(
             &driver_loc_bucket_key(merchant_id, city, vehicle, bucket),
             multiple_geo_values,
             None,
             false,
-            data.bucket_size * data.nearby_bucket_threshold,
+            bucket_size * nearby_bucket_threshold,
         )
         .await?;
 

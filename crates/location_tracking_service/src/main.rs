@@ -6,15 +6,24 @@
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 use actix_web::{web, App, HttpServer};
-use location_tracking_service::common::utils::get_current_bucket;
-use location_tracking_service::domain::api;
-use location_tracking_service::environment::{AppConfig, AppState};
-use location_tracking_service::middleware::*;
-use location_tracking_service::redis::commands::*;
-use shared::tools::error::AppError;
-use shared::utils::{logger::*, prometheus::*};
+use location_tracking_service::{
+    common::{types::*, utils::get_current_bucket},
+    domain::api,
+    environment::{AppConfig, AppState},
+    middleware::*,
+    redis::commands::*,
+};
+use shared::redis::types::RedisConnectionPool;
+use shared::utils::{
+    logger::*,
+    prometheus::{self, *},
+};
+use std::collections::HashMap;
 use std::env::var;
-use tokio::{spawn, time::Duration};
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::mpsc::{self, Receiver, Sender};
+use tokio::time::interval;
 use tracing_actix_web::TracingLogger;
 
 pub fn read_dhall_config(config_path: &str) -> Result<AppConfig, String> {
@@ -25,31 +34,89 @@ pub fn read_dhall_config(config_path: &str) -> Result<AppConfig, String> {
     }
 }
 
-async fn run_drainer(data: web::Data<AppState>) -> Result<(), AppError> {
-    let bucket = get_current_bucket(data.bucket_size)?;
+async fn drain_driver_locations(
+    driver_locations: &Vec<(Dimensions, Latitude, Longitude, DriverId)>,
+    bucket_size: u64,
+    near_by_bucket_threshold: u64,
+    non_persistent_redis: Arc<RedisConnectionPool>,
+) {
+    info!(tag = "[Queued Entries For Draining]", length = %driver_locations.len(), "Queue: {:?}\nPushing to redis server", driver_locations);
 
-    let queue = data.get_and_clear_queue().await;
-
-    for (dimensions, geo_entries) in queue.iter() {
-        let merchant_id = &dimensions.merchant_id;
-        let city = &dimensions.city;
-        let vehicle_type = &dimensions.vehicle_type;
-
-        if !geo_entries.is_empty() {
-            let _ = push_drainer_driver_location(
-                data.clone(),
-                merchant_id,
-                city,
-                vehicle_type,
-                &bucket,
-                geo_entries,
-            )
-            .await;
-            info!(tag = "[Queued Entries For Draining]", length = %geo_entries.len(), "Queue: {:?}\nPushing to redis server", geo_entries);
-        }
+    let mut queue: HashMap<Dimensions, Vec<(Latitude, Longitude, DriverId)>> = HashMap::new();
+    for (dimensions, lat, lon, driver_id) in driver_locations.into_iter() {
+        queue
+            .entry(dimensions.clone())
+            .or_insert_with(Vec::new)
+            .push((*lat, *lon, driver_id.clone()));
     }
 
-    Ok(())
+    let bucket = get_current_bucket(bucket_size);
+
+    if let Ok(bucket) = bucket {
+        for (dimensions, geo_entries) in queue.iter() {
+            let merchant_id = &dimensions.merchant_id;
+            let city = &dimensions.city;
+            let vehicle_type = &dimensions.vehicle_type;
+
+            if !geo_entries.is_empty() {
+                let _ = push_drainer_driver_location(
+                    merchant_id,
+                    city,
+                    vehicle_type,
+                    &bucket,
+                    geo_entries,
+                    bucket_size,
+                    near_by_bucket_threshold,
+                    non_persistent_redis.clone(),
+                )
+                .await;
+            }
+        }
+    }
+}
+
+async fn run_drainer(
+    mut rx: mpsc::Receiver<(Dimensions, Latitude, Longitude, DriverId)>,
+    drainer_delay: u64,
+    drainer_size: usize,
+    bucket_size: u64,
+    near_by_bucket_threshold: u64,
+    non_persistent_redis: Arc<RedisConnectionPool>,
+) {
+    let mut driver_locations = Vec::new();
+    let mut timer = interval(Duration::from_secs(drainer_delay));
+    loop {
+        tokio::select! {
+            item = rx.recv() => {
+                info!(tag = "[Recieved Entries For Queuing]", length = %(driver_locations.len() + 1));
+                match item {
+                    Some(item) => {
+                        prometheus::QUEUE_GUAGE.inc();
+                        driver_locations.push((item.0, item.1, item.2, item.3));
+
+                        if driver_locations.len() > (0.5 * drainer_size as f32) as usize {
+                            drain_driver_locations(&driver_locations, bucket_size, near_by_bucket_threshold, non_persistent_redis.clone()).await;
+                            for _ in 0..driver_locations.len() {
+                                prometheus::QUEUE_GUAGE.dec();
+                            }
+                            driver_locations.clear();
+                        }
+                    },
+                    None => break,
+                }
+            },
+            _ = timer.tick() => {
+                info!(tag = "[Checking Queue]", length = %driver_locations.len());
+                if !driver_locations.is_empty() {
+                    drain_driver_locations(&driver_locations, bucket_size, near_by_bucket_threshold, non_persistent_redis.clone()).await;
+                    for _ in 0..driver_locations.len() {
+                        prometheus::QUEUE_GUAGE.dec();
+                    }
+                    driver_locations.clear();
+                }
+            },
+        }
+    }
 }
 
 #[actix_web::main]
@@ -65,18 +132,26 @@ async fn start_server() -> std::io::Result<()> {
 
     let port = app_config.port;
 
-    let app_state = AppState::new(app_config).await;
+    let (sender, receiver): (
+        Sender<(Dimensions, Latitude, Longitude, DriverId)>,
+        Receiver<(Dimensions, Latitude, Longitude, DriverId)>,
+    ) = mpsc::channel(app_config.drainer_size);
+
+    let app_state = AppState::new(app_config, sender).await;
 
     let data = web::Data::new(app_state);
 
     let thread_data = data.clone();
-    spawn(async move {
-        loop {
-            info!(tag = "[Drainer]", "Draining From Queue to Redis...");
-            let _ =
-                tokio::time::sleep(Duration::from_secs(thread_data.clone().drainer_delay)).await;
-            let _ = run_drainer(thread_data.clone()).await;
-        }
+    let channel_thread = tokio::spawn(async move {
+        run_drainer(
+            receiver,
+            thread_data.drainer_delay,
+            thread_data.drainer_size,
+            thread_data.bucket_size,
+            thread_data.nearby_bucket_threshold,
+            thread_data.non_persistent_redis.clone(),
+        )
+        .await;
     });
 
     HttpServer::new(move || {
@@ -89,7 +164,13 @@ async fn start_server() -> std::io::Result<()> {
     })
     .bind(("0.0.0.0", port))?
     .run()
-    .await
+    .await?;
+
+    channel_thread
+        .await
+        .expect("Channel listener thread panicked");
+
+    Ok(())
 }
 
 fn main() {

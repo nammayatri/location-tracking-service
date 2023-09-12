@@ -30,15 +30,16 @@ let kafka_cfg = {
 let LogLevel = < TRACE | DEBUG | INFO | WARN | ERROR | OFF >
 
 let logger_cfg = {
-    level = LogLevel.TRACE,
+    level = LogLevel.INFO,
     log_to_file = False
 }
-
+-- drainer_delay :: 4 * 1024KB * 1024MB * 1024GB / 100 Bytes = 41943040
 in {
     logger_cfg = logger_cfg,
     non_persistent_redis_cfg = non_persistent_redis_cfg,
     persistent_redis_cfg = persistent_redis_cfg,
     include_on_ride_driver_for_nearby = False,
+    drainer_size = 41943040,
     drainer_delay = 10,
     kafka_cfg = kafka_cfg,
     port = 8081,
