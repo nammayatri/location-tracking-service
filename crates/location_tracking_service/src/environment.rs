@@ -1,5 +1,4 @@
 use std::{
-    collections::HashMap,
     env::var,
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
@@ -10,9 +9,9 @@ use serde::Deserialize;
 use shared::{
     redis::types::{RedisConnectionPool, RedisSettings},
     tools::error::AppError,
-    utils::{logger::*, prometheus},
+    utils::logger::*,
 };
-use tokio::sync::Mutex;
+use tokio::sync::mpsc::Sender;
 
 use crate::common::{geo_polygon::read_geo_polygon, types::*};
 
@@ -22,6 +21,7 @@ pub struct AppConfig {
     pub logger_cfg: LoggerConfig,
     pub non_persistent_redis_cfg: RedisConfig,
     pub drainer_delay: u64,
+    pub drainer_size: usize,
     pub include_on_ride_driver_for_nearby: bool,
     pub persistent_redis_cfg: RedisConfig,
     pub auth_url: String,
@@ -64,8 +64,9 @@ pub struct RedisConfig {
 pub struct AppState {
     pub non_persistent_redis: Arc<RedisConnectionPool>,
     pub persistent_redis: Arc<RedisConnectionPool>,
-    pub queue: Arc<Mutex<HashMap<Dimensions, Vec<(Latitude, Longitude, DriverId)>>>>,
+    pub sender: Sender<(Dimensions, Latitude, Longitude, DriverId)>,
     pub drainer_delay: u64,
+    pub drainer_size: usize,
     pub include_on_ride_driver_for_nearby: bool,
     pub polygon: Vec<MultiPolygonBody>,
     pub auth_url: String,
@@ -86,7 +87,10 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub async fn new(app_config: AppConfig) -> AppState {
+    pub async fn new(
+        app_config: AppConfig,
+        sender: Sender<(Dimensions, Latitude, Longitude, DriverId)>,
+    ) -> AppState {
         let non_persistent_redis = Arc::new(
             RedisConnectionPool::new(&RedisSettings::new(
                 app_config.non_persistent_redis_cfg.redis_host,
@@ -119,8 +123,6 @@ impl AppState {
             .expect("Failed to create Generic Redis connection pool"),
         );
 
-        let queue = Arc::new(Mutex::new(HashMap::new()));
-
         let geo_config_path = var("GEO_CONFIG").unwrap_or_else(|_| "./geo_config".to_string());
         let polygons = read_geo_polygon(&geo_config_path).expect("Failed to read geoJSON");
 
@@ -151,7 +153,8 @@ impl AppState {
             non_persistent_redis,
             persistent_redis,
             drainer_delay: app_config.drainer_delay,
-            queue,
+            drainer_size: app_config.drainer_size,
+            sender,
             include_on_ride_driver_for_nearby: app_config.include_on_ride_driver_for_nearby,
             polygon: polygons,
             auth_url: app_config.auth_url,
@@ -170,25 +173,6 @@ impl AppState {
             bucket_size: app_config.bucket_size,
             nearby_bucket_threshold: app_config.nearby_bucket_threshold,
         }
-    }
-
-    pub async fn push_queue(&self, dimensions: Dimensions, pt: Point, driver_id: DriverId) {
-        let mut queue = self.queue.lock().await;
-        prometheus::QUEUE_GUAGE.inc();
-        queue
-            .entry(dimensions)
-            .or_insert_with(Vec::new)
-            .push((pt.lat, pt.lon, driver_id));
-    }
-
-    pub async fn get_and_clear_queue(&self) -> HashMap<Dimensions, Vec<(f64, f64, String)>> {
-        let mut queue = self.queue.lock().await;
-        let values = queue.clone();
-        for _ in 0..queue.len() {
-            prometheus::QUEUE_GUAGE.dec();
-        }
-        queue.clear();
-        values
     }
 
     pub async fn sliding_window_limiter(

@@ -215,15 +215,14 @@ async fn process_driver_locations(
             )
             .await;
         } else {
-            process_on_ride_driver_location(
+            process_off_ride_driver_location(
                 data.clone(),
                 merchant_id,
                 city,
                 vehicle_type,
-                ride_id,
                 driver_id,
                 driver_mode,
-                RideStatus::INPROGRESS,
+                None,
                 locations,
             )
             .await;
@@ -272,11 +271,13 @@ async fn process_on_ride_driver_location(
             merchant_id: merchant_id.clone(),
             city: city.clone(),
             vehicle_type: vehicle_type.clone(),
-            on_ride: true,
         };
 
         if data.include_on_ride_driver_for_nearby {
-            data.push_queue(dimensions, loc.clone().pt, driver_id.clone())
+            let loc = loc.clone();
+            let _ = &data
+                .sender
+                .send((dimensions, loc.pt.lat, loc.pt.lon, driver_id.clone()))
                 .await;
         }
 
@@ -348,18 +349,14 @@ async fn process_off_ride_driver_location(
             merchant_id: merchant_id.clone(),
             city: city.clone(),
             vehicle_type: vehicle_type.clone(),
-            on_ride: false,
         };
 
-        data.push_queue(
-            dimensions,
-            Point {
-                lat: loc.pt.lat,
-                lon: loc.pt.lon,
-            },
-            driver_id.clone(),
-        )
-        .await;
+        let loc = loc.clone();
+
+        let _ = &data
+            .sender
+            .send((dimensions, loc.pt.lat, loc.pt.lon, driver_id.clone()))
+            .await;
 
         let _ = kafka_stream_updates(
             data.clone(),
