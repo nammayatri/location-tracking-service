@@ -30,7 +30,7 @@ pub struct LocationUpdate {
     pub ts: DateTime<Utc>,
     pub st: DateTime<Utc>,
     pub pt: Point,
-    pub acc: i32,
+    pub acc: Accuracy,
     pub ride_status: String,
     pub da: bool,
     pub mode: String,

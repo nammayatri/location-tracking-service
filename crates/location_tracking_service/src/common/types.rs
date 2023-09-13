@@ -18,7 +18,7 @@ pub type Longitude = f64;
 pub type CityName = String;
 pub type TimeStamp = DateTime<Utc>;
 pub type Radius = f64;
-pub type Accuracy = i32;
+pub type Accuracy = f64;
 pub type Token = String;
 
 #[derive(
