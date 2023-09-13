@@ -19,21 +19,21 @@ pub struct UpdateDriverLocationRequest {
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct BulkDataReq {
-    pub ride_id: String,
+    pub ride_id: RideId,
     pub loc: Vec<Point>,
-    pub driver_id: String,
+    pub driver_id: DriverId,
 }
 #[derive(Serialize)]
 pub struct LocationUpdate {
-    pub r_id: String,
-    pub m_id: String,
-    pub ts: DateTime<Utc>,
-    pub st: DateTime<Utc>,
+    pub r_id: RideId,
+    pub m_id: DriverId,
+    pub ts: TimeStamp,
+    pub st: TimeStamp,
     pub pt: Point,
     pub acc: Accuracy,
-    pub ride_status: String,
+    pub ride_status: RideStatus,
     pub da: bool,
-    pub mode: String,
+    pub mode: DriverMode,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

@@ -14,9 +14,12 @@ pub fn get_city(
     lat: Latitude,
     lon: Longitude,
     polygon: Vec<MultiPolygonBody>,
-) -> Result<String, AppError> {
+) -> Result<CityName, AppError> {
     let mut city = String::new();
     let mut intersection = false;
+
+    let Latitude(lat) = lat;
+    let Longitude(lon) = lon;
 
     for multi_polygon_body in polygon {
         intersection = multi_polygon_body
@@ -32,7 +35,7 @@ pub fn get_city(
         return Err(AppError::Unserviceable);
     }
 
-    Ok(city)
+    Ok(CityName(city))
 }
 
 pub fn get_current_bucket(location_expiry_in_seconds: u64) -> Result<u64, AppError> {

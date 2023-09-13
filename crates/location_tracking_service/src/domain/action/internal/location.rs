@@ -50,7 +50,7 @@ async fn search_nearby_drivers_with_vehicle(
         .zip(driver_last_locs.iter())
         .map(|(driver, last_location_update_ts)| {
             let driver_loc = DriverLocation {
-                driver_id: driver.driver_id.to_string(),
+                driver_id: driver.driver_id.clone(),
                 lat: driver.location.lat,
                 lon: driver.location.lon,
                 coordinates_calculated_at: last_location_update_ts.unwrap_or(Utc::now()),

@@ -24,7 +24,7 @@ async fn ride_start(
     path: Path<String>,
 ) -> Result<Json<APISuccess>, AppError> {
     let request_body = param_obj.into_inner();
-    let ride_id = path.into_inner();
+    let ride_id = RideId(path.into_inner());
 
     Ok(Json(ride::ride_start(ride_id, data, request_body).await?))
 }
@@ -36,7 +36,7 @@ async fn ride_end(
     path: Path<String>,
 ) -> Result<Json<RideEndResponse>, AppError> {
     let request_body = param_obj.into_inner();
-    let ride_id = path.into_inner();
+    let ride_id = RideId(path.into_inner());
 
     Ok(Json(ride::ride_end(ride_id, data, request_body).await?))
 }

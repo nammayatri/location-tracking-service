@@ -10,16 +10,26 @@ use geo::MultiPolygon;
 use serde::{Deserialize, Serialize};
 use strum_macros::{Display, EnumIter, EnumString};
 
-pub type RideId = String;
-pub type DriverId = String;
-pub type MerchantId = String;
-pub type Latitude = f64;
-pub type Longitude = f64;
-pub type CityName = String;
-pub type TimeStamp = DateTime<Utc>;
-pub type Radius = f64;
-pub type Accuracy = f64;
-pub type Token = String;
+#[derive(Deserialize, Serialize, Clone, Debug, Eq, PartialEq)]
+pub struct RideId(pub String);
+#[derive(Deserialize, Serialize, Clone, Debug, Eq, Hash, PartialEq)]
+pub struct DriverId(pub String);
+#[derive(Deserialize, Serialize, Clone, Debug, Eq, Hash, PartialEq)]
+pub struct MerchantId(pub String);
+#[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Copy)]
+pub struct Latitude(pub f64);
+#[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Copy)]
+pub struct Longitude(pub f64);
+#[derive(Deserialize, Serialize, Clone, Debug, Eq, Hash, PartialEq)]
+pub struct CityName(pub String);
+#[derive(Deserialize, Serialize, Clone, Copy, Debug, Eq, PartialEq, PartialOrd)]
+pub struct TimeStamp(pub DateTime<Utc>);
+#[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Copy)]
+pub struct Radius(pub f64);
+#[derive(Deserialize, Serialize, Clone, Debug, PartialEq, PartialOrd, Copy)]
+pub struct Accuracy(pub f64);
+#[derive(Deserialize, Serialize, Clone, Debug, Eq, PartialEq)]
+pub struct Token(pub String);
 
 #[derive(
     Debug, Clone, EnumString, EnumIter, Display, Serialize, Deserialize, Eq, Hash, PartialEq,
@@ -69,11 +79,11 @@ impl Default for APISuccess {
 #[serde(rename_all = "camelCase")]
 pub struct AuthData {
     #[serde(rename = "driverId")]
-    pub driver_id: String,
+    pub driver_id: DriverId,
 }
 
 pub struct DriverLocationPoint {
-    pub driver_id: String,
+    pub driver_id: DriverId,
     pub location: Point,
 }
 
@@ -85,7 +95,7 @@ pub struct MultiPolygonBody {
 
 #[derive(Deserialize, Serialize, Clone, Debug, Eq, PartialEq)]
 pub struct RideDetails {
-    pub ride_id: String,
+    pub ride_id: RideId,
     pub ride_status: RideStatus,
 }
 

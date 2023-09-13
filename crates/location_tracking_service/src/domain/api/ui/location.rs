@@ -66,8 +66,8 @@ pub async fn update_driver_location(
 
     Ok(Json(
         location::update_driver_location(
-            token,
-            merchant_id,
+            Token(token),
+            MerchantId(merchant_id),
             vehicle_type,
             data,
             request_body,
@@ -82,7 +82,7 @@ async fn track_driver_location(
     data: Data<AppState>,
     path: Path<String>,
 ) -> Result<Json<DriverLocationResponse>, AppError> {
-    let ride_id = path.into_inner();
+    let ride_id = RideId(path.into_inner());
 
     Ok(Json(location::track_driver_location(data, ride_id).await?))
 }
