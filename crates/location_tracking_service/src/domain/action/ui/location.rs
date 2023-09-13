@@ -56,7 +56,7 @@ async fn kafka_stream_updates(
             lat: loc.pt.lat,
             lon: loc.pt.lon,
         },
-        acc: loc.acc.unwrap_or(0),
+        acc: loc.acc.unwrap_or(0.0),
         ride_status: ride_status.to_string(),
         da: true,
         mode: driver_mode.to_string(),
@@ -119,7 +119,7 @@ pub async fn update_driver_location(
 
         Arbiter::current().spawn(with_lock_redis(
             data.persistent_redis.clone(),
-            driver_processing_location_update_lock_key(&merchant_id.clone(), &city.clone()),
+            driver_processing_location_update_lock_key(&driver_id.clone(), &city.clone()),
             60,
             process_driver_locations,
             (
@@ -159,7 +159,7 @@ async fn process_driver_locations(
     let locations: Vec<UpdateDriverLocationRequest> = locations
         .clone()
         .into_iter()
-        .filter(|request| request.acc.or(Some(0)) <= Some(data.min_location_accuracy))
+        .filter(|request| request.acc.or(Some(0.0)) <= Some(data.min_location_accuracy))
         .collect();
 
     let last_location_update_ts = get_driver_last_location_update(data.clone(), &driver_id)
