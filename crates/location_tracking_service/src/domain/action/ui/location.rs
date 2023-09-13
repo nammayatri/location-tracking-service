@@ -108,6 +108,11 @@ pub async fn update_driver_location(
     };
 
     if let Some(driver_id) = driver_id {
+        info!(
+            tag = "[Location Updates]",
+            "Got location updates for Driver Id : {driver_id} : {:?}", &request_body
+        );
+
         let _ = data
             .sliding_window_limiter(
                 &driver_id,
@@ -117,7 +122,7 @@ pub async fn update_driver_location(
             )
             .await;
 
-        Arbiter::current().spawn(with_lock_redis(
+        let _ = with_lock_redis(
             data.persistent_redis.clone(),
             driver_processing_location_update_lock_key(&driver_id.clone(), &city.clone()),
             60,
@@ -131,7 +136,8 @@ pub async fn update_driver_location(
                 city.clone(),
                 driver_mode.clone(),
             ),
-        ));
+        )
+        .await?;
 
         Ok(APISuccess::default())
     } else {
@@ -186,12 +192,6 @@ async fn process_driver_locations(
         .into_iter()
         .filter(|request| request.ts >= last_location_update_ts)
         .collect();
-
-    info!(
-        tag = "[Location Updates]",
-        "Got {} location updates for Driver Id : {driver_id}",
-        locations.len()
-    );
 
     let driver_ride_details =
         get_driver_ride_details(data.clone(), &driver_id, &merchant_id, &city).await;
@@ -261,8 +261,8 @@ async fn process_on_ride_driver_location(
     vehicle_type: VehicleType,
     ride_id: RideId,
     driver_id: DriverId,
-    driver_mode: Option<DriverMode>,
-    ride_status: RideStatus,
+    _driver_mode: Option<DriverMode>,
+    _ride_status: RideStatus,
     locations: Vec<UpdateDriverLocationRequest>,
 ) -> () {
     if locations.len() > 100 {
@@ -279,15 +279,15 @@ async fn process_on_ride_driver_location(
             lon: loc.pt.lon,
         });
 
-        let _ = kafka_stream_updates(
-            data.clone(),
-            &merchant_id,
-            &ride_id,
-            loc,
-            Some(ride_status.clone()),
-            driver_mode.clone(),
-        )
-        .await;
+        // let _ = kafka_stream_updates(
+        //     data.clone(),
+        //     &merchant_id,
+        //     &ride_id,
+        //     loc,
+        //     Some(ride_status.clone()),
+        //     driver_mode.clone(),
+        // )
+        // .await;
     }
 
     let _ =
@@ -342,17 +342,19 @@ async fn process_off_ride_driver_location(
         );
     }
 
-    for loc in locations {
-        let _ = kafka_stream_updates(
-            data.clone(),
-            &merchant_id,
-            &"".to_string(),
-            loc,
-            ride_status.clone(),
-            driver_mode.clone(),
-        )
-        .await;
-    }
+    Arbiter::current().spawn(async move {
+        for loc in locations {
+            let _ = kafka_stream_updates(
+                data.clone(),
+                &merchant_id,
+                &"".to_string(),
+                loc,
+                ride_status.clone(),
+                driver_mode.clone(),
+            )
+            .await;
+        }
+    });
 }
 
 pub async fn track_driver_location(
