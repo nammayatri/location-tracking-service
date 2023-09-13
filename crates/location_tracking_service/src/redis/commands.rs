@@ -575,7 +575,7 @@ pub async fn with_lock_redis<F, Args, Fut>(
     expiry: i64,
     callback: F,
     args: Args,
-) -> ()
+) -> Result<(), AppError>
 where
     F: Fn(Args) -> Fut,
     Args: Send + 'static,
@@ -584,10 +584,14 @@ where
     let lock = redis.setnx_with_expiry(&key, true, expiry).await;
 
     if lock.is_ok() {
+        info!("Got lock : {}", &key);
         let resp = callback(args).await;
         let _ = redis.delete_key(&key).await;
-        resp
+        info!("Released lock : {}", &key);
+        return Ok(resp);
     }
+
+    Err(AppError::HitsLimitExceeded)
 }
 
 pub async fn get_all_driver_last_locations(
