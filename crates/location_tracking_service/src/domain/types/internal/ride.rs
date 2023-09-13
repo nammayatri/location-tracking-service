@@ -29,9 +29,9 @@ pub struct RideEndRequest {
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct RideEndResponse {
-    pub ride_id: String,
+    pub ride_id: RideId,
     pub loc: Vec<Point>,
-    pub driver_id: String,
+    pub driver_id: DriverId,
 }
 
 #[derive(Serialize, Debug)]
@@ -47,7 +47,7 @@ pub struct DriverRideResponse {
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct RideDetailsRequest {
-    pub ride_id: String,
+    pub ride_id: RideId,
     pub ride_status: RideStatus,
     pub merchant_id: MerchantId,
     pub driver_id: DriverId,

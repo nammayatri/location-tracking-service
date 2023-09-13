@@ -8,21 +8,26 @@
 use crate::common::types::*;
 
 // Persistent Redis
+pub fn sliding_rate_limiter_key(DriverId(driver_id): &DriverId) -> String {
+    format!("lts:ratelimit:{driver_id}")
+}
+
+// Persistent Redis
 pub fn on_ride_details_key(
-    merchant_id: &MerchantId,
-    city: &CityName,
-    driver_id: &DriverId,
+    MerchantId(merchant_id): &MerchantId,
+    CityName(city): &CityName,
+    DriverId(driver_id): &DriverId,
 ) -> String {
     format!("lts:ds:on_ride_details:{merchant_id}:{city}:{driver_id}")
 }
 
 // Persistent Redis
-pub fn on_ride_driver_details_key(ride_id: &RideId) -> String {
+pub fn on_ride_driver_details_key(RideId(ride_id): &RideId) -> String {
     format!("lts:ds:on_ride_driver_details:{ride_id}")
 }
 
 // Persistent Redis
-pub fn driver_details_key(driver_id: &DriverId) -> String {
+pub fn driver_details_key(DriverId(driver_id): &DriverId) -> String {
     format!("lts:ds:driver_details:{driver_id}")
 }
 
@@ -32,19 +37,26 @@ pub fn health_check_key() -> String {
 }
 
 // Persistent Redis
-pub fn driver_processing_location_update_lock_key(driver_id: &DriverId, city: &CityName) -> String {
+pub fn driver_processing_location_update_lock_key(
+    DriverId(driver_id): &DriverId,
+    CityName(city): &CityName,
+) -> String {
     format!("lts:dl:processing:{driver_id}:{city}")
 }
 
 // Persistent Redis
-pub fn on_ride_loc_key(merchant_id: &String, city: &CityName, driver_id: &DriverId) -> String {
+pub fn on_ride_loc_key(
+    MerchantId(merchant_id): &MerchantId,
+    CityName(city): &CityName,
+    DriverId(driver_id): &DriverId,
+) -> String {
     format!("lts:dl:loc:{merchant_id}:{city}:{driver_id}")
 }
 
 // Non Persistent Redis
 pub fn driver_loc_bucket_key(
-    merchant_id: &MerchantId,
-    city: &CityName,
+    MerchantId(merchant_id): &MerchantId,
+    CityName(city): &CityName,
     vehicle_type: &VehicleType,
     bucket: &u64,
 ) -> String {
@@ -52,6 +64,6 @@ pub fn driver_loc_bucket_key(
 }
 
 // Persistent Redis
-pub fn set_driver_id_key(token: &Token) -> String {
+pub fn set_driver_id_key(Token(token): &Token) -> String {
     format!("lts:dl:driver_id:{token}")
 }

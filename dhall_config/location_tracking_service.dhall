@@ -46,7 +46,7 @@ in {
     auth_api_key = "ae288466-2add-11ee-be56-0242ac120002",
     bulk_location_callback_url = "http://127.0.0.1:8016/internal/bulkLocUpdate",
     auth_token_expiry = 86400,
-    min_location_accuracy = 50,
+    min_location_accuracy = 50.0,
     redis_expiry = 86400,
     last_location_timstamp_expiry = 86400,
     location_update_limit = 6000000000,

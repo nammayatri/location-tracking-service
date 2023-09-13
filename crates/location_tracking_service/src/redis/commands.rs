@@ -71,9 +71,11 @@ pub async fn get_drivers_within_radius(
     vehicle: &VehicleType,
     bucket: &u64,
     location: Point,
-    radius: f64,
+    Radius(radius): Radius,
     on_ride: Option<bool>,
 ) -> Result<Vec<DriverLocationPoint>, AppError> {
+    let Latitude(lat) = location.lat;
+    let Longitude(lon) = location.lon;
     let mut nearby_drivers = Vec::new();
     for bucket_idx in 0..data.nearby_bucket_threshold {
         let nearby_drivers_by_bucket = data
@@ -81,7 +83,7 @@ pub async fn get_drivers_within_radius(
             .geo_search(
                 driver_loc_bucket_key(merchant_id, city, vehicle, &(bucket - bucket_idx)).as_str(),
                 None,
-                Some(GeoPosition::from((location.lon, location.lat))),
+                Some(GeoPosition::from((lon, lat))),
                 Some((radius, GeoUnit::Meters)),
                 None,
                 Some(SortOrder::Asc),
@@ -106,16 +108,16 @@ pub async fn get_drivers_within_radius(
                     .position
                     .clone()
                     .expect("GeoPosition not found for geo search");
-                (driver_id.to_string(), pos)
+                (DriverId(driver_id.to_string()), pos)
             }
-            _ => ("".to_string(), GeoPosition::from((0.0, 0.0))),
+            _ => (DriverId("".to_string()), GeoPosition::from((0.0, 0.0))),
         })
-        .collect::<Vec<(String, GeoPosition)>>();
+        .collect::<Vec<(DriverId, GeoPosition)>>();
 
     let driver_ids = driver_ids_with_geopostions
         .iter()
-        .map(|(driver_id, _)| driver_id.to_string())
-        .collect::<Vec<String>>();
+        .map(|(driver_id, _)| driver_id.to_owned())
+        .collect::<Vec<DriverId>>();
 
     let drivers_ride_status =
         get_all_drivers_ride_details(data.clone(), &driver_ids, merchant_id, city).await?;
@@ -123,13 +125,13 @@ pub async fn get_drivers_within_radius(
     let drivers_ride_details = driver_ids_with_geopostions
         .iter()
         .zip(drivers_ride_status.iter())
-        .map(|(driver_id, ride_status)| {
+        .map(|((driver_id, driver_pos), ride_status)| {
             let driver_status = DriversRideStatus {
-                driver_id: driver_id.0.clone(),
+                driver_id: driver_id.clone(),
                 ride_status: ride_status.clone(),
                 location: Point {
-                    lat: driver_id.1.latitude,
-                    lon: driver_id.1.longitude,
+                    lat: Latitude(driver_pos.latitude),
+                    lon: Longitude(driver_pos.longitude),
                 },
             };
             driver_status
@@ -145,7 +147,7 @@ pub async fn get_drivers_within_radius(
                 let lon = driver_ride_detail.location.lon;
 
                 resp.push(DriverLocationPoint {
-                    driver_id: driver_id.to_string(),
+                    driver_id,
                     location: Point { lat, lon },
                 });
             }
@@ -163,7 +165,7 @@ pub async fn get_drivers_within_radius(
                             || (ride_status == RideStatus::NEW)
                         {
                             resp.push(DriverLocationPoint {
-                                driver_id: driver_id.to_string(),
+                                driver_id,
                                 location: Point { lat, lon },
                             });
                         }
@@ -181,13 +183,13 @@ pub async fn get_drivers_within_radius(
                             && (ride_status != RideStatus::NEW)
                         {
                             resp.push(DriverLocationPoint {
-                                driver_id: driver_id.to_string(),
+                                driver_id,
                                 location: Point { lat, lon },
                             });
                         }
                     } else {
                         resp.push(DriverLocationPoint {
-                            driver_id: driver_id.to_string(),
+                            driver_id,
                             location: Point { lat, lon },
                         });
                     }
@@ -196,7 +198,7 @@ pub async fn get_drivers_within_radius(
         }
     }
 
-    let mut driver_ids: HashSet<String> = HashSet::new();
+    let mut driver_ids: HashSet<DriverId> = HashSet::new();
     let mut result: Vec<DriverLocationPoint> = Vec::new();
 
     for item in resp {
@@ -221,13 +223,15 @@ pub async fn push_drainer_driver_location(
 ) -> Result<(), AppError> {
     let geo_values: Vec<GeoValue> = geo_entries
         .iter()
-        .map(|(lat, lon, driver_id)| GeoValue {
-            coordinates: GeoPosition {
-                latitude: *lat,
-                longitude: *lon,
+        .map(
+            |(Latitude(lat), Longitude(lon), DriverId(driver_id))| GeoValue {
+                coordinates: GeoPosition {
+                    latitude: *lat,
+                    longitude: *lon,
+                },
+                member: driver_id.into(),
             },
-            member: driver_id.into(),
-        })
+        )
         .collect();
     let multiple_geo_values: MultipleGeoValues = geo_values.into();
 
@@ -269,7 +273,7 @@ pub async fn get_driver_location(
 pub async fn get_driver_last_location_update(
     data: Data<AppState>,
     driver_id: &DriverId,
-) -> Result<DateTime<Utc>, AppError> {
+) -> Result<TimeStamp, AppError> {
     let last_location_update = data
         .persistent_redis
         .get_key(&driver_details_key(driver_id))
@@ -278,7 +282,7 @@ pub async fn get_driver_last_location_update(
     if let Some(val) = last_location_update {
         if let Ok(x) = serde_json::from_str::<DriverAllDetails>(&val) {
             if let Some(x) = x.driver_last_known_location {
-                return Ok(x.timestamp.with_timezone(&Utc));
+                return Ok(TimeStamp(x.timestamp.with_timezone(&Utc)));
             }
         }
     }
@@ -342,7 +346,7 @@ pub async fn set_driver_last_location_update(
                 lon: last_location.lon,
             },
             timestamp: Utc::now(),
-            merchant_id: merchant_id.to_string(),
+            merchant_id: merchant_id.clone(),
         };
         value.driver_last_known_location = Some(driver_last_known_location);
         if driver_mode.is_some() {
@@ -358,7 +362,7 @@ pub async fn set_driver_last_location_update(
                     lon: last_location.lon,
                 },
                 timestamp: Utc::now(),
-                merchant_id: merchant_id.to_string(),
+                merchant_id: merchant_id.clone(),
             }),
         }
     };
@@ -460,11 +464,11 @@ pub async fn get_driver_ride_details(
 
 pub async fn get_driver_details(
     data: Data<AppState>,
-    ride_id: &RideId,
+    wrapped_ride_id @ RideId(ride_id): &RideId,
 ) -> Result<DriverDetails, AppError> {
     let driver_details: Option<String> = data
         .persistent_redis
-        .get_key(&on_ride_driver_details_key(ride_id))
+        .get_key(&on_ride_driver_details_key(wrapped_ride_id))
         .await?;
 
     let driver_details = match driver_details {
@@ -547,8 +551,8 @@ pub async fn get_on_ride_driver_locations(
 
 pub async fn set_driver_id(
     data: Data<AppState>,
-    token: &String,
-    driver_id: &DriverId,
+    token: &Token,
+    DriverId(driver_id): &DriverId,
 ) -> Result<(), AppError> {
     let _: () = data
         .persistent_redis
@@ -560,13 +564,16 @@ pub async fn set_driver_id(
 
 pub async fn get_driver_id(
     data: Data<AppState>,
-    token: &String,
-) -> Result<Option<String>, AppError> {
+    token: &Token,
+) -> Result<Option<DriverId>, AppError> {
     let driver_id: Option<String> = data
         .persistent_redis
         .get_key(&set_driver_id_key(token))
         .await?;
-    Ok(driver_id)
+    match driver_id {
+        Some(driver_id) => Ok(Some(DriverId(driver_id))),
+        None => Ok(None),
+    }
 }
 
 pub async fn with_lock_redis<F, Args, Fut>(
@@ -600,7 +607,7 @@ pub async fn get_all_driver_last_locations(
 ) -> Result<Vec<Option<DateTime<Utc>>>, AppError> {
     let driver_last_location_updates_keys = nearby_drivers
         .iter()
-        .map(|driver| driver_details_key(&driver.driver_id.to_string()))
+        .map(|driver| driver_details_key(&driver.driver_id))
         .collect::<Vec<String>>();
 
     let driver_last_locs_ts = data
