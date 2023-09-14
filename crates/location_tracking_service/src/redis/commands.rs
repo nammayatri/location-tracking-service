@@ -591,7 +591,7 @@ where
         return Ok(resp);
     }
 
-    Err(AppError::HitsLimitExceeded)
+    Ok(())
 }
 
 pub async fn get_all_driver_last_locations(
