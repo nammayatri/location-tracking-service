@@ -37,7 +37,10 @@ let logger_cfg = {
 in {
     logger_cfg = logger_cfg,
     non_persistent_redis_cfg = non_persistent_redis_cfg,
+    non_persistent_migration_redis_cfg = non_persistent_redis_cfg,
     persistent_redis_cfg = persistent_redis_cfg,
+    persistent_migration_redis_cfg = persistent_redis_cfg,
+    redis_migration_stage = False,
     drainer_size = 41943040,
     drainer_delay = 10,
     kafka_cfg = kafka_cfg,
