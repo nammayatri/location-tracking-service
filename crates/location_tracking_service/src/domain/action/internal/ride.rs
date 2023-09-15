@@ -46,6 +46,7 @@ pub async fn ride_start(
         data.clone(),
         &request_body.merchant_id,
         &request_body.driver_id,
+        None,
         RideId(ride_id),
         RideStatus::INPROGRESS,
     )
@@ -69,12 +70,10 @@ pub async fn ride_end(
     data: Data<AppState>,
     request_body: RideEndRequest,
 ) -> Result<RideEndResponse, AppError> {
-    set_ride_details(
+    clear_ride_details(
         data.clone(),
         &request_body.merchant_id,
         &request_body.driver_id,
-        RideId(ride_id.clone()),
-        RideStatus::COMPLETED,
     )
     .await?;
 
@@ -120,6 +119,7 @@ pub async fn ride_details(
         data.clone(),
         &request_body.merchant_id,
         &request_body.driver_id,
+        Some(city.clone()),
         request_body.ride_id.clone(),
         request_body.ride_status,
     )

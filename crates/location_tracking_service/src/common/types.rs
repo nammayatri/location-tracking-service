@@ -51,8 +51,6 @@ pub enum VehicleType {
 pub enum RideStatus {
     NEW,
     INPROGRESS,
-    COMPLETED,
-    CANCELLED,
 }
 
 #[derive(Debug, Clone, EnumString, Display, Serialize, Deserialize, Eq, Hash, PartialEq)]
@@ -97,6 +95,7 @@ pub struct MultiPolygonBody {
 pub struct RideDetails {
     pub ride_id: RideId,
     pub ride_status: RideStatus,
+    pub city: Option<CityName>,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug, Eq, PartialEq)]

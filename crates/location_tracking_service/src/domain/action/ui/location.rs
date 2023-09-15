@@ -233,6 +233,7 @@ async fn process_driver_locations(
     if let Ok(Some(RideDetails {
         ride_id,
         ride_status: RideStatus::INPROGRESS,
+        ..
     })) = driver_ride_details
     {
         process_on_ride_driver_location(
@@ -355,14 +356,9 @@ pub async fn track_driver_location(
 
     match driver_ride_details {
         Some(driver_ride_details) => {
-            let current_ride_status = if driver_ride_details.ride_status == RideStatus::NEW {
-                DriverRideStatus::PreRide
-            } else if driver_ride_details.ride_status == RideStatus::INPROGRESS {
-                DriverRideStatus::ActualRide
-            } else {
-                return Err(AppError::InvalidRequest(
-                    "Invalid ride status for tracking driver location".to_string(),
-                ));
+            let current_ride_status = match driver_ride_details.ride_status {
+                RideStatus::NEW => DriverRideStatus::PreRide,
+                RideStatus::INPROGRESS => DriverRideStatus::ActualRide,
             };
 
             let driver_last_known_location_details =

@@ -21,12 +21,14 @@ pub async fn set_ride_details(
     data: Data<AppState>,
     merchant_id: &MerchantId,
     driver_id: &DriverId,
+    city: Option<CityName>,
     ride_id: RideId,
     ride_status: RideStatus,
 ) -> Result<(), AppError> {
     let ride_details = RideDetails {
         ride_id,
         ride_status,
+        city,
     };
     let ride_details = serde_json::to_string(&ride_details)
         .map_err(|err| AppError::DeserializationError(err.to_string()))?;
@@ -61,6 +63,18 @@ pub async fn get_ride_details(
         }
         None => Ok(None),
     }
+}
+
+pub async fn clear_ride_details(
+    data: Data<AppState>,
+    merchant_id: &MerchantId,
+    driver_id: &DriverId,
+) -> Result<(), AppError> {
+    data.persistent_redis
+        .delete_key(&on_ride_details_key(merchant_id, driver_id))
+        .await?;
+
+    Ok(())
 }
 
 pub async fn set_driver_details(
