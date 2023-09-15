@@ -109,7 +109,6 @@ pub struct DriverDetails {
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct DriversRideStatus {
     pub driver_id: DriverId,
-    pub ride_status: Option<RideStatus>,
     pub location: Point,
 }
 

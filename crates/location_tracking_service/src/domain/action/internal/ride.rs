@@ -19,7 +19,6 @@ async fn update_driver_location(
     data: Data<AppState>,
     driver_id: &DriverId,
     merchant_id: &MerchantId,
-    city: &CityName,
     lat: Latitude,
     lon: Longitude,
     driver_mode: Option<DriverMode>,
@@ -33,14 +32,7 @@ async fn update_driver_location(
     )
     .await?;
 
-    push_on_ride_driver_location(
-        data,
-        driver_id,
-        merchant_id,
-        city,
-        &vec![Point { lat, lon }],
-    )
-    .await?;
+    push_on_ride_driver_locations(data, driver_id, merchant_id, &vec![Point { lat, lon }]).await?;
 
     Ok(())
 }
@@ -50,21 +42,9 @@ pub async fn ride_start(
     data: Data<AppState>,
     request_body: RideStartRequest,
 ) -> Result<APISuccess, AppError> {
-    let city = get_city(request_body.lat, request_body.lon, data.polygon.clone())?;
-    let current_ride_status = get_driver_ride_status(
-        data.clone(),
-        &request_body.driver_id,
-        &request_body.merchant_id,
-        &city,
-    )
-    .await?;
-    if current_ride_status != Some(RideStatus::NEW) {
-        return Err(AppError::InvalidRideStatus(ride_id));
-    }
     set_ride_details(
         data.clone(),
         &request_body.merchant_id,
-        &city,
         &request_body.driver_id,
         RideId(ride_id),
         RideStatus::INPROGRESS,
@@ -75,7 +55,6 @@ pub async fn ride_start(
         data.clone(),
         &request_body.driver_id,
         &request_body.merchant_id,
-        &city,
         request_body.lat,
         request_body.lon,
         None,
@@ -90,21 +69,9 @@ pub async fn ride_end(
     data: Data<AppState>,
     request_body: RideEndRequest,
 ) -> Result<RideEndResponse, AppError> {
-    let city = get_city(request_body.lat, request_body.lon, data.polygon.clone())?;
-    let current_ride_status = get_driver_ride_status(
-        data.clone(),
-        &request_body.driver_id,
-        &request_body.merchant_id,
-        &city,
-    )
-    .await?;
-    if current_ride_status != Some(RideStatus::INPROGRESS) {
-        return Err(AppError::InvalidRideStatus(ride_id));
-    }
     set_ride_details(
         data.clone(),
         &request_body.merchant_id,
-        &city,
         &request_body.driver_id,
         RideId(ride_id.clone()),
         RideStatus::COMPLETED,
@@ -115,7 +82,6 @@ pub async fn ride_end(
         data.clone(),
         &request_body.driver_id,
         &request_body.merchant_id,
-        &city,
         request_body.lat,
         request_body.lon,
         None,
@@ -126,7 +92,6 @@ pub async fn ride_end(
         data.clone(),
         &request_body.driver_id,
         &request_body.merchant_id,
-        &city,
     )
     .await?;
 
@@ -134,7 +99,6 @@ pub async fn ride_end(
         data,
         &request_body.driver_id,
         &request_body.merchant_id,
-        &city,
         on_ride_driver_location_count,
     )
     .await?;
@@ -151,36 +115,12 @@ pub async fn ride_details(
     request_body: RideDetailsRequest,
 ) -> Result<APISuccess, AppError> {
     let city = get_city(request_body.lat, request_body.lon, data.polygon.clone())?;
-    let current_ride_status = get_driver_ride_status(
-        data.clone(),
-        &request_body.driver_id,
-        &request_body.merchant_id,
-        &city,
-    )
-    .await?;
-
-    let RideId(ride_id) = request_body.ride_id;
-
-    match request_body.ride_status {
-        RideStatus::NEW => {
-            if current_ride_status == Some(RideStatus::INPROGRESS) {
-                return Err(AppError::InvalidRideStatus(ride_id));
-            }
-        }
-        RideStatus::CANCELLED => {
-            if current_ride_status != Some(RideStatus::NEW) {
-                return Err(AppError::InvalidRideStatus(ride_id));
-            }
-        }
-        _ => return Err(AppError::InvalidRideStatus(ride_id)),
-    }
 
     set_ride_details(
         data.clone(),
         &request_body.merchant_id,
-        &city,
         &request_body.driver_id,
-        RideId(ride_id.clone()),
+        request_body.ride_id.clone(),
         request_body.ride_status,
     )
     .await?;
@@ -191,7 +131,7 @@ pub async fn ride_details(
         city,
     };
 
-    set_driver_details(data.clone(), &RideId(ride_id), driver_details).await?;
+    set_driver_details(data.clone(), &request_body.ride_id, driver_details).await?;
 
     Ok(APISuccess::default())
 }
