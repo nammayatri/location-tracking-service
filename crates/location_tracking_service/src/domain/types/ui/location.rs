@@ -25,15 +25,15 @@ pub struct BulkDataReq {
 }
 #[derive(Serialize)]
 pub struct LocationUpdate {
-    pub r_id: RideId,
-    pub m_id: DriverId,
+    pub r_id: String,
+    pub m_id: MerchantId,
     pub ts: TimeStamp,
     pub st: TimeStamp,
     pub pt: Point,
     pub acc: Accuracy,
-    pub ride_status: RideStatus,
+    pub ride_status: String,
     pub da: bool,
-    pub mode: DriverMode,
+    pub mode: String,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
