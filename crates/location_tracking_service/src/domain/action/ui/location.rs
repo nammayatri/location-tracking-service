@@ -83,11 +83,14 @@ async fn get_driver_id_from_authentication(
         ],
         None,
     )
-    .await?;
+    .await;
 
-    set_driver_id(data.clone(), wrapped_token, &response.driver_id).await?;
+    if let Ok(response) = response {
+        set_driver_id(data.clone(), wrapped_token, &response.driver_id).await?;
+        return Ok(Some(response.driver_id));
+    }
 
-    Ok(Some(response.driver_id))
+    Err(AppError::DriverAppAuthFailed)
 }
 
 pub async fn update_driver_location(
