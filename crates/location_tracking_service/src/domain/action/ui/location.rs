@@ -344,17 +344,27 @@ async fn process_on_ride_driver_location(
             .await;
 
             if let Ok(on_ride_driver_locations) = on_ride_driver_locations {
-                let _ = call_api::<APISuccess, BulkDataReq>(
+                let res = call_api::<APISuccess, BulkDataReq>(
                     Method::POST,
                     &data.bulk_location_callback_url,
                     vec![("content-type", "application/json")],
                     Some(BulkDataReq {
                         ride_id: ride_id.clone(),
                         driver_id: driver_id.clone(),
-                        loc: on_ride_driver_locations,
+                        loc: on_ride_driver_locations.clone(),
                     }),
                 )
                 .await;
+
+                if res.is_err() {
+                    let _ = push_on_ride_driver_locations(
+                        &data.persistent_redis,
+                        &driver_id,
+                        &merchant_id,
+                        &on_ride_driver_locations,
+                    )
+                    .await;
+                }
             }
         }
     }
