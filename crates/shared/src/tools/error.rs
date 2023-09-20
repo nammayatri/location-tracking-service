@@ -1,6 +1,3 @@
-//!
-//! Errors specific to this custom redis interface
-//!
 use actix_web::{
     http::{header::ContentType, StatusCode},
     HttpResponse, ResponseError,
