@@ -193,7 +193,12 @@ async fn process_driver_locations(
             .await
             .unwrap_or(locations[0].ts);
 
-    let driver_location = &locations[locations.len() - 1];
+    let driver_location = if locations.is_empty() {
+        return;
+    } else {
+        &locations[locations.len() - 1]
+    };
+
     let driver_location = Point {
         lat: driver_location.pt.lat,
         lon: driver_location.pt.lon,
