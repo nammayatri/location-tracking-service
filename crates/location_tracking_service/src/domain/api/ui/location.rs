@@ -40,14 +40,18 @@ pub async fn update_driver_location(
         .get("token")
         .and_then(|header_value| header_value.to_str().ok())
         .map(|dm_str| dm_str.to_string())
-        .ok_or(AppError::InvalidRequest("Token not found".to_string()))?;
+        .ok_or(AppError::InvalidRequest(
+            "token (Header) not found".to_string(),
+        ))?;
 
     let merchant_id = req
         .headers()
         .get("mId")
         .and_then(|header_value| header_value.to_str().ok())
         .map(|dm_str| dm_str.to_string())
-        .ok_or(AppError::InvalidRequest("mId not found".to_string()))?;
+        .ok_or(AppError::InvalidRequest(
+            "mId (MerchantId - Header) not found".to_string(),
+        ))?;
 
     let vehicle_type = req
         .headers()
@@ -55,7 +59,7 @@ pub async fn update_driver_location(
         .and_then(|header_value| header_value.to_str().ok())
         .and_then(|dm_str| VehicleType::from_str(dm_str).ok())
         .ok_or(AppError::InvalidRequest(
-            "VehicleType not found".to_string(),
+            "vt (VehicleType - Header) not found".to_string(),
         ))?;
 
     let driver_mode = req
