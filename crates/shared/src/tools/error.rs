@@ -93,8 +93,50 @@ impl AppError {
     fn error_message(&self) -> ErrorBody {
         ErrorBody {
             message: self.to_string(),
-            code: self.to_string(),
+            code: self.variant_to_string(),
         }
+    }
+
+    fn variant_to_string(&self) -> String {
+        match self {
+            AppError::InternalError(_) => "InternalError",
+            AppError::InvalidRequest(_) => "InvalidRequest",
+            AppError::InvalidRideStatus(_) => "InvalidRideStatus",
+            AppError::ExternalAPICallError(_) => "ExternalAPICallError",
+            AppError::SerializationError(_) => "SerializationError",
+            AppError::DeserializationError(_) => "DeserializationError",
+            AppError::DriverAppAuthFailed => "DriverAppAuthFailed",
+            AppError::Unserviceable => "Unserviceable",
+            AppError::HitsLimitExceeded => "HitsLimitExceeded",
+            AppError::DriverBulkLocationUpdateFailed => "DriverBulkLocationUpdateFailed",
+            AppError::InvalidConfiguration(_) => "InvalidConfiguration",
+            AppError::SetFailed => "SetFailed",
+            AppError::SetExFailed => "SetExFailed",
+            AppError::SetExpiryFailed => "SetExpiryFailed",
+            AppError::GetFailed => "GetFailed",
+            AppError::MGetFailed => "MGetFailed",
+            AppError::DeleteFailed => "DeleteFailed",
+            AppError::SetHashFieldFailed => "SetHashFieldFailed",
+            AppError::GetHashFieldFailed => "GetHashFieldFailed",
+            AppError::RPushFailed => "RPushFailed",
+            AppError::RPopFailed => "RPopFailed",
+            AppError::LPopFailed => "LPopFailed",
+            AppError::LRangeFailed => "LRangeFailed",
+            AppError::LLenFailed => "LLenFailed",
+            AppError::NotFound => "NotFound",
+            AppError::InvalidRedisEntryId => "InvalidRedisEntryId",
+            AppError::RedisConnectionError => "RedisConnectionError",
+            AppError::SubscribeError => "SubscribeError",
+            AppError::PublishError => "PublishError",
+            AppError::GeoAddFailed => "GeoAddFailed",
+            AppError::ZAddFailed => "ZAddFailed",
+            AppError::ZremrangeByRankFailed => "ZremrangeByRankFailed",
+            AppError::GeoSearchFailed => "GeoSearchFailed",
+            AppError::ZCardFailed => "ZCardFailed",
+            AppError::GeoPosFailed => "GeoPosFailed",
+            AppError::ZRangeFailed => "ZRangeFailed",
+        }
+        .to_string()
     }
 }
 
