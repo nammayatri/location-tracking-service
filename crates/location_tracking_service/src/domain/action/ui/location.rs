@@ -36,9 +36,9 @@ async fn kafka_stream_updates(
     locations: Vec<UpdateDriverLocationRequest>,
     ride_status: Option<RideStatus>,
     driver_mode: Option<DriverMode>,
+    DriverId(driver_id): &DriverId,
 ) {
     let topic = &data.driver_location_update_topic;
-    let key = &data.driver_location_update_key;
 
     let ride_status = match ride_status {
         Some(ride_status) => ride_status.to_string(),
@@ -65,8 +65,7 @@ async fn kafka_stream_updates(
             da: true,
             mode: driver_mode.clone(),
         };
-
-        push_to_kafka(&data.producer, topic, key, message).await;
+        push_to_kafka(&data.producer, topic, driver_id.as_str(), message).await;
     }
 }
 
@@ -226,10 +225,15 @@ async fn process_driver_locations(
         .filter(|request| request.ts >= last_location_update_ts)
         .collect();
 
+    let loc = if locations.is_empty() {
+        return;
+    } else {
+        locations[locations.len() - 1].clone()
+    };
+
     let driver_ride_details =
         get_ride_details(&data.persistent_redis, &driver_id, &merchant_id).await;
 
-    let loc = locations[locations.len() - 1].clone();
     let _ = &data
         .sender
         .send((
@@ -275,6 +279,7 @@ async fn process_driver_locations(
                 locations,
                 None,
                 driver_mode,
+                &driver_id,
             )
             .await;
         });
@@ -296,11 +301,12 @@ async fn process_on_ride_driver_location(
         );
     }
 
-    let (t_merchant_id, t_data, RideId(t_ride_id), t_locations) = (
+    let (t_merchant_id, t_data, RideId(t_ride_id), t_locations, t_driver_id) = (
         merchant_id.clone(),
         data.clone(),
         ride_id.clone(),
         locations.clone(),
+        driver_id.clone(),
     );
     Arbiter::current().spawn(async move {
         let _ = kafka_stream_updates(
@@ -310,6 +316,7 @@ async fn process_on_ride_driver_location(
             t_locations,
             Some(RideStatus::INPROGRESS),
             driver_mode,
+            &t_driver_id,
         )
         .await;
     });
@@ -324,7 +331,7 @@ async fn process_on_ride_driver_location(
 
     let _ = push_on_ride_driver_locations(
         &data.persistent_redis,
-        &driver_id,
+        &driver_id.clone(),
         &merchant_id,
         &geo_entries,
     )
