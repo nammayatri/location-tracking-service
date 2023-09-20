@@ -135,7 +135,7 @@ pub async fn update_driver_location(
         )
         .await;
 
-        let _ = with_lock_redis(
+        with_lock_redis(
             &data.persistent_redis,
             driver_processing_location_update_lock_key(
                 &DriverId(driver_id.clone()),
@@ -174,7 +174,7 @@ async fn process_driver_locations(
         CityName,
         Option<DriverMode>,
     ),
-) -> () {
+) {
     let (data, mut locations, driver_id, merchant_id, vehicle_type, city, driver_mode) = args;
 
     locations.sort_by(|a, b| {
@@ -288,7 +288,7 @@ async fn process_on_ride_driver_location(
     driver_id: DriverId,
     driver_mode: Option<DriverMode>,
     locations: Vec<UpdateDriverLocationRequest>,
-) -> () {
+) {
     if locations.len() > 100 {
         error!(
             "Way points more than 100 points {} on_ride: True",
@@ -400,10 +400,8 @@ pub async fn track_driver_location(
                 last_update: driver_last_known_location_details.timestamp,
             })
         }
-        None => {
-            return Err(AppError::InvalidRequest(
-                "Driver Ride Details not found.".to_string(),
-            ));
-        }
+        None => Err(AppError::InvalidRequest(
+            "Driver Ride Details not found.".to_string(),
+        )),
     }
 }

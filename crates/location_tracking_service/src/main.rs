@@ -20,7 +20,6 @@ use shared::utils::{
 };
 use std::collections::HashMap;
 use std::env::var;
-use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::time::interval;
@@ -43,7 +42,7 @@ async fn drain_driver_locations(
     info!(tag = "[Queued Entries For Draining]", length = %driver_locations.len(), "Queue: {:?}\nPushing to redis server", driver_locations);
 
     let mut queue: HashMap<Dimensions, Vec<(Latitude, Longitude, DriverId)>> = HashMap::new();
-    for (dimensions, lat, lon, driver_id) in driver_locations.into_iter() {
+    for (dimensions, lat, lon, driver_id) in driver_locations.iter() {
         queue
             .entry(dimensions.clone())
             .or_insert_with(Vec::new)
@@ -132,6 +131,7 @@ async fn start_server() -> std::io::Result<()> {
 
     let port = app_config.port;
 
+    #[allow(clippy::type_complexity)]
     let (sender, receiver): (
         Sender<(Dimensions, Latitude, Longitude, DriverId)>,
         Receiver<(Dimensions, Latitude, Longitude, DriverId)>,

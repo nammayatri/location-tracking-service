@@ -49,17 +49,14 @@ async fn search_nearby_drivers_with_vehicle(
     let resp = nearby_drivers
         .iter()
         .zip(driver_last_locs.iter())
-        .map(|(driver, last_location_update_ts)| {
-            let driver_loc = DriverLocation {
-                driver_id: driver.driver_id.clone(),
-                lat: driver.location.lat,
-                lon: driver.location.lon,
-                coordinates_calculated_at: last_location_update_ts.unwrap_or(Utc::now()),
-                created_at: last_location_update_ts.unwrap_or(Utc::now()),
-                updated_at: last_location_update_ts.unwrap_or(Utc::now()),
-                merchant_id: merchant_id.clone(),
-            };
-            driver_loc
+        .map(|(driver, last_location_update_ts)| DriverLocation {
+            driver_id: driver.driver_id.clone(),
+            lat: driver.location.lat,
+            lon: driver.location.lon,
+            coordinates_calculated_at: last_location_update_ts.unwrap_or(Utc::now()),
+            created_at: last_location_update_ts.unwrap_or(Utc::now()),
+            updated_at: last_location_update_ts.unwrap_or(Utc::now()),
+            merchant_id: merchant_id.clone(),
         })
         .collect::<Vec<DriverLocation>>();
 

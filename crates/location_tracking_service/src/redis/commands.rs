@@ -13,7 +13,6 @@ use futures::Future;
 use shared::utils::logger::*;
 use shared::{redis::types::RedisConnectionPool, tools::error::AppError};
 use std::collections::HashSet;
-use std::sync::Arc;
 
 pub async fn set_ride_details(
     persistent_redis_pool: &RedisConnectionPool,
@@ -161,7 +160,7 @@ pub async fn get_drivers_within_radius(
             if !(driver_ids.contains(&driver_id)) {
                 driver_ids.insert(driver_id.clone());
                 resp.push(DriverLocationPoint {
-                    driver_id: driver_id,
+                    driver_id,
                     location: Point {
                         lat: Latitude(pos.latitude),
                         lon: Longitude(pos.longitude),
@@ -174,6 +173,7 @@ pub async fn get_drivers_within_radius(
     Ok(resp)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn push_drainer_driver_location(
     merchant_id: &MerchantId,
     city: &CityName,
@@ -367,7 +367,7 @@ pub async fn push_on_ride_driver_locations(
         geo_points.push(value);
     }
 
-    let _ = persistent_redis_pool
+    persistent_redis_pool
         .rpush(&on_ride_loc_key(merchant_id, driver_id), geo_points)
         .await?;
 
@@ -401,7 +401,7 @@ pub async fn set_driver_id(
     token: &Token,
     DriverId(driver_id): &DriverId,
 ) -> Result<(), AppError> {
-    let _: () = persistent_redis_pool
+    persistent_redis_pool
         .set_key(&set_driver_id_key(token), driver_id, *auth_token_expiry)
         .await?;
 
@@ -448,7 +448,7 @@ where
 
 pub async fn get_all_driver_last_locations(
     persistent_redis_pool: &RedisConnectionPool,
-    nearby_drivers: &Vec<DriverLocationPoint>,
+    nearby_drivers: &[DriverLocationPoint],
 ) -> Result<Vec<Option<DateTime<Utc>>>, AppError> {
     let driver_last_location_updates_keys = nearby_drivers
         .iter()
@@ -478,14 +478,11 @@ pub async fn get_all_driver_last_locations(
                     None
                 };
 
-            let driver_last_ts = driver_all_details
-                .map(|driver_all_details| driver_all_details.driver_last_known_location)
-                .flatten()
-                .map(|driver_last_known_location| driver_last_known_location.timestamp);
-
-            driver_last_ts
+            driver_all_details
+                .and_then(|driver_all_details| driver_all_details.driver_last_known_location)
+                .map(|driver_last_known_location| driver_last_known_location.timestamp)
         })
         .collect::<Vec<Option<DateTime<Utc>>>>();
 
-    return Ok(driver_last_ts);
+    Ok(driver_last_ts)
 }

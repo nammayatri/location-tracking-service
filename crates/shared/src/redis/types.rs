@@ -52,6 +52,7 @@ impl Default for RedisSettings {
 }
 
 impl RedisSettings {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         host: String,
         port: u16,
@@ -139,19 +140,19 @@ impl RedisConnectionPool {
             let (migration_pool, migration_join_handles) =
                 Self::instantiate(&migration_conf).await?;
             join_handles.extend(migration_join_handles);
-            return Ok(Self {
+            Ok(Self {
                 pool,
                 migration_pool: Some(migration_pool),
                 join_handles,
                 is_redis_available: Arc::new(atomic::AtomicBool::new(true)),
-            });
+            })
         } else {
-            return Ok(Self {
+            Ok(Self {
                 pool,
                 migration_pool: None,
                 join_handles,
                 is_redis_available: Arc::new(atomic::AtomicBool::new(true)),
-            });
+            })
         }
     }
     async fn instantiate(
