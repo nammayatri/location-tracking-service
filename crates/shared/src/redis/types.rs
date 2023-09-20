@@ -92,22 +92,6 @@ pub enum RedisEntryId {
     UndeliveredEntryID,
 }
 
-pub struct RedisConfig {
-    pub default_ttl: u32,            // time to live
-    _default_stream_read_count: u64, // number of messages to read from a stream
-    pub default_hash_ttl: u32,       // time to live for a hash
-}
-
-impl From<&RedisSettings> for RedisConfig {
-    fn from(config: &RedisSettings) -> Self {
-        Self {
-            default_ttl: config.default_ttl,
-            _default_stream_read_count: config.stream_read_count,
-            default_hash_ttl: config.default_hash_ttl,
-        }
-    }
-}
-
 pub struct RedisClient {
     inner: fred::prelude::RedisClient,
 }
@@ -138,16 +122,41 @@ impl RedisClient {
 
 pub struct RedisConnectionPool {
     pub pool: fred::pool::RedisPool,
-    pub config: RedisConfig,
+    pub migration_pool: Option<fred::pool::RedisPool>,
     join_handles: Vec<fred::types::ConnectHandle>,
-    // pub subscriber: RedisClient,
-    // pub publisher: RedisClient,
-    pub is_redis_available: Arc<atomic::AtomicBool>,
+    is_redis_available: Arc<atomic::AtomicBool>,
 }
 
 impl RedisConnectionPool {
     /// Create a new Redis connection
-    pub async fn new(conf: &RedisSettings) -> Result<Self, AppError> {
+    pub async fn new(
+        conf: RedisSettings,
+        migration_conf: Option<RedisSettings>,
+    ) -> Result<Self, AppError> {
+        let (pool, mut join_handles) = Self::instantiate(&conf).await?;
+
+        if let Some(migration_conf) = migration_conf {
+            let (migration_pool, migration_join_handles) =
+                Self::instantiate(&migration_conf).await?;
+            join_handles.extend(migration_join_handles);
+            return Ok(Self {
+                pool,
+                migration_pool: Some(migration_pool),
+                join_handles,
+                is_redis_available: Arc::new(atomic::AtomicBool::new(true)),
+            });
+        } else {
+            return Ok(Self {
+                pool,
+                migration_pool: None,
+                join_handles,
+                is_redis_available: Arc::new(atomic::AtomicBool::new(true)),
+            });
+        }
+    }
+    async fn instantiate(
+        conf: &RedisSettings,
+    ) -> Result<(fred::pool::RedisPool, Vec<fred::types::ConnectHandle>), AppError> {
         let redis_connection_url = match conf.cluster_enabled {
             // Fred relies on this format for specifying cluster where the host port is ignored & only query parameters are used for node addresses
             // redis-cluster://username:password@host:port?node=bar.com:30002&node=baz.com:30003
@@ -181,10 +190,6 @@ impl RedisConnectionPool {
             conf.reconnect_delay,
         );
 
-        // let subscriber = RedisClient::new(config.clone(), reconnect_policy.clone()).await?;
-
-        // let publisher = RedisClient::new(config.clone(), reconnect_policy.clone()).await?;
-
         let pool = fred::pool::RedisPool::new(config, None, Some(reconnect_policy), conf.pool_size)
             .into_report()
             .change_context(AppError::RedisConnectionError)
@@ -197,16 +202,7 @@ impl RedisConnectionPool {
             .change_context(AppError::RedisConnectionError)
             .expect("Failed to connect to Redis");
 
-        let config = RedisConfig::from(conf);
-
-        Ok(Self {
-            pool,
-            config,
-            join_handles,
-            is_redis_available: Arc::new(atomic::AtomicBool::new(true)),
-            // subscriber,
-            // publisher,
-        })
+        Ok((pool, join_handles))
     }
 
     pub async fn close_connections(&mut self) {

@@ -5,7 +5,10 @@
     or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more details. You should have received a copy of
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-use crate::common::{kafka::push_to_kafka, types::*, utils::get_city};
+use crate::common::{
+    kafka::push_to_kafka, sliding_window_rate_limiter::sliding_window_limiter, types::*,
+    utils::get_city,
+};
 use crate::domain::types::ui::location::*;
 use crate::environment::AppState;
 use crate::redis::{commands::*, keys::*};
@@ -86,7 +89,13 @@ async fn get_driver_id_from_authentication(
     .await;
 
     if let Ok(response) = response {
-        set_driver_id(data.clone(), wrapped_token, &response.driver_id).await?;
+        set_driver_id(
+            &data.persistent_redis,
+            &data.auth_token_expiry,
+            wrapped_token,
+            &response.driver_id,
+        )
+        .await?;
         return Ok(Some(response.driver_id));
     }
 
@@ -107,7 +116,7 @@ pub async fn update_driver_location(
         data.polygon.clone(),
     )?;
 
-    let driver_id = match get_driver_id(data.clone(), &token).await? {
+    let driver_id = match get_driver_id(&data.persistent_redis, &token).await? {
         Some(driver_id) => Some(driver_id),
         None => get_driver_id_from_authentication(data.clone(), &token, &merchant_id).await?,
     };
@@ -118,17 +127,16 @@ pub async fn update_driver_location(
             "Got location updates for Driver Id : {} : {:?}", &driver_id, &request_body
         );
 
-        let _ = data
-            .sliding_window_limiter(
-                &sliding_rate_limiter_key(&DriverId(driver_id.clone()), &city, &merchant_id),
-                data.location_update_limit,
-                data.location_update_interval as u32,
-                &data.persistent_redis,
-            )
-            .await;
+        let _ = sliding_window_limiter(
+            &data.persistent_redis,
+            &sliding_rate_limiter_key(&DriverId(driver_id.clone()), &city, &merchant_id),
+            data.location_update_limit,
+            data.location_update_interval as u32,
+        )
+        .await;
 
         let _ = with_lock_redis(
-            data.persistent_redis.clone(),
+            &data.persistent_redis,
             driver_processing_location_update_lock_key(
                 &DriverId(driver_id.clone()),
                 &merchant_id,
@@ -181,9 +189,10 @@ async fn process_driver_locations(
         .filter(|request| request.acc.or(Some(Accuracy(0.0))) <= Some(data.min_location_accuracy))
         .collect();
 
-    let last_location_update_ts = get_driver_last_location_update(data.clone(), &driver_id)
-        .await
-        .unwrap_or(locations[0].ts);
+    let last_location_update_ts =
+        get_driver_last_location_update(&data.persistent_redis, &driver_id)
+            .await
+            .unwrap_or(locations[0].ts);
 
     let driver_location = &locations[locations.len() - 1];
     let driver_location = Point {
@@ -201,7 +210,8 @@ async fn process_driver_locations(
 
     Arbiter::current().spawn(async move {
         let _ = set_driver_last_location_update(
-            t_data,
+            &t_data.persistent_redis,
+            &t_data.last_location_timstamp_expiry,
             &t_driver_id,
             &t_merchant_id,
             &t_driver_location,
@@ -216,7 +226,8 @@ async fn process_driver_locations(
         .filter(|request| request.ts >= last_location_update_ts)
         .collect();
 
-    let driver_ride_details = get_ride_details(data.clone(), &driver_id, &merchant_id).await;
+    let driver_ride_details =
+        get_ride_details(&data.persistent_redis, &driver_id, &merchant_id).await;
 
     let loc = locations[locations.len() - 1].clone();
     let _ = &data
@@ -311,16 +322,21 @@ async fn process_on_ride_driver_location(
         })
         .collect::<Vec<Point>>();
 
-    let _ =
-        push_on_ride_driver_locations(data.clone(), &driver_id, &merchant_id, &geo_entries).await;
+    let _ = push_on_ride_driver_locations(
+        &data.persistent_redis,
+        &driver_id,
+        &merchant_id,
+        &geo_entries,
+    )
+    .await;
 
     let on_ride_driver_location_count =
-        get_on_ride_driver_location_count(data.clone(), &driver_id, &merchant_id).await;
+        get_on_ride_driver_location_count(&data.persistent_redis, &driver_id, &merchant_id).await;
 
     if let Ok(on_ride_driver_location_count) = on_ride_driver_location_count {
         if on_ride_driver_location_count >= data.batch_size {
             let on_ride_driver_locations = get_on_ride_driver_locations(
-                data.clone(),
+                &data.persistent_redis,
                 &driver_id,
                 &merchant_id,
                 on_ride_driver_location_count,
@@ -348,10 +364,10 @@ pub async fn track_driver_location(
     data: Data<AppState>,
     ride_id: RideId,
 ) -> Result<DriverLocationResponse, AppError> {
-    let driver_details = get_driver_details(data.clone(), &ride_id).await?;
+    let driver_details = get_driver_details(&data.persistent_redis, &ride_id).await?;
 
     let driver_ride_details = get_ride_details(
-        data.clone(),
+        &data.persistent_redis,
         &driver_details.driver_id,
         &driver_details.merchant_id,
     )
@@ -365,7 +381,7 @@ pub async fn track_driver_location(
             };
 
             let driver_last_known_location_details =
-                get_driver_location(data, &driver_details.driver_id).await?;
+                get_driver_location(&data.persistent_redis, &driver_details.driver_id).await?;
 
             Ok(DriverLocationResponse {
                 curr_point: driver_last_known_location_details.location,

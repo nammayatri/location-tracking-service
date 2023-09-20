@@ -38,7 +38,7 @@ async fn drain_driver_locations(
     driver_locations: &Vec<(Dimensions, Latitude, Longitude, DriverId)>,
     bucket_size: u64,
     near_by_bucket_threshold: u64,
-    non_persistent_redis: Arc<RedisConnectionPool>,
+    non_persistent_redis: &RedisConnectionPool,
 ) {
     info!(tag = "[Queued Entries For Draining]", length = %driver_locations.len(), "Queue: {:?}\nPushing to redis server", driver_locations);
 
@@ -50,7 +50,7 @@ async fn drain_driver_locations(
             .push((*lat, *lon, driver_id.clone()));
     }
 
-    let bucket = get_current_bucket(bucket_size);
+    let bucket = get_current_bucket(&bucket_size);
 
     if let Ok(bucket) = bucket {
         for (dimensions, geo_entries) in queue.iter() {
@@ -65,9 +65,9 @@ async fn drain_driver_locations(
                     vehicle_type,
                     &bucket,
                     geo_entries,
-                    bucket_size,
-                    near_by_bucket_threshold,
-                    non_persistent_redis.clone(),
+                    &bucket_size,
+                    &near_by_bucket_threshold,
+                    non_persistent_redis,
                 )
                 .await;
             }
@@ -81,7 +81,7 @@ async fn run_drainer(
     drainer_size: usize,
     bucket_size: u64,
     near_by_bucket_threshold: u64,
-    non_persistent_redis: Arc<RedisConnectionPool>,
+    non_persistent_redis: &RedisConnectionPool,
 ) {
     let mut driver_locations = Vec::new();
     let mut timer = interval(Duration::from_secs(drainer_delay));
@@ -95,7 +95,7 @@ async fn run_drainer(
                         driver_locations.push((item.0, item.1, item.2, item.3));
 
                         if driver_locations.len() > (0.5 * drainer_size as f32) as usize {
-                            drain_driver_locations(&driver_locations, bucket_size, near_by_bucket_threshold, non_persistent_redis.clone()).await;
+                            drain_driver_locations(&driver_locations, bucket_size, near_by_bucket_threshold, non_persistent_redis).await;
                             for _ in 0..driver_locations.len() {
                                 prometheus::QUEUE_GUAGE.dec();
                             }
@@ -108,7 +108,7 @@ async fn run_drainer(
             _ = timer.tick() => {
                 info!(tag = "[Checking Queue]", length = %driver_locations.len());
                 if !driver_locations.is_empty() {
-                    drain_driver_locations(&driver_locations, bucket_size, near_by_bucket_threshold, non_persistent_redis.clone()).await;
+                    drain_driver_locations(&driver_locations, bucket_size, near_by_bucket_threshold, non_persistent_redis).await;
                     for _ in 0..driver_locations.len() {
                         prometheus::QUEUE_GUAGE.dec();
                     }
@@ -149,7 +149,7 @@ async fn start_server() -> std::io::Result<()> {
             thread_data.drainer_size,
             thread_data.bucket_size,
             thread_data.nearby_bucket_threshold,
-            thread_data.non_persistent_redis.clone(),
+            &thread_data.non_persistent_redis,
         )
         .await;
     });

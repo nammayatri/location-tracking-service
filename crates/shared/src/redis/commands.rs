@@ -15,34 +15,7 @@ use std::fmt::Debug;
 impl RedisConnectionPool {
     // set key
     #[instrument(level = "DEBUG", skip(self))]
-    pub async fn set_key<V>(&self, key: &str, value: V) -> Result<(), AppError>
-    where
-        V: TryInto<RedisValue> + Debug + Send + Sync,
-        V::Error: Into<fred::error::RedisError> + Send + Sync,
-    {
-        let output: Result<(), _> = self
-            .pool
-            .set(
-                key,
-                value,
-                Some(Expiration::EX(self.config.default_ttl.into())),
-                None,
-                false,
-            )
-            .await
-            .into_report()
-            .change_context(AppError::SetFailed);
-
-        if output.is_err() {
-            return Err(AppError::SetFailed);
-        }
-
-        Ok(())
-    }
-
-    // set key with expiry
-    #[instrument(level = "DEBUG", skip(self))]
-    pub async fn set_with_expiry<V>(&self, key: &str, value: V, expiry: u32) -> Result<(), AppError>
+    pub async fn set_key<V>(&self, key: &str, value: V, expiry: u32) -> Result<(), AppError>
     where
         V: TryInto<RedisValue> + Debug + Send + Sync,
         V::Error: Into<fred::error::RedisError> + Send + Sync,
@@ -164,7 +137,12 @@ impl RedisConnectionPool {
 
     //HSET
     #[instrument(level = "DEBUG", skip(self))]
-    pub async fn set_hash_fields<V>(&self, key: &str, values: V) -> Result<(), AppError>
+    pub async fn set_hash_fields<V>(
+        &self,
+        key: &str,
+        values: V,
+        expiry: i64,
+    ) -> Result<(), AppError>
     where
         V: TryInto<RedisMap> + Debug + Send + Sync,
         V::Error: Into<fred::error::RedisError> + Send + Sync,
@@ -178,8 +156,7 @@ impl RedisConnectionPool {
 
         // setting expiry for the key
         if output.is_ok() {
-            self.set_expiry(key, self.config.default_hash_ttl.into())
-                .await?;
+            self.set_expiry(key, expiry).await?;
         } else {
             return Err(AppError::SetHashFieldFailed);
         }

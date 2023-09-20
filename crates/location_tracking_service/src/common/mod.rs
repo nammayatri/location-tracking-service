@@ -7,5 +7,6 @@
 */
 pub mod geo_polygon;
 pub mod kafka;
+pub mod sliding_window_rate_limiter;
 pub mod types;
 pub mod utils;

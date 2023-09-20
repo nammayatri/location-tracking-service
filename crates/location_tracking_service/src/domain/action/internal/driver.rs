@@ -14,7 +14,13 @@ pub async fn driver_details(
     data: Data<AppState>,
     request_body: DriverModeDetails,
 ) -> Result<APISuccess, AppError> {
-    set_driver_mode_details(data, request_body.driver_id, request_body.driver_mode).await?;
+    set_driver_mode_details(
+        &data.persistent_redis,
+        &data.last_location_timstamp_expiry,
+        request_body.driver_id,
+        request_body.driver_mode,
+    )
+    .await?;
 
     Ok(APISuccess::default())
 }

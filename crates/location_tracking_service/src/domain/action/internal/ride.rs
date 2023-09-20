@@ -24,7 +24,8 @@ async fn update_driver_location(
     driver_mode: Option<DriverMode>,
 ) -> Result<(), AppError> {
     set_driver_last_location_update(
-        data.clone(),
+        &data.persistent_redis,
+        &data.last_location_timstamp_expiry,
         driver_id,
         merchant_id,
         &Point { lat, lon },
@@ -32,7 +33,13 @@ async fn update_driver_location(
     )
     .await?;
 
-    push_on_ride_driver_locations(data, driver_id, merchant_id, &vec![Point { lat, lon }]).await?;
+    push_on_ride_driver_locations(
+        &data.persistent_redis,
+        driver_id,
+        merchant_id,
+        &vec![Point { lat, lon }],
+    )
+    .await?;
 
     Ok(())
 }
@@ -43,7 +50,8 @@ pub async fn ride_start(
     request_body: RideStartRequest,
 ) -> Result<APISuccess, AppError> {
     set_ride_details(
-        data.clone(),
+        &data.persistent_redis,
+        &data.redis_expiry,
         &request_body.merchant_id,
         &request_body.driver_id,
         None,
@@ -71,7 +79,7 @@ pub async fn ride_end(
     request_body: RideEndRequest,
 ) -> Result<RideEndResponse, AppError> {
     clear_ride_details(
-        data.clone(),
+        &data.persistent_redis,
         &request_body.merchant_id,
         &request_body.driver_id,
     )
@@ -88,14 +96,14 @@ pub async fn ride_end(
     .await?;
 
     let on_ride_driver_location_count = get_on_ride_driver_location_count(
-        data.clone(),
+        &data.persistent_redis,
         &request_body.driver_id,
         &request_body.merchant_id,
     )
     .await?;
 
     let on_ride_driver_locations = get_on_ride_driver_locations(
-        data,
+        &data.persistent_redis,
         &request_body.driver_id,
         &request_body.merchant_id,
         on_ride_driver_location_count,
@@ -116,7 +124,8 @@ pub async fn ride_details(
     let city = get_city(request_body.lat, request_body.lon, data.polygon.clone())?;
 
     set_ride_details(
-        data.clone(),
+        &data.persistent_redis,
+        &data.redis_expiry,
         &request_body.merchant_id,
         &request_body.driver_id,
         Some(city.clone()),
@@ -131,7 +140,13 @@ pub async fn ride_details(
         city,
     };
 
-    set_driver_details(data.clone(), &request_body.ride_id, driver_details).await?;
+    set_driver_details(
+        &data.persistent_redis,
+        &data.redis_expiry,
+        &request_body.ride_id,
+        driver_details,
+    )
+    .await?;
 
     Ok(APISuccess::default())
 }

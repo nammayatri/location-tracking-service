@@ -6,9 +6,7 @@
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 use crate::common::types::*;
-use crate::environment::AppState;
 use crate::redis::keys::*;
-use actix_web::web::Data;
 use chrono::{DateTime, Utc};
 use fred::types::{GeoPosition, GeoUnit, GeoValue, MultipleGeoValues, RedisValue, SortOrder};
 use futures::Future;
@@ -18,7 +16,8 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 pub async fn set_ride_details(
-    data: Data<AppState>,
+    persistent_redis_pool: &RedisConnectionPool,
+    redis_expiry: &u32,
     merchant_id: &MerchantId,
     driver_id: &DriverId,
     city: Option<CityName>,
@@ -33,11 +32,11 @@ pub async fn set_ride_details(
     let ride_details = serde_json::to_string(&ride_details)
         .map_err(|err| AppError::DeserializationError(err.to_string()))?;
 
-    data.persistent_redis
-        .set_with_expiry(
+    persistent_redis_pool
+        .set_key(
             &on_ride_details_key(merchant_id, driver_id),
             ride_details,
-            data.redis_expiry,
+            *redis_expiry,
         )
         .await?;
 
@@ -45,12 +44,11 @@ pub async fn set_ride_details(
 }
 
 pub async fn get_ride_details(
-    data: Data<AppState>,
+    persistent_redis_pool: &RedisConnectionPool,
     driver_id: &DriverId,
     merchant_id: &MerchantId,
 ) -> Result<Option<RideDetails>, AppError> {
-    let ride_details: Option<String> = data
-        .persistent_redis
+    let ride_details: Option<String> = persistent_redis_pool
         .get_key(&on_ride_details_key(merchant_id, driver_id))
         .await?;
 
@@ -66,11 +64,11 @@ pub async fn get_ride_details(
 }
 
 pub async fn clear_ride_details(
-    data: Data<AppState>,
+    persistent_redis_pool: &RedisConnectionPool,
     merchant_id: &MerchantId,
     driver_id: &DriverId,
 ) -> Result<(), AppError> {
-    data.persistent_redis
+    persistent_redis_pool
         .delete_key(&on_ride_details_key(merchant_id, driver_id))
         .await?;
 
@@ -78,19 +76,19 @@ pub async fn clear_ride_details(
 }
 
 pub async fn set_driver_details(
-    data: Data<AppState>,
+    persistent_redis_pool: &RedisConnectionPool,
+    redis_expiry: &u32,
     ride_id: &RideId,
     driver_details: DriverDetails,
 ) -> Result<(), AppError> {
     let driver_details = serde_json::to_string(&driver_details)
         .map_err(|err| AppError::DeserializationError(err.to_string()))?;
 
-    let _ = data
-        .persistent_redis
-        .set_with_expiry(
+    let _ = persistent_redis_pool
+        .set_key(
             &on_ride_driver_details_key(ride_id),
             driver_details,
-            data.redis_expiry,
+            *redis_expiry,
         )
         .await;
 
@@ -98,11 +96,10 @@ pub async fn set_driver_details(
 }
 
 pub async fn get_driver_details(
-    data: Data<AppState>,
+    persistent_redis_pool: &RedisConnectionPool,
     wrapped_ride_id @ RideId(ride_id): &RideId,
 ) -> Result<DriverDetails, AppError> {
-    let driver_details: Option<String> = data
-        .persistent_redis
+    let driver_details: Option<String> = persistent_redis_pool
         .get_key(&on_ride_driver_details_key(wrapped_ride_id))
         .await?;
 
@@ -123,7 +120,8 @@ pub async fn get_driver_details(
 
 #[allow(clippy::too_many_arguments)]
 pub async fn get_drivers_within_radius(
-    data: Data<AppState>,
+    non_persistent_redis_pool: &RedisConnectionPool,
+    nearby_bucket_threshold: &u64,
     merchant_id: &MerchantId,
     city: &CityName,
     vehicle: &VehicleType,
@@ -134,9 +132,8 @@ pub async fn get_drivers_within_radius(
     let Latitude(lat) = location.lat;
     let Longitude(lon) = location.lon;
     let mut nearby_drivers = Vec::new();
-    for bucket_idx in 0..data.nearby_bucket_threshold {
-        let nearby_drivers_by_bucket = data
-            .non_persistent_redis
+    for bucket_idx in 0..*nearby_bucket_threshold {
+        let nearby_drivers_by_bucket = non_persistent_redis_pool
             .geo_search(
                 driver_loc_bucket_key(merchant_id, city, vehicle, &(bucket - bucket_idx)).as_str(),
                 None,
@@ -183,9 +180,9 @@ pub async fn push_drainer_driver_location(
     vehicle: &VehicleType,
     bucket: &u64,
     geo_entries: &[(Latitude, Longitude, DriverId)],
-    bucket_size: u64,
-    nearby_bucket_threshold: u64,
-    non_persistent_redis: Arc<RedisConnectionPool>,
+    bucket_size: &u64,
+    nearby_bucket_threshold: &u64,
+    non_persistent_redis: &RedisConnectionPool,
 ) -> Result<(), AppError> {
     let geo_values: Vec<GeoValue> = geo_entries
         .iter()
@@ -215,11 +212,10 @@ pub async fn push_drainer_driver_location(
 }
 
 pub async fn get_driver_location(
-    data: Data<AppState>,
+    persistent_redis_pool: &RedisConnectionPool,
     driver_id: &DriverId,
 ) -> Result<DriverLastKnownLocation, AppError> {
-    let last_location_update = data
-        .persistent_redis
+    let last_location_update = persistent_redis_pool
         .get_key(&driver_details_key(driver_id))
         .await?;
 
@@ -237,11 +233,10 @@ pub async fn get_driver_location(
 }
 
 pub async fn get_driver_last_location_update(
-    data: Data<AppState>,
+    persistent_redis_pool: &RedisConnectionPool,
     driver_id: &DriverId,
 ) -> Result<TimeStamp, AppError> {
-    let last_location_update = data
-        .persistent_redis
+    let last_location_update = persistent_redis_pool
         .get_key(&driver_details_key(driver_id))
         .await?;
 
@@ -259,12 +254,12 @@ pub async fn get_driver_last_location_update(
 }
 
 pub async fn set_driver_mode_details(
-    data: Data<AppState>,
+    persistent_redis_pool: &RedisConnectionPool,
+    last_location_timstamp_expiry: &u32,
     driver_id: DriverId,
     driver_mode: DriverMode,
 ) -> Result<(), AppError> {
-    let last_location_update = data
-        .persistent_redis
+    let last_location_update = persistent_redis_pool
         .get_key(&driver_details_key(&driver_id))
         .await?;
     let driver_all_details = if let Some(val) = last_location_update {
@@ -280,25 +275,25 @@ pub async fn set_driver_mode_details(
     };
     let value = serde_json::to_string(&driver_all_details)
         .map_err(|err| AppError::InternalError(err.to_string()))?;
-    data.persistent_redis
-        .set_with_expiry(
+    persistent_redis_pool
+        .set_key(
             &driver_details_key(&driver_id),
             value,
-            data.last_location_timstamp_expiry,
+            *last_location_timstamp_expiry,
         )
         .await?;
     Ok(())
 }
 
 pub async fn set_driver_last_location_update(
-    data: Data<AppState>,
+    persistent_redis_pool: &RedisConnectionPool,
+    last_location_timstamp_expiry: &u32,
     driver_id: &DriverId,
     merchant_id: &MerchantId,
     last_location: &Point,
     driver_mode: Option<DriverMode>,
 ) -> Result<(), AppError> {
-    let last_location_update = data
-        .persistent_redis
+    let last_location_update = persistent_redis_pool
         .get_key(&driver_details_key(driver_id))
         .await?;
 
@@ -335,11 +330,11 @@ pub async fn set_driver_last_location_update(
     let value = serde_json::to_string(&driver_all_details)
         .map_err(|err| AppError::InternalError(err.to_string()))?;
 
-    data.persistent_redis
-        .set_with_expiry(
+    persistent_redis_pool
+        .set_key(
             &driver_details_key(driver_id),
             value,
-            data.last_location_timstamp_expiry,
+            *last_location_timstamp_expiry,
         )
         .await?;
 
@@ -347,12 +342,11 @@ pub async fn set_driver_last_location_update(
 }
 
 pub async fn get_on_ride_driver_location_count(
-    data: Data<AppState>,
+    persistent_redis_pool: &RedisConnectionPool,
     driver_id: &DriverId,
     merchant_id: &MerchantId,
 ) -> Result<i64, AppError> {
-    let driver_location_count = data
-        .persistent_redis
+    let driver_location_count = persistent_redis_pool
         .llen(&on_ride_loc_key(merchant_id, driver_id))
         .await?;
 
@@ -360,7 +354,7 @@ pub async fn get_on_ride_driver_location_count(
 }
 
 pub async fn push_on_ride_driver_locations(
-    data: Data<AppState>,
+    persistent_redis_pool: &RedisConnectionPool,
     driver_id: &DriverId,
     merchant_id: &MerchantId,
     geo_entries: &Vec<Point>,
@@ -373,8 +367,7 @@ pub async fn push_on_ride_driver_locations(
         geo_points.push(value);
     }
 
-    let _ = data
-        .persistent_redis
+    let _ = persistent_redis_pool
         .rpush(&on_ride_loc_key(merchant_id, driver_id), geo_points)
         .await?;
 
@@ -382,13 +375,12 @@ pub async fn push_on_ride_driver_locations(
 }
 
 pub async fn get_on_ride_driver_locations(
-    data: Data<AppState>,
+    persistent_redis_pool: &RedisConnectionPool,
     driver_id: &DriverId,
     merchant_id: &MerchantId,
     len: i64,
 ) -> Result<Vec<Point>, AppError> {
-    let output = data
-        .persistent_redis
+    let output = persistent_redis_pool
         .lpop(&on_ride_loc_key(merchant_id, driver_id), Some(len as usize))
         .await?;
 
@@ -404,24 +396,23 @@ pub async fn get_on_ride_driver_locations(
 }
 
 pub async fn set_driver_id(
-    data: Data<AppState>,
+    persistent_redis_pool: &RedisConnectionPool,
+    auth_token_expiry: &u32,
     token: &Token,
     DriverId(driver_id): &DriverId,
 ) -> Result<(), AppError> {
-    let _: () = data
-        .persistent_redis
-        .set_with_expiry(&set_driver_id_key(token), driver_id, data.auth_token_expiry)
+    let _: () = persistent_redis_pool
+        .set_key(&set_driver_id_key(token), driver_id, *auth_token_expiry)
         .await?;
 
     Ok(())
 }
 
 pub async fn get_driver_id(
-    data: Data<AppState>,
+    persistent_redis_pool: &RedisConnectionPool,
     token: &Token,
 ) -> Result<Option<DriverId>, AppError> {
-    let driver_id: Option<String> = data
-        .persistent_redis
+    let driver_id: Option<String> = persistent_redis_pool
         .get_key(&set_driver_id_key(token))
         .await?;
     match driver_id {
@@ -431,7 +422,7 @@ pub async fn get_driver_id(
 }
 
 pub async fn with_lock_redis<F, Args, Fut>(
-    redis: Arc<RedisConnectionPool>,
+    redis: &RedisConnectionPool,
     key: String,
     expiry: i64,
     callback: F,
@@ -456,7 +447,7 @@ where
 }
 
 pub async fn get_all_driver_last_locations(
-    data: Data<AppState>,
+    persistent_redis_pool: &RedisConnectionPool,
     nearby_drivers: &Vec<DriverLocationPoint>,
 ) -> Result<Vec<Option<DateTime<Utc>>>, AppError> {
     let driver_last_location_updates_keys = nearby_drivers
@@ -464,8 +455,7 @@ pub async fn get_all_driver_last_locations(
         .map(|driver| driver_details_key(&driver.driver_id))
         .collect::<Vec<String>>();
 
-    let driver_last_locs_ts = data
-        .persistent_redis
+    let driver_last_locs_ts = persistent_redis_pool
         .mget_keys(driver_last_location_updates_keys)
         .await?;
 

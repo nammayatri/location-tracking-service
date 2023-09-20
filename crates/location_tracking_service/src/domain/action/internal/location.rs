@@ -18,11 +18,13 @@ use crate::{
     environment::AppState,
     redis::commands::*,
 };
-use shared::{tools::error::AppError, utils::logger::*};
+use shared::{redis::types::RedisConnectionPool, tools::error::AppError, utils::logger::*};
 
 #[allow(clippy::too_many_arguments)]
 async fn search_nearby_drivers_with_vehicle(
-    data: Data<AppState>,
+    persistent_redis: &RedisConnectionPool,
+    non_persistent_redis: &RedisConnectionPool,
+    nearby_bucket_threshold: &u64,
     merchant_id: MerchantId,
     city: CityName,
     vehicle: VehicleType,
@@ -31,7 +33,8 @@ async fn search_nearby_drivers_with_vehicle(
     radius: Radius,
 ) -> Result<Vec<DriverLocation>, AppError> {
     let nearby_drivers = get_drivers_within_radius(
-        data.clone(),
+        non_persistent_redis,
+        nearby_bucket_threshold,
         &merchant_id,
         &city,
         &vehicle,
@@ -41,7 +44,7 @@ async fn search_nearby_drivers_with_vehicle(
     )
     .await?;
 
-    let driver_last_locs = get_all_driver_last_locations(data, &nearby_drivers).await?;
+    let driver_last_locs = get_all_driver_last_locations(persistent_redis, &nearby_drivers).await?;
 
     let resp = nearby_drivers
         .iter()
@@ -69,7 +72,7 @@ pub async fn get_nearby_drivers(
 ) -> Result<NearbyDriverResponse, AppError> {
     let city = get_city(request_body.lat, request_body.lon, data.polygon.clone())?;
 
-    let current_bucket = get_current_bucket(data.bucket_size)?;
+    let current_bucket = get_current_bucket(&data.bucket_size)?;
 
     match request_body.clone().vehicle_type {
         None => {
@@ -77,7 +80,9 @@ pub async fn get_nearby_drivers(
 
             for vehicle in VehicleType::iter() {
                 let nearby_drivers = search_nearby_drivers_with_vehicle(
-                    data.clone(),
+                    &data.persistent_redis,
+                    &data.non_persistent_redis,
+                    &data.nearby_bucket_threshold,
                     request_body.clone().merchant_id,
                     city.clone(),
                     vehicle.clone(),
@@ -103,7 +108,9 @@ pub async fn get_nearby_drivers(
         }
         Some(vehicle) => {
             let resp = search_nearby_drivers_with_vehicle(
-                data.clone(),
+                &data.persistent_redis,
+                &data.non_persistent_redis,
+                &data.nearby_bucket_threshold,
                 request_body.clone().merchant_id,
                 city,
                 vehicle,
@@ -127,7 +134,7 @@ pub async fn get_drivers_location(
     let mut driver_locations = Vec::new();
 
     for driver_id in driver_ids {
-        let driver_details = get_driver_location(data.clone(), &driver_id).await;
+        let driver_details = get_driver_location(&data.persistent_redis, &driver_id).await;
         if let Ok(driver_details) = driver_details {
             let driver_location = DriverLocation {
                 driver_id: driver_id.clone(),
