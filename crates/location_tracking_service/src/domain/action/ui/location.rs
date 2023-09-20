@@ -188,16 +188,16 @@ async fn process_driver_locations(
         .filter(|request| request.acc.or(Some(Accuracy(0.0))) <= Some(data.min_location_accuracy))
         .collect();
 
-    let last_location_update_ts =
-        get_driver_last_location_update(&data.persistent_redis, &driver_id)
-            .await
-            .unwrap_or(locations[0].ts);
-
     let driver_location = if locations.is_empty() {
         return;
     } else {
         &locations[locations.len() - 1]
     };
+
+    let last_location_update_ts =
+        get_driver_last_location_update(&data.persistent_redis, &driver_id)
+            .await
+            .unwrap_or(driver_location.ts);
 
     let driver_location = Point {
         lat: driver_location.pt.lat,
