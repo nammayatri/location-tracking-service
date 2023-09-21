@@ -400,6 +400,11 @@ pub async fn track_driver_location(
             let current_ride_status = match driver_ride_details.ride_status {
                 RideStatus::NEW => DriverRideStatus::PreRide,
                 RideStatus::INPROGRESS => DriverRideStatus::ActualRide,
+                _ => {
+                    return Err(AppError::InvalidRequest(
+                        "Driver Ride Status is Invalid".to_string(),
+                    ))
+                }
             };
 
             let driver_last_known_location_details =
