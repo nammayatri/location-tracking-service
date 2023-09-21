@@ -51,6 +51,7 @@ pub enum VehicleType {
 pub enum RideStatus {
     NEW,
     INPROGRESS,
+    CANCELLED,
 }
 
 #[derive(Debug, Clone, EnumString, Display, Serialize, Deserialize, Eq, Hash, PartialEq)]
