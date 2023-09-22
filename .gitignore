@@ -1,4 +1,5 @@
-.vscode
+/.vscode/tasks.json
+/.vscode/launch.json
 .DS_Store
 /target
 data
@@ -7,4 +8,4 @@ logs
 # Nix
 /.direnv
 /result
-
+/.pre-commit-config.yaml

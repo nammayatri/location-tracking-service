@@ -15,6 +15,9 @@
     # Services
     process-compose-flake.url = "github:Platonic-Systems/process-compose-flake";
     services-flake.url = "github:juspay/services-flake";
+
+    # Pre-commit
+    pre-commit-hooks-nix.url = "github:cachix/pre-commit-hooks.nix";
   };
   outputs = inputs:
     inputs.flake-parts.lib.mkFlake { inherit inputs; } {
@@ -22,9 +25,11 @@
       imports = [
         inputs.treefmt-nix.flakeModule
         inputs.process-compose-flake.flakeModule
+        inputs.pre-commit-hooks-nix.flakeModule
         ./nix/rust.nix
         ./nix/services.nix
         ./nix/docker.nix
+        ./nix/pre-commit.nix
       ];
       perSystem = { config, self', pkgs, lib, system, ... }:
         {
@@ -49,6 +54,7 @@
           devShells.default = pkgs.mkShell {
             inputsFrom = [
               config.treefmt.build.devShell
+              config.pre-commit.devShell
               self'.devShells.rust
               self'.devShells.services
             ];

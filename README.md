@@ -22,7 +22,7 @@
 
 ### Rust
 
-`cargo` is available in the Nix develop shell. You can also use one of the `just` commands (shown in Nix shell banner) to invoke cargo indirectly. 
+`cargo` is available in the Nix develop shell. You can also use one of the `just` commands (shown in Nix shell banner) to invoke cargo indirectly.
 
 ### VSCode
 
@@ -32,9 +32,13 @@ The necessary extensions are configured in `.vscode/`. See [nammayatri README](h
 
 Run `just fmt` (or `treefmt`) to auto-format the project tree. The CI checks for it.
 
+### pre-commit
+
+pre-commit hooks will be installed in the Nix devshell. Run the `pre-commit` command to manually run them. You can also run `pre-commit run -a` to run pre-commit hooks on *all* files (modified or not).
+
 ### Services
 
-Run `just services` to run the service dependencies (example: redis-server) using [services-flake](https://github.com/juspay/services-flake).   
+Run `just services` to run the service dependencies (example: redis-server) using [services-flake](https://github.com/juspay/services-flake).
 
 ## Usage / Installing
 
