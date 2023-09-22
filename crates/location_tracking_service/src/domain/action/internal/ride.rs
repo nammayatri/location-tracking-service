@@ -38,6 +38,7 @@ async fn update_driver_location(
         driver_id,
         merchant_id,
         &vec![Point { lat, lon }],
+        &data.redis_expiry,
     )
     .await?;
 

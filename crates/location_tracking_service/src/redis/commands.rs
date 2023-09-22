@@ -358,6 +358,7 @@ pub async fn push_on_ride_driver_locations(
     driver_id: &DriverId,
     merchant_id: &MerchantId,
     geo_entries: &Vec<Point>,
+    rpush_expiry: &u32,
 ) -> Result<(), AppError> {
     let mut geo_points: Vec<String> = Vec::new();
 
@@ -368,7 +369,11 @@ pub async fn push_on_ride_driver_locations(
     }
 
     persistent_redis_pool
-        .rpush(&on_ride_loc_key(merchant_id, driver_id), geo_points)
+        .rpush_with_expiry(
+            &on_ride_loc_key(merchant_id, driver_id),
+            geo_points,
+            *rpush_expiry,
+        )
         .await?;
 
     Ok(())

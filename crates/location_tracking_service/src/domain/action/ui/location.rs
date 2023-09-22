@@ -339,6 +339,7 @@ async fn process_on_ride_driver_location(
         &driver_id.clone(),
         &merchant_id,
         &geo_entries,
+        &data.redis_expiry,
     )
     .await;
 
@@ -374,6 +375,7 @@ async fn process_on_ride_driver_location(
                         &driver_id,
                         &merchant_id,
                         &on_ride_driver_locations,
+                        &data.redis_expiry,
                     )
                     .await;
                 }
