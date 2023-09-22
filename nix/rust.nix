@@ -6,13 +6,13 @@
         extensions = [
           "rust-src"
           "rust-analyzer"
+          "clippy"
         ];
       };
       craneLib = (inputs.crane.mkLib pkgs).overrideToolchain rustToolchain;
-      package = craneLib.buildPackage {
+      args = {
         pname = "location-tracking-service";
         src = ./..;
-        doCheck = false; # FIXME: tests require services to be running
         buildInputs = lib.optionals pkgs.stdenv.isDarwin
           (with pkgs.darwin.apple_sdk.frameworks; [
             Security
@@ -26,9 +26,21 @@
           pkgs.cmake
         ];
       };
+      cargoArtifacts = craneLib.buildDepsOnly args;
+      package = craneLib.buildPackage (args // {
+        inherit cargoArtifacts;
+        doCheck = false; # FIXME: tests require services to be running
+      });
+
+      check = craneLib.cargoClippy (args // {
+        inherit cargoArtifacts;
+        cargoClippyExtraArgs = "--all-targets --all-features -- --deny warnings";
+      });
     in
     {
       packages.default = package;
+
+      checks.clippy = check;
 
       # Flake outputs
       devShells.rust = pkgs.mkShell {
@@ -41,9 +53,7 @@
         '';
         nativeBuildInputs = with pkgs; [
           # Add your dev tools here.
-          cargo
-          rustc
-          rust-analyzer
+          rustToolchain
           cargo-watch
         ];
       };
