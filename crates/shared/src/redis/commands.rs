@@ -209,6 +209,37 @@ impl RedisConnectionPool {
         }
     }
 
+    //RPUSH with expiry
+    #[instrument(level = "DEBUG", skip(self))]
+    pub async fn rpush_with_expiry<V>(
+        &self,
+        key: &str,
+        values: Vec<V>,
+        expiry: u32,
+    ) -> Result<(), AppError>
+    where
+        V: TryInto<RedisValue> + Debug + Send + Sync + Clone,
+        V::Error: Into<fred::error::RedisError> + Send + Sync,
+    {
+        if values.is_empty() {
+            return Ok(());
+        }
+
+        let output = self
+            .pool
+            .rpush(key, values)
+            .await
+            .into_report()
+            .change_context(AppError::RPushFailed);
+
+        if let Ok(RedisValue::Integer(_length)) = output {
+            self.set_expiry(key, expiry.into()).await?;
+            Ok(())
+        } else {
+            Err(AppError::RPushFailed)
+        }
+    }
+
     //RPOP
     #[instrument(level = "DEBUG", skip(self))]
     pub async fn rpop(&self, key: &str, count: Option<usize>) -> Result<Vec<String>, AppError> {
@@ -350,7 +381,7 @@ impl RedisConnectionPool {
             return Err(AppError::GeoAddFailed);
         }
 
-        if let Ok(RedisValue::Integer(1)) = output {
+        if let Ok(RedisValue::Integer(_)) = output {
             self.set_expiry(key, expiry as i64).await?;
             return Ok(());
         }

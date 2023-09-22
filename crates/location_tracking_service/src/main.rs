@@ -58,7 +58,7 @@ async fn drain_driver_locations(
             let vehicle_type = &dimensions.vehicle_type;
 
             if !geo_entries.is_empty() {
-                let _ = push_drainer_driver_location(
+                let res = push_drainer_driver_location(
                     merchant_id,
                     city,
                     vehicle_type,
@@ -69,6 +69,10 @@ async fn drain_driver_locations(
                     non_persistent_redis,
                 )
                 .await;
+
+                if let Err(err) = res {
+                    error!(tag = "[Error Pushing To Redis]", error = %err);
+                }
             }
         }
     }
