@@ -76,9 +76,19 @@ where
         Box::pin(async move {
             let response = fut.await?;
             info!(tag = "[INCOMING API]", request_method = %response.request().method(), request_path = %response.request().path(), response_status = %response.status(), latency = format!("{:?}ms", start_time.elapsed().as_millis()));
+
+            let mut path = response.request().path().to_string();
+            response
+                .request()
+                .match_info()
+                .iter()
+                .for_each(|(path_name, path_val)| {
+                    path = path.replace(path_val, format!(":{path_name}").as_str());
+                });
+
             incoming_api!(
                 response.request().method().as_str(),
-                response.request().uri().to_string().as_str(),
+                &path,
                 response.status().as_str(),
                 start_time
             );
