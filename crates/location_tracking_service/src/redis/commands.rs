@@ -341,25 +341,13 @@ pub async fn set_driver_last_location_update(
     Ok(())
 }
 
-pub async fn get_on_ride_driver_location_count(
-    persistent_redis_pool: &RedisConnectionPool,
-    driver_id: &DriverId,
-    merchant_id: &MerchantId,
-) -> Result<i64, AppError> {
-    let driver_location_count = persistent_redis_pool
-        .llen(&on_ride_loc_key(merchant_id, driver_id))
-        .await?;
-
-    Ok(driver_location_count)
-}
-
 pub async fn push_on_ride_driver_locations(
     persistent_redis_pool: &RedisConnectionPool,
     driver_id: &DriverId,
     merchant_id: &MerchantId,
     geo_entries: &Vec<Point>,
     rpush_expiry: &u32,
-) -> Result<(), AppError> {
+) -> Result<i64, AppError> {
     let mut geo_points: Vec<String> = Vec::new();
 
     for entry in geo_entries {
@@ -374,9 +362,7 @@ pub async fn push_on_ride_driver_locations(
             geo_points,
             *rpush_expiry,
         )
-        .await?;
-
-    Ok(())
+        .await
 }
 
 pub async fn get_on_ride_driver_locations(

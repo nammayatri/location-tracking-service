@@ -178,13 +178,13 @@ impl RedisConnectionPool {
         key: &str,
         values: Vec<V>,
         expiry: u32,
-    ) -> Result<(), AppError>
+    ) -> Result<i64, AppError>
     where
         V: TryInto<RedisValue> + Debug + Send + Sync + Clone,
         V::Error: Into<fred::error::RedisError> + Send + Sync,
     {
         if values.is_empty() {
-            return Ok(());
+            self.llen(key).await?;
         }
 
         let pipeline = self.pool.pipeline();
@@ -196,8 +196,8 @@ impl RedisConnectionPool {
 
         let output: Result<Vec<RedisValue>, RedisError> = pipeline.all().await;
 
-        if let Ok([RedisValue::Integer(_), ..]) = output.as_deref() {
-            Ok(())
+        if let Ok([RedisValue::Integer(length), ..]) = output.as_deref() {
+            Ok(length.to_owned())
         } else {
             Err(AppError::RPushFailed)
         }

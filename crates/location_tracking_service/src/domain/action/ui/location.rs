@@ -334,7 +334,7 @@ async fn process_on_ride_driver_location(
         })
         .collect::<Vec<Point>>();
 
-    let _ = push_on_ride_driver_locations(
+    let on_ride_driver_location_count = push_on_ride_driver_locations(
         &data.persistent_redis,
         &driver_id.clone(),
         &merchant_id,
@@ -342,9 +342,6 @@ async fn process_on_ride_driver_location(
         &data.redis_expiry,
     )
     .await;
-
-    let on_ride_driver_location_count =
-        get_on_ride_driver_location_count(&data.persistent_redis, &driver_id, &merchant_id).await;
 
     if let Ok(on_ride_driver_location_count) = on_ride_driver_location_count {
         if on_ride_driver_location_count >= data.batch_size {
