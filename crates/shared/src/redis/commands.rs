@@ -158,12 +158,7 @@ impl RedisConnectionPool {
             return Ok(());
         }
 
-        let output = self
-            .pool
-            .rpush(key, values)
-            .await
-            .into_report()
-            .change_context(AppError::RPushFailed);
+        let output = self.pool.rpush(key, values).await;
 
         if let Ok(RedisValue::Integer(_length)) = output {
             Ok(())
@@ -347,15 +342,70 @@ impl RedisConnectionPool {
                 withdist,
                 withhash,
             )
-            .await
-            .into_report()
-            .change_context(AppError::GeoSearchFailed);
+            .await;
 
-        if output.is_err() {
-            return Err(AppError::GeoSearchFailed);
+        match output {
+            Err(_) => Err(AppError::GeoSearchFailed),
+            Ok(output) => Ok(output),
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn mgeo_search(
+        &self,
+        keys: Vec<String>,
+        from_member: Option<RedisValue>,
+        from_lonlat: Option<GeoPosition>,
+        by_radius: Option<(f64, GeoUnit)>,
+        by_box: Option<(f64, f64, GeoUnit)>,
+        ord: Option<SortOrder>,
+        count: Option<(u64, fred::types::Any)>,
+    ) -> Result<Vec<GeoRadiusInfo>, AppError> {
+        let pipeline = self.pool.pipeline();
+
+        for key in keys.clone() {
+            let _ = pipeline
+                .geosearch(
+                    key,
+                    from_member.to_owned(),
+                    from_lonlat.to_owned(),
+                    by_radius.to_owned(),
+                    by_box.to_owned(),
+                    ord.to_owned(),
+                    count,
+                    true,
+                    false,
+                    false,
+                )
+                .await;
         }
 
-        Ok(output.unwrap())
+        let output: Result<Vec<Vec<RedisValue>>, RedisError> = pipeline.all().await;
+
+        if let Ok(geovals) = output {
+            let mut output = Vec::new();
+
+            for geoval in geovals {
+                if let [member, RedisValue::Array(position)] = &geoval[..] {
+                    if let [RedisValue::Double(longitude), RedisValue::Double(latitude)] =
+                        position[..]
+                    {
+                        output.push(GeoRadiusInfo {
+                            member: member.clone(),
+                            position: Some(GeoPosition {
+                                longitude,
+                                latitude,
+                            }),
+                            distance: None,
+                            hash: None,
+                        })
+                    }
+                }
+            }
+            Ok(output)
+        } else {
+            Err(AppError::GeoSearchFailed)
+        }
     }
 
     //GEOPOS
