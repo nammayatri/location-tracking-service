@@ -130,24 +130,22 @@ pub async fn get_drivers_within_radius(
 ) -> Result<Vec<DriverLocationPoint>, AppError> {
     let Latitude(lat) = location.lat;
     let Longitude(lon) = location.lon;
-    let mut nearby_drivers = Vec::new();
-    for bucket_idx in 0..*nearby_bucket_threshold {
-        let nearby_drivers_by_bucket = non_persistent_redis_pool
-            .geo_search(
-                driver_loc_bucket_key(merchant_id, city, vehicle, &(bucket - bucket_idx)).as_str(),
-                None,
-                Some(GeoPosition::from((lon, lat))),
-                Some((radius, GeoUnit::Meters)),
-                None,
-                Some(SortOrder::Asc),
-                None,
-                true,
-                true,
-                false,
-            )
-            .await?;
-        nearby_drivers.extend(nearby_drivers_by_bucket);
-    }
+
+    let bucket_keys: Vec<String> = (0..*nearby_bucket_threshold)
+        .map(|bucket_idx| driver_loc_bucket_key(merchant_id, city, vehicle, &(bucket - bucket_idx)))
+        .collect();
+
+    let nearby_drivers = non_persistent_redis_pool
+        .mgeo_search(
+            bucket_keys,
+            None,
+            Some(GeoPosition::from((lon, lat))),
+            Some((radius, GeoUnit::Meters)),
+            None,
+            Some(SortOrder::Asc),
+            None,
+        )
+        .await?;
 
     info!("Get Nearby Drivers {:?}", nearby_drivers);
 
