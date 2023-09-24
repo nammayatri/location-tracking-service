@@ -22,7 +22,7 @@ async fn update_driver_location(
     lat: Latitude,
     lon: Longitude,
     driver_mode: Option<DriverMode>,
-) -> Result<(), AppError> {
+) -> Result<i64, AppError> {
     set_driver_last_location_update(
         &data.persistent_redis,
         &data.last_location_timstamp_expiry,
@@ -40,9 +40,7 @@ async fn update_driver_location(
         &vec![Point { lat, lon }],
         &data.redis_expiry,
     )
-    .await?;
-
-    Ok(())
+    .await
 }
 
 pub async fn ride_start(
@@ -86,20 +84,13 @@ pub async fn ride_end(
     )
     .await?;
 
-    update_driver_location(
+    let on_ride_driver_location_count = update_driver_location(
         data.clone(),
         &request_body.driver_id,
         &request_body.merchant_id,
         request_body.lat,
         request_body.lon,
         None,
-    )
-    .await?;
-
-    let on_ride_driver_location_count = get_on_ride_driver_location_count(
-        &data.persistent_redis,
-        &request_body.driver_id,
-        &request_body.merchant_id,
     )
     .await?;
 
