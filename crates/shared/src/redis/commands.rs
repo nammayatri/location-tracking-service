@@ -1,10 +1,9 @@
 use crate::redis::types::*;
 use crate::tools::error::AppError;
-use crate::utils::logger::instrument;
 use error_stack::{IntoReport, ResultExt};
 use fred::{
     interfaces::{GeoInterface, HashesInterface, KeysInterface, SortedSetsInterface},
-    prelude::ListInterface,
+    prelude::{ListInterface, RedisError},
     types::{
         Expiration, FromRedis, GeoPosition, GeoRadiusInfo, GeoUnit, Limit, MultipleGeoValues,
         MultipleKeys, Ordering, RedisKey, RedisMap, RedisValue, SetOptions, SortOrder, ZSort,
@@ -14,7 +13,6 @@ use std::fmt::Debug;
 
 impl RedisConnectionPool {
     // set key
-    #[instrument(level = "DEBUG", skip(self))]
     pub async fn set_key<V>(&self, key: &str, value: V, expiry: u32) -> Result<(), AppError>
     where
         V: TryInto<RedisValue> + Debug + Send + Sync,
@@ -23,9 +21,7 @@ impl RedisConnectionPool {
         let output: Result<(), _> = self
             .pool
             .set(key, value, Some(Expiration::EX(expiry.into())), None, false)
-            .await
-            .into_report()
-            .change_context(AppError::SetFailed);
+            .await;
 
         if output.is_err() {
             return Err(AppError::SetFailed);
@@ -35,7 +31,6 @@ impl RedisConnectionPool {
     }
 
     // setnx key with expiry
-    #[instrument(level = "DEBUG", skip(self))]
     pub async fn setnx_with_expiry<V>(
         &self,
         key: &str,
@@ -46,12 +41,7 @@ impl RedisConnectionPool {
         V: TryInto<RedisValue> + Debug + Send + Sync,
         V::Error: Into<fred::error::RedisError> + Send + Sync,
     {
-        let output: Result<RedisValue, _> = self
-            .pool
-            .msetnx((key, value))
-            .await
-            .into_report()
-            .change_context(AppError::SetFailed);
+        let output: Result<RedisValue, _> = self.pool.msetnx((key, value)).await;
 
         if let Ok(RedisValue::Integer(1)) = output {
             self.set_expiry(key, expiry).await?;
@@ -61,14 +51,8 @@ impl RedisConnectionPool {
         Err(AppError::SetExFailed)
     }
 
-    #[instrument(level = "DEBUG", skip(self))]
     pub async fn set_expiry(&self, key: &str, seconds: i64) -> Result<(), AppError> {
-        let output: Result<(), _> = self
-            .pool
-            .expire(key, seconds)
-            .await
-            .into_report()
-            .change_context(AppError::SetExpiryFailed);
+        let output: Result<(), _> = self.pool.expire(key, seconds).await;
 
         if output.is_err() {
             return Err(AppError::SetExpiryFailed);
@@ -78,14 +62,8 @@ impl RedisConnectionPool {
     }
 
     // get key
-    #[instrument(level = "DEBUG", skip(self))]
     pub async fn get_key(&self, key: &str) -> Result<Option<String>, AppError> {
-        let output: Result<RedisValue, _> = self
-            .pool
-            .get(key)
-            .await
-            .into_report()
-            .change_context(AppError::GetFailed);
+        let output: Result<RedisValue, _> = self.pool.get(key).await;
 
         match output {
             Ok(RedisValue::String(val)) => Ok(Some(val.to_string())),
@@ -95,7 +73,6 @@ impl RedisConnectionPool {
     }
 
     // mget key
-    #[instrument(level = "DEBUG", skip(self))]
     pub async fn mget_keys(&self, keys: Vec<String>) -> Result<Vec<Option<String>>, AppError> {
         if keys.is_empty() {
             return Ok(vec![None]);
@@ -103,12 +80,7 @@ impl RedisConnectionPool {
 
         let keys: Vec<RedisKey> = keys.into_iter().map(RedisKey::from).collect();
 
-        let output: Result<RedisValue, _> = self
-            .pool
-            .mget(MultipleKeys::from(keys))
-            .await
-            .into_report()
-            .change_context(AppError::MGetFailed);
+        let output: Result<RedisValue, _> = self.pool.mget(MultipleKeys::from(keys)).await;
 
         match output {
             Ok(RedisValue::Array(val)) => Ok(val.into_iter().map(|v| v.into_string()).collect()),
@@ -119,14 +91,8 @@ impl RedisConnectionPool {
     }
 
     // delete key
-    #[instrument(level = "DEBUG", skip(self))]
     pub async fn delete_key(&self, key: &str) -> Result<(), AppError> {
-        let output: Result<(), _> = self
-            .pool
-            .del(key)
-            .await
-            .into_report()
-            .change_context(AppError::DeleteFailed);
+        let output: Result<(), _> = self.pool.del(key).await;
 
         if output.is_err() {
             return Err(AppError::DeleteFailed);
@@ -136,7 +102,6 @@ impl RedisConnectionPool {
     }
 
     //HSET
-    #[instrument(level = "DEBUG", skip(self))]
     pub async fn set_hash_fields<V>(
         &self,
         key: &str,
@@ -165,7 +130,6 @@ impl RedisConnectionPool {
     }
 
     //HGET
-    #[instrument(level = "DEBUG", skip(self))]
     pub async fn get_hash_field<V>(&self, key: &str, field: &str) -> Result<V, AppError>
     where
         V: FromRedis + Unpin + Send + 'static,
@@ -185,7 +149,6 @@ impl RedisConnectionPool {
     }
 
     //RPUSH
-    #[instrument(level = "DEBUG", skip(self))]
     pub async fn rpush<V>(&self, key: &str, values: Vec<V>) -> Result<(), AppError>
     where
         V: TryInto<RedisValue> + Debug + Send + Sync + Clone,
@@ -210,7 +173,6 @@ impl RedisConnectionPool {
     }
 
     //RPUSH with expiry
-    #[instrument(level = "DEBUG", skip(self))]
     pub async fn rpush_with_expiry<V>(
         &self,
         key: &str,
@@ -225,15 +187,16 @@ impl RedisConnectionPool {
             return Ok(());
         }
 
-        let output = self
-            .pool
-            .rpush(key, values)
-            .await
-            .into_report()
-            .change_context(AppError::RPushFailed);
+        let pipeline = self.pool.pipeline();
 
-        if let Ok(RedisValue::Integer(_length)) = output {
-            self.set_expiry(key, expiry.into()).await?;
+        let _ = pipeline
+            .rpush::<RedisValue, &str, Vec<V>>(key, values)
+            .await;
+        let _ = pipeline.expire::<(), &str>(key, expiry.into()).await;
+
+        let output: Result<Vec<RedisValue>, RedisError> = pipeline.all().await;
+
+        if let Ok([RedisValue::Integer(_), ..]) = output.as_deref() {
             Ok(())
         } else {
             Err(AppError::RPushFailed)
@@ -241,14 +204,8 @@ impl RedisConnectionPool {
     }
 
     //RPOP
-    #[instrument(level = "DEBUG", skip(self))]
     pub async fn rpop(&self, key: &str, count: Option<usize>) -> Result<Vec<String>, AppError> {
-        let output = self
-            .pool
-            .rpop(key, count)
-            .await
-            .into_report()
-            .change_context(AppError::RPopFailed);
+        let output = self.pool.rpop(key, count).await;
 
         match output {
             Ok(RedisValue::Array(val)) => {
@@ -266,14 +223,8 @@ impl RedisConnectionPool {
     }
 
     //LPOP
-    #[instrument(level = "DEBUG", skip(self))]
     pub async fn lpop(&self, key: &str, count: Option<usize>) -> Result<Vec<String>, AppError> {
-        let output = self
-            .pool
-            .lpop(key, count)
-            .await
-            .into_report()
-            .change_context(AppError::LPopFailed);
+        let output = self.pool.lpop(key, count).await;
 
         match output {
             Ok(RedisValue::Array(val)) => {
@@ -291,14 +242,8 @@ impl RedisConnectionPool {
     }
 
     //LRANGE
-    #[instrument(level = "DEBUG", skip(self))]
     pub async fn lrange(&self, key: &str, min: i64, max: i64) -> Result<Vec<String>, AppError> {
-        let output = self
-            .pool
-            .lrange(key, min, max)
-            .await
-            .into_report()
-            .change_context(AppError::LRangeFailed);
+        let output = self.pool.lrange(key, min, max).await;
 
         match output {
             Ok(RedisValue::Array(val)) => {
@@ -315,14 +260,8 @@ impl RedisConnectionPool {
     }
 
     //LLEN
-    #[instrument(level = "DEBUG", skip(self))]
     pub async fn llen(&self, key: &str) -> Result<i64, AppError> {
-        let output = self
-            .pool
-            .llen(key)
-            .await
-            .into_report()
-            .change_context(AppError::RPushFailed);
+        let output = self.pool.llen(key).await;
 
         if let Ok(RedisValue::Integer(length)) = output {
             Ok(length)
@@ -332,7 +271,6 @@ impl RedisConnectionPool {
     }
 
     //GEOADD
-    #[instrument(level = "DEBUG", skip(self))]
     pub async fn geo_add<V>(
         &self,
         key: &str,
@@ -343,12 +281,7 @@ impl RedisConnectionPool {
     where
         V: Into<MultipleGeoValues> + Send + Debug,
     {
-        let output: Result<(), _> = self
-            .pool
-            .geoadd(key, options, changed, values)
-            .await
-            .into_report()
-            .change_context(AppError::GeoAddFailed);
+        let output: Result<(), _> = self.pool.geoadd(key, options, changed, values).await;
 
         if output.is_err() {
             return Err(AppError::GeoAddFailed);
@@ -358,7 +291,6 @@ impl RedisConnectionPool {
     }
 
     //GEOADD with expiry
-    #[instrument(level = "DEBUG", skip(self))]
     pub async fn geo_add_with_expiry<V>(
         &self,
         key: &str,
@@ -370,28 +302,24 @@ impl RedisConnectionPool {
     where
         V: Into<MultipleGeoValues> + Send + Debug,
     {
-        let output: Result<RedisValue, _> = self
-            .pool
-            .geoadd(key, options, changed, values)
-            .await
-            .into_report()
-            .change_context(AppError::GeoAddFailed);
+        let pipeline = self.pool.pipeline();
 
-        if output.is_err() {
-            return Err(AppError::GeoAddFailed);
-        }
+        let _ = pipeline
+            .geoadd::<RedisValue, &str, V>(key, options, changed, values)
+            .await;
+        let _ = pipeline.expire::<(), &str>(key, expiry as i64).await;
 
-        if let Ok(RedisValue::Integer(_)) = output {
-            self.set_expiry(key, expiry as i64).await?;
+        let output: Result<Vec<RedisValue>, RedisError> = pipeline.all().await;
+
+        if let Ok([RedisValue::Integer(_), ..]) = output.as_deref() {
             return Ok(());
         }
 
-        Err(AppError::SetExFailed)
+        Err(AppError::GeoAddFailed)
     }
 
     //GEOSEARCH
     #[allow(clippy::too_many_arguments)]
-    #[instrument(level = "DEBUG", skip(self))]
     pub async fn geo_search(
         &self,
         key: &str,
@@ -431,14 +359,8 @@ impl RedisConnectionPool {
     }
 
     //GEOPOS
-    #[instrument(level = "DEBUG", skip(self))]
     pub async fn geopos(&self, key: &str, members: Vec<String>) -> Result<Vec<Point>, AppError> {
-        let output: Result<RedisValue, _> = self
-            .pool
-            .geopos(key, members)
-            .await
-            .into_report()
-            .change_context(AppError::GeoPosFailed);
+        let output: Result<RedisValue, _> = self.pool.geopos(key, members).await;
 
         match output {
             Ok(RedisValue::Array(points)) => {
@@ -472,19 +394,13 @@ impl RedisConnectionPool {
     }
 
     //ZREMRANGEBYRANK
-    #[instrument(level = "DEBUG", skip(self))]
     pub async fn zremrange_by_rank(
         &self,
         key: &str,
         start: i64,
         stop: i64,
     ) -> Result<(), AppError> {
-        let output: Result<(), _> = self
-            .pool
-            .zremrangebyrank(key, start, stop)
-            .await
-            .into_report()
-            .change_context(AppError::ZremrangeByRankFailed);
+        let output: Result<(), _> = self.pool.zremrangebyrank(key, start, stop).await;
 
         if output.is_err() {
             return Err(AppError::ZremrangeByRankFailed);
@@ -494,7 +410,6 @@ impl RedisConnectionPool {
     }
 
     //ZADD
-    #[instrument(level = "DEBUG", skip(self))]
     pub async fn zadd(
         &self,
         key: &str,
@@ -519,7 +434,6 @@ impl RedisConnectionPool {
     }
 
     //ZCARD
-    #[instrument(level = "DEBUG", skip(self))]
     pub async fn zcard(&self, key: &str) -> Result<u64, AppError> {
         let output: Result<u64, _> = self
             .pool
@@ -537,7 +451,6 @@ impl RedisConnectionPool {
 
     //ZRANGE
     #[allow(clippy::too_many_arguments)]
-    #[instrument(level = "DEBUG", skip(self))]
     pub async fn zrange(
         &self,
         key: &str,
