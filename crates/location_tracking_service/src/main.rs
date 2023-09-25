@@ -69,10 +69,9 @@ async fn drain_driver_locations(
 async fn run_drainer(
     mut rx: mpsc::Receiver<(Dimensions, Latitude, Longitude, DriverId)>,
     graceful_termination_requested: Arc<AtomicBool>,
-    drainer_delay: u64,
     drainer_capacity: usize,
+    drainer_delay: u64,
     new_ride_drainer_delay: u64,
-    new_ride_drainer_capacity: usize,
     bucket_size: u64,
     near_by_bucket_threshold: u64,
     non_persistent_redis: &RedisConnectionPool,
@@ -87,8 +86,9 @@ async fn run_drainer(
     let mut new_ride_drainer_size = 0;
     loop {
         if graceful_termination_requested.load(Ordering::Relaxed) {
-            info!(tag = "[Graceful Shutting Down]", length = %(drainer_size + new_ride_drainer_size));
-            if !driver_locations.is_empty() {
+            info!(tag = "[Graceful Shutting Down]", length = %drainer_size);
+            if !driver_locations.is_empty() || !new_ride_driver_locations.is_empty() {
+                driver_locations.extend(new_ride_driver_locations.drain());
                 drain_driver_locations(
                     &driver_locations,
                     bucket_size,
@@ -97,16 +97,6 @@ async fn run_drainer(
                 )
                 .await;
                 prometheus::QUEUE_COUNTER.reset();
-            }
-
-            if !new_ride_driver_locations.is_empty() {
-                drain_driver_locations(
-                    &new_ride_driver_locations,
-                    bucket_size,
-                    near_by_bucket_threshold,
-                    non_persistent_redis,
-                )
-                .await;
                 prometheus::NEW_RIDE_QUEUE_COUNTER.reset();
             }
             break;
@@ -120,7 +110,7 @@ async fn run_drainer(
                             if new_ride {
                                 new_ride_driver_locations
                                     .entry(driver_loc_bucket_key(&merchant_id, &city, &vehicle_type, &bucket))
-                                    .or_insert_with(|| Vec::with_capacity(new_ride_drainer_capacity))
+                                    .or_insert_with(|| Vec::with_capacity(drainer_capacity))
                                     .push(GeoValue {
                                         coordinates: GeoPosition {
                                             latitude,
@@ -128,16 +118,8 @@ async fn run_drainer(
                                         },
                                         member: driver_id.into(),
                                     });
-                                prometheus::NEW_RIDE_QUEUE_COUNTER.inc();
                                 new_ride_drainer_size += 1;
-                                if new_ride_drainer_size >= new_ride_drainer_capacity {
-                                    info!(tag = "[Force Draining Queue - New Ride]", length = %new_ride_drainer_size);
-                                    drain_driver_locations(&new_ride_driver_locations, bucket_size, near_by_bucket_threshold, non_persistent_redis).await;
-                                    // Cleanup
-                                    prometheus::NEW_RIDE_QUEUE_COUNTER.reset();
-                                    new_ride_drainer_size = 0;
-                                    new_ride_driver_locations.values_mut().for_each(Vec::clear);
-                                }
+                                prometheus::NEW_RIDE_QUEUE_COUNTER.inc();
                             } else {
                                 driver_locations
                                     .entry(driver_loc_bucket_key(&merchant_id, &city, &vehicle_type, &bucket))
@@ -149,16 +131,19 @@ async fn run_drainer(
                                         },
                                         member: driver_id.into(),
                                     });
-                                prometheus::QUEUE_COUNTER.inc();
                                 drainer_size += 1;
-                                if drainer_size >= drainer_capacity {
-                                    info!(tag = "[Force Draining Queue]", length = %drainer_size);
-                                    drain_driver_locations(&driver_locations, bucket_size, near_by_bucket_threshold, non_persistent_redis).await;
-                                    // Cleanup
-                                    prometheus::QUEUE_COUNTER.reset();
-                                    drainer_size = 0;
-                                    driver_locations.values_mut().for_each(Vec::clear);
-                                }
+                                prometheus::QUEUE_COUNTER.inc();
+                            }
+                            if (drainer_size + new_ride_drainer_size) >= drainer_capacity {
+                                info!(tag = "[Force Draining Queue]", length = %drainer_size);
+                                driver_locations.extend(new_ride_driver_locations.drain());
+                                drain_driver_locations(&driver_locations, bucket_size, near_by_bucket_threshold, non_persistent_redis).await;
+                                // Cleanup
+                                prometheus::QUEUE_COUNTER.reset();
+                                prometheus::NEW_RIDE_QUEUE_COUNTER.reset();
+                                drainer_size = 0;
+                                new_ride_drainer_size = 0;
+                                driver_locations.values_mut().for_each(Vec::clear);
                             }
                         }
                     },
@@ -207,10 +192,7 @@ async fn start_server() -> std::io::Result<()> {
     let (sender, receiver): (
         Sender<(Dimensions, Latitude, Longitude, DriverId)>,
         Receiver<(Dimensions, Latitude, Longitude, DriverId)>,
-    ) = mpsc::channel(min(
-        app_config.drainer_size,
-        app_config.new_ride_drainer_size,
-    ));
+    ) = mpsc::channel(app_config.drainer_size);
 
     let app_state = AppState::new(app_config, sender).await;
 
@@ -237,10 +219,9 @@ async fn start_server() -> std::io::Result<()> {
         run_drainer(
             receiver,
             graceful_termination_requested,
-            thread_data.drainer_delay,
             thread_data.drainer_size,
+            thread_data.drainer_delay,
             thread_data.new_ride_drainer_delay,
-            thread_data.new_ride_drainer_size,
             thread_data.bucket_size,
             thread_data.nearby_bucket_threshold,
             &thread_data.non_persistent_redis,
