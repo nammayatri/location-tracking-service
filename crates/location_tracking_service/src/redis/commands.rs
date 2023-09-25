@@ -10,9 +10,9 @@ use crate::redis::keys::*;
 use chrono::{DateTime, Utc};
 use fred::types::{GeoPosition, GeoUnit, GeoValue, MultipleGeoValues, RedisValue, SortOrder};
 use futures::Future;
+use rustc_hash::FxHashSet;
 use shared::utils::logger::*;
 use shared::{redis::types::RedisConnectionPool, tools::error::AppError};
-use std::collections::HashSet;
 
 pub async fn set_ride_details(
     persistent_redis_pool: &RedisConnectionPool,
@@ -149,7 +149,7 @@ pub async fn get_drivers_within_radius(
 
     info!("Get Nearby Drivers {:?}", nearby_drivers);
 
-    let mut driver_ids: HashSet<DriverId> = HashSet::new();
+    let mut driver_ids: FxHashSet<DriverId> = FxHashSet::default();
     let mut resp: Vec<DriverLocationPoint> = Vec::new();
 
     for driver in nearby_drivers.iter() {
