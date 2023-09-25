@@ -5,10 +5,12 @@ use fred::{
     interfaces::{GeoInterface, HashesInterface, KeysInterface, SortedSetsInterface},
     prelude::{ListInterface, RedisError},
     types::{
-        Expiration, FromRedis, GeoPosition, GeoRadiusInfo, GeoUnit, Limit, MultipleGeoValues,
-        MultipleKeys, Ordering, RedisKey, RedisMap, RedisValue, SetOptions, SortOrder, ZSort,
+        Expiration, FromRedis, GeoPosition, GeoRadiusInfo, GeoUnit, GeoValue, Limit,
+        MultipleGeoValues, MultipleKeys, Ordering, RedisKey, RedisMap, RedisValue, SetOptions,
+        SortOrder, ZSort,
     },
 };
+use rustc_hash::FxHashMap;
 use std::fmt::Debug;
 
 impl RedisConnectionPool {
@@ -303,6 +305,37 @@ impl RedisConnectionPool {
             .geoadd::<RedisValue, &str, V>(key, options, changed, values)
             .await;
         let _ = pipeline.expire::<(), &str>(key, expiry as i64).await;
+
+        let output: Result<Vec<RedisValue>, RedisError> = pipeline.all().await;
+
+        if let Ok([RedisValue::Integer(_), ..]) = output.as_deref() {
+            return Ok(());
+        }
+
+        Err(AppError::GeoAddFailed)
+    }
+
+    //MGEOADD with expiry
+    pub async fn mgeo_add_with_expiry(
+        &self,
+        mval: &FxHashMap<String, Vec<GeoValue>>,
+        options: Option<SetOptions>,
+        changed: bool,
+        expiry: u64,
+    ) -> Result<(), AppError> {
+        let pipeline = self.pool.pipeline();
+
+        for (key, values) in mval.iter() {
+            let _ = pipeline
+                .geoadd::<RedisValue, &str, MultipleGeoValues>(
+                    key,
+                    options.clone(),
+                    changed,
+                    MultipleGeoValues::from(values.clone()),
+                )
+                .await;
+            let _ = pipeline.expire::<(), &str>(key, expiry as i64).await;
+        }
 
         let output: Result<Vec<RedisValue>, RedisError> = pipeline.all().await;
 

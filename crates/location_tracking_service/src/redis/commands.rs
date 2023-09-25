@@ -8,9 +8,9 @@
 use crate::common::types::*;
 use crate::redis::keys::*;
 use chrono::{DateTime, Utc};
-use fred::types::{GeoPosition, GeoUnit, GeoValue, MultipleGeoValues, RedisValue, SortOrder};
+use fred::types::{GeoPosition, GeoUnit, GeoValue, RedisValue, SortOrder};
 use futures::Future;
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 use shared::utils::logger::*;
 use shared::{redis::types::RedisConnectionPool, tools::error::AppError};
 
@@ -173,33 +173,14 @@ pub async fn get_drivers_within_radius(
 
 #[allow(clippy::too_many_arguments)]
 pub async fn push_drainer_driver_location(
-    merchant_id: &MerchantId,
-    city: &CityName,
-    vehicle: &VehicleType,
-    bucket: &u64,
-    geo_entries: &[(Latitude, Longitude, DriverId)],
+    geo_entries: &FxHashMap<String, Vec<GeoValue>>,
     bucket_size: &u64,
     nearby_bucket_threshold: &u64,
     non_persistent_redis: &RedisConnectionPool,
 ) -> Result<(), AppError> {
-    let geo_values: Vec<GeoValue> = geo_entries
-        .iter()
-        .map(
-            |(Latitude(lat), Longitude(lon), DriverId(driver_id))| GeoValue {
-                coordinates: GeoPosition {
-                    latitude: *lat,
-                    longitude: *lon,
-                },
-                member: driver_id.into(),
-            },
-        )
-        .collect();
-    let multiple_geo_values: MultipleGeoValues = geo_values.into();
-
     non_persistent_redis
-        .geo_add_with_expiry(
-            &driver_loc_bucket_key(merchant_id, city, vehicle, bucket),
-            multiple_geo_values,
+        .mgeo_add_with_expiry(
+            geo_entries,
             None,
             false,
             bucket_size * nearby_bucket_threshold,
