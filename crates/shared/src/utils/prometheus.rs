@@ -23,6 +23,15 @@ pub static QUEUE_COUNTER: once_cell::sync::Lazy<IntCounter> = once_cell::sync::L
         .expect("Failed to register queue counter metrics")
 });
 
+pub static NEW_RIDE_QUEUE_COUNTER: once_cell::sync::Lazy<IntCounter> =
+    once_cell::sync::Lazy::new(|| {
+        register_int_counter!(
+            "new_ride_queue_counter",
+            "New Ride Queue Counter Montitoring"
+        )
+        .expect("Failed to register new ride queue counter metrics")
+    });
+
 #[macro_export]
 macro_rules! incoming_api {
     ($method:expr, $endpoint:expr, $status:expr, $start:expr) => {
@@ -62,6 +71,11 @@ pub fn prometheus_metrics() -> PrometheusMetrics {
     prometheus
         .registry
         .register(Box::new(QUEUE_COUNTER.clone()))
+        .expect("Failed to register queue counter metrics");
+
+    prometheus
+        .registry
+        .register(Box::new(NEW_RIDE_QUEUE_COUNTER.clone()))
         .expect("Failed to register queue counter metrics");
 
     prometheus

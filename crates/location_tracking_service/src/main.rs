@@ -20,10 +20,17 @@ use shared::utils::{
     logger::*,
     prometheus::{self, *},
 };
-use std::env::var;
-use std::time::Duration;
-use tokio::sync::mpsc::{self, Receiver, Sender};
-use tokio::time::interval;
+use std::{
+    cmp::min,
+    env::var,
+    sync::atomic::{AtomicBool, Ordering},
+};
+use std::{sync::Arc, time::Duration};
+use tokio::{
+    signal::unix::signal,
+    sync::mpsc::{self, Receiver, Sender},
+};
+use tokio::{signal::unix::SignalKind, time::interval};
 use tracing_actix_web::TracingLogger;
 
 pub fn read_dhall_config(config_path: &str) -> Result<AppConfig, String> {
@@ -61,6 +68,7 @@ async fn drain_driver_locations(
 #[allow(clippy::too_many_arguments)]
 async fn run_drainer(
     mut rx: mpsc::Receiver<(Dimensions, Latitude, Longitude, DriverId)>,
+    graceful_termination_requested: Arc<AtomicBool>,
     drainer_delay: u64,
     drainer_capacity: usize,
     new_ride_drainer_delay: u64,
@@ -78,12 +86,36 @@ async fn run_drainer(
     let mut drainer_size = 0;
     let mut new_ride_drainer_size = 0;
     loop {
+        if graceful_termination_requested.load(Ordering::Relaxed) {
+            info!(tag = "[Graceful Shutting Down]", length = %(drainer_size + new_ride_drainer_size));
+            if !driver_locations.is_empty() {
+                drain_driver_locations(
+                    &driver_locations,
+                    bucket_size,
+                    near_by_bucket_threshold,
+                    non_persistent_redis,
+                )
+                .await;
+                prometheus::QUEUE_COUNTER.reset();
+            }
+
+            if !new_ride_driver_locations.is_empty() {
+                drain_driver_locations(
+                    &new_ride_driver_locations,
+                    bucket_size,
+                    near_by_bucket_threshold,
+                    non_persistent_redis,
+                )
+                .await;
+                prometheus::NEW_RIDE_QUEUE_COUNTER.reset();
+            }
+            break;
+        }
         tokio::select! {
             item = rx.recv() => {
                 info!(tag = "[Recieved Entries For Queuing]");
                 match item {
                     Some((Dimensions { merchant_id, city, vehicle_type, new_ride }, Latitude(latitude), Longitude(longitude), DriverId(driver_id))) => {
-                        prometheus::QUEUE_COUNTER.inc();
                         if let Ok(bucket) = get_current_bucket(&bucket_size) {
                             if new_ride {
                                 new_ride_driver_locations
@@ -96,14 +128,15 @@ async fn run_drainer(
                                         },
                                         member: driver_id.into(),
                                     });
+                                prometheus::NEW_RIDE_QUEUE_COUNTER.inc();
                                 new_ride_drainer_size += 1;
                                 if new_ride_drainer_size >= new_ride_drainer_capacity {
                                     info!(tag = "[Force Draining Queue - New Ride]", length = %new_ride_drainer_size);
                                     drain_driver_locations(&new_ride_driver_locations, bucket_size, near_by_bucket_threshold, non_persistent_redis).await;
                                     // Cleanup
-                                    prometheus::QUEUE_COUNTER.reset();
+                                    prometheus::NEW_RIDE_QUEUE_COUNTER.reset();
                                     new_ride_drainer_size = 0;
-                                    new_ride_driver_locations.clear();
+                                    new_ride_driver_locations.values_mut().for_each(Vec::clear);
                                 }
                             } else {
                                 driver_locations
@@ -116,6 +149,7 @@ async fn run_drainer(
                                         },
                                         member: driver_id.into(),
                                     });
+                                prometheus::QUEUE_COUNTER.inc();
                                 drainer_size += 1;
                                 if drainer_size >= drainer_capacity {
                                     info!(tag = "[Force Draining Queue]", length = %drainer_size);
@@ -123,7 +157,7 @@ async fn run_drainer(
                                     // Cleanup
                                     prometheus::QUEUE_COUNTER.reset();
                                     drainer_size = 0;
-                                    driver_locations.clear();
+                                    driver_locations.values_mut().for_each(Vec::clear);
                                 }
                             }
                         }
@@ -138,7 +172,7 @@ async fn run_drainer(
                     // Cleanup
                     prometheus::QUEUE_COUNTER.reset();
                     drainer_size = 0;
-                    driver_locations.clear();
+                    driver_locations.values_mut().for_each(Vec::clear);
                 }
             },
             _ = new_ride_timer.tick() => {
@@ -146,9 +180,9 @@ async fn run_drainer(
                     info!(tag = "[Draining Queue - New Ride]", length = %new_ride_drainer_size);
                     drain_driver_locations(&new_ride_driver_locations, bucket_size, near_by_bucket_threshold, non_persistent_redis).await;
                     // Cleanup
-                    prometheus::QUEUE_COUNTER.reset();
+                    prometheus::NEW_RIDE_QUEUE_COUNTER.reset();
                     new_ride_drainer_size = 0;
-                    new_ride_driver_locations.clear();
+                    new_ride_driver_locations.values_mut().for_each(Vec::clear);
                 }
             },
         }
@@ -173,16 +207,36 @@ async fn start_server() -> std::io::Result<()> {
     let (sender, receiver): (
         Sender<(Dimensions, Latitude, Longitude, DriverId)>,
         Receiver<(Dimensions, Latitude, Longitude, DriverId)>,
-    ) = mpsc::channel(app_config.drainer_size);
+    ) = mpsc::channel(min(
+        app_config.drainer_size,
+        app_config.new_ride_drainer_size,
+    ));
 
     let app_state = AppState::new(app_config, sender).await;
 
     let data = web::Data::new(app_state);
 
+    let graceful_termination_requested = Arc::new(AtomicBool::new(false));
+    let graceful_termination_requested_sigterm = graceful_termination_requested.clone();
+    let graceful_termination_requested_sigint = graceful_termination_requested.clone();
+    // Listen for SIGTERM signal.
+    tokio::spawn(async move {
+        let mut sigterm = signal(SignalKind::terminate()).unwrap();
+        sigterm.recv().await;
+        graceful_termination_requested_sigterm.store(true, Ordering::Relaxed);
+    });
+    // Listen for SIGINT (Ctrl+C) signal.
+    tokio::spawn(async move {
+        let mut ctrl_c = signal(SignalKind::interrupt()).unwrap();
+        ctrl_c.recv().await;
+        graceful_termination_requested_sigint.store(true, Ordering::Relaxed);
+    });
+
     let thread_data = data.clone();
     let channel_thread = tokio::spawn(async move {
         run_drainer(
             receiver,
+            graceful_termination_requested,
             thread_data.drainer_delay,
             thread_data.drainer_size,
             thread_data.new_ride_drainer_delay,
