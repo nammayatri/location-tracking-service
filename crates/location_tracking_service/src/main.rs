@@ -13,12 +13,12 @@ use location_tracking_service::{
     middleware::*,
     redis::commands::*,
 };
+use rustc_hash::FxHashMap;
 use shared::redis::types::RedisConnectionPool;
 use shared::utils::{
     logger::*,
     prometheus::{self, *},
 };
-use std::collections::HashMap;
 use std::env::var;
 use std::time::Duration;
 use tokio::sync::mpsc::{self, Receiver, Sender};
@@ -41,7 +41,8 @@ async fn drain_driver_locations(
 ) {
     info!(tag = "[Queued Entries For Draining]", length = %driver_locations.len(), "Queue: {:?}\nPushing to redis server", driver_locations);
 
-    let mut queue: HashMap<Dimensions, Vec<(Latitude, Longitude, DriverId)>> = HashMap::new();
+    let mut queue: FxHashMap<Dimensions, Vec<(Latitude, Longitude, DriverId)>> =
+        FxHashMap::default();
     for (dimensions, lat, lon, driver_id) in driver_locations.iter() {
         queue
             .entry(dimensions.clone())
