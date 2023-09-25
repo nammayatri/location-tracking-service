@@ -83,7 +83,7 @@ async fn run_drainer(
                 info!(tag = "[Recieved Entries For Queuing]");
                 match item {
                     Some((Dimensions { merchant_id, city, vehicle_type, new_ride }, Latitude(latitude), Longitude(longitude), DriverId(driver_id))) => {
-                        prometheus::QUEUE_GUAGE.inc();
+                        prometheus::QUEUE_COUNTER.inc();
                         if let Ok(bucket) = get_current_bucket(&bucket_size) {
                             if new_ride {
                                 new_ride_driver_locations
@@ -100,10 +100,9 @@ async fn run_drainer(
                                 if new_ride_drainer_size >= new_ride_drainer_capacity {
                                     info!(tag = "[Force Draining Queue - New Ride]", length = %new_ride_drainer_size);
                                     drain_driver_locations(&new_ride_driver_locations, bucket_size, near_by_bucket_threshold, non_persistent_redis).await;
-                                    for _ in 0..new_ride_driver_locations.len() {
-                                        prometheus::QUEUE_GUAGE.dec();
-                                        new_ride_drainer_size -= 1;
-                                    }
+                                    // Cleanup
+                                    prometheus::QUEUE_COUNTER.reset();
+                                    new_ride_drainer_size = 0;
                                     new_ride_driver_locations.clear();
                                 }
                             } else {
@@ -121,10 +120,9 @@ async fn run_drainer(
                                 if drainer_size >= drainer_capacity {
                                     info!(tag = "[Force Draining Queue]", length = %drainer_size);
                                     drain_driver_locations(&driver_locations, bucket_size, near_by_bucket_threshold, non_persistent_redis).await;
-                                    for _ in 0..driver_locations.len() {
-                                        prometheus::QUEUE_GUAGE.dec();
-                                        drainer_size -= 1;
-                                    }
+                                    // Cleanup
+                                    prometheus::QUEUE_COUNTER.reset();
+                                    drainer_size = 0;
                                     driver_locations.clear();
                                 }
                             }
@@ -137,10 +135,9 @@ async fn run_drainer(
                 if !driver_locations.is_empty() {
                     info!(tag = "[Draining Queue]", length = %drainer_size);
                     drain_driver_locations(&driver_locations, bucket_size, near_by_bucket_threshold, non_persistent_redis).await;
-                    for _ in 0..driver_locations.len() {
-                        prometheus::QUEUE_GUAGE.dec();
-                        drainer_size -= 1;
-                    }
+                    // Cleanup
+                    prometheus::QUEUE_COUNTER.reset();
+                    drainer_size = 0;
                     driver_locations.clear();
                 }
             },
@@ -148,10 +145,9 @@ async fn run_drainer(
                 if !new_ride_driver_locations.is_empty() {
                     info!(tag = "[Draining Queue - New Ride]", length = %new_ride_drainer_size);
                     drain_driver_locations(&new_ride_driver_locations, bucket_size, near_by_bucket_threshold, non_persistent_redis).await;
-                    for _ in 0..new_ride_driver_locations.len() {
-                        prometheus::QUEUE_GUAGE.dec();
-                        new_ride_drainer_size -= 1;
-                    }
+                    // Cleanup
+                    prometheus::QUEUE_COUNTER.reset();
+                    new_ride_drainer_size = 0;
                     new_ride_driver_locations.clear();
                 }
             },

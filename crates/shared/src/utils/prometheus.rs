@@ -1,5 +1,5 @@
 use actix_web_prom::{PrometheusMetrics, PrometheusMetricsBuilder};
-use prometheus::{opts, register_histogram_vec, register_int_gauge, HistogramVec, IntGauge};
+use prometheus::{opts, register_histogram_vec, register_int_counter, HistogramVec, IntCounter};
 
 pub static INCOMING_API: once_cell::sync::Lazy<HistogramVec> = once_cell::sync::Lazy::new(|| {
     register_histogram_vec!(
@@ -18,9 +18,9 @@ pub static CALL_EXTERNAL_API: once_cell::sync::Lazy<HistogramVec> =
         .expect("Failed to register call external API metrics")
     });
 
-pub static QUEUE_GUAGE: once_cell::sync::Lazy<IntGauge> = once_cell::sync::Lazy::new(|| {
-    register_int_gauge!("queue_guage", "Queue Length Montitoring")
-        .expect("Failed to register queue guage metrics")
+pub static QUEUE_COUNTER: once_cell::sync::Lazy<IntCounter> = once_cell::sync::Lazy::new(|| {
+    register_int_counter!("queue_counter", "Queue Counter Montitoring")
+        .expect("Failed to register queue counter metrics")
 });
 
 #[macro_export]
@@ -61,8 +61,8 @@ pub fn prometheus_metrics() -> PrometheusMetrics {
 
     prometheus
         .registry
-        .register(Box::new(QUEUE_GUAGE.clone()))
-        .expect("Failed to register queue guage metrics");
+        .register(Box::new(QUEUE_COUNTER.clone()))
+        .expect("Failed to register queue counter metrics");
 
     prometheus
 }
