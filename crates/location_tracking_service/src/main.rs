@@ -134,6 +134,7 @@ async fn start_server() -> std::io::Result<()> {
     let _guard = setup_tracing(app_config.logger_cfg);
 
     let port = app_config.port;
+    let workers = app_config.workers;
 
     #[allow(clippy::type_complexity)]
     let (sender, receiver): (
@@ -166,6 +167,7 @@ async fn start_server() -> std::io::Result<()> {
             .wrap(prometheus_metrics())
             .configure(api::handler)
     })
+    .workers(workers)
     .bind(("0.0.0.0", port))?
     .run()
     .await?;

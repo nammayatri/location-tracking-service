@@ -19,6 +19,7 @@ pub struct AppConfig {
     pub persistent_migration_redis_cfg: RedisConfig,
     pub non_persistent_migration_redis_cfg: RedisConfig,
     pub redis_migration_stage: bool,
+    pub workers: usize,
     pub drainer_delay: u64,
     pub drainer_size: usize,
     pub auth_url: String,

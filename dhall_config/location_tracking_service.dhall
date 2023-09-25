@@ -41,6 +41,7 @@ in {
     persistent_redis_cfg = persistent_redis_cfg,
     persistent_migration_redis_cfg = persistent_redis_cfg,
     redis_migration_stage = False,
+    workers = 1,
     drainer_size = 41943040,
     drainer_delay = 10,
     kafka_cfg = kafka_cfg,
