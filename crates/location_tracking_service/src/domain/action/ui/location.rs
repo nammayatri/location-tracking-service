@@ -239,55 +239,113 @@ async fn process_driver_locations(
     let driver_ride_details =
         get_ride_details(&data.persistent_redis, &driver_id, &merchant_id).await;
 
-    let _ = &data
-        .sender
-        .send((
-            Dimensions {
-                merchant_id: merchant_id.clone(),
-                city: city.clone(),
-                vehicle_type: vehicle_type.clone(),
-            },
-            loc.pt.lat,
-            loc.pt.lon,
-            driver_id.clone(),
-        ))
-        .await;
-
-    if let Ok(Some(RideDetails {
-        ride_id,
-        ride_status: RideStatus::INPROGRESS,
-        ..
-    })) = driver_ride_details
-    {
-        process_on_ride_driver_location(
-            data.clone(),
-            merchant_id,
+    match driver_ride_details {
+        Ok(Some(RideDetails {
             ride_id,
-            driver_id,
-            driver_mode,
-            locations,
-        )
-        .await;
-    } else {
-        if locations.len() > 100 {
-            error!(
-                "Way points more than 100 points {} on_ride: False",
-                locations.len()
-            );
-        }
+            ride_status: RideStatus::INPROGRESS,
+            ..
+        })) => {
+            let _ = &data
+                .sender
+                .send((
+                    Dimensions {
+                        merchant_id: merchant_id.clone(),
+                        city: city.clone(),
+                        vehicle_type: vehicle_type.clone(),
+                        new_ride: false,
+                    },
+                    loc.pt.lat,
+                    loc.pt.lon,
+                    driver_id.clone(),
+                ))
+                .await;
 
-        Arbiter::current().spawn(async move {
-            let _ = kafka_stream_updates(
-                data,
+            process_on_ride_driver_location(
+                data.clone(),
                 merchant_id,
-                "".to_string(),
-                locations,
-                None,
+                ride_id,
+                driver_id,
                 driver_mode,
-                &driver_id,
+                locations,
             )
             .await;
-        });
+        }
+        Ok(Some(RideDetails {
+            ride_id: RideId(ride_id),
+            ride_status: RideStatus::NEW,
+            ..
+        })) => {
+            let _ = &data
+                .sender
+                .send((
+                    Dimensions {
+                        merchant_id: merchant_id.clone(),
+                        city: city.clone(),
+                        vehicle_type: vehicle_type.clone(),
+                        new_ride: true,
+                    },
+                    loc.pt.lat,
+                    loc.pt.lon,
+                    driver_id.clone(),
+                ))
+                .await;
+
+            if locations.len() > 100 {
+                error!(
+                    "Way points more than 100 points {} on_ride: False",
+                    locations.len()
+                );
+            }
+
+            Arbiter::current().spawn(async move {
+                let _ = kafka_stream_updates(
+                    data,
+                    merchant_id,
+                    ride_id,
+                    locations,
+                    Some(RideStatus::NEW),
+                    driver_mode,
+                    &driver_id,
+                )
+                .await;
+            });
+        }
+        _ => {
+            let _ = &data
+                .sender
+                .send((
+                    Dimensions {
+                        merchant_id: merchant_id.clone(),
+                        city: city.clone(),
+                        vehicle_type: vehicle_type.clone(),
+                        new_ride: false,
+                    },
+                    loc.pt.lat,
+                    loc.pt.lon,
+                    driver_id.clone(),
+                ))
+                .await;
+
+            if locations.len() > 100 {
+                error!(
+                    "Way points more than 100 points {} on_ride: False",
+                    locations.len()
+                );
+            }
+
+            Arbiter::current().spawn(async move {
+                let _ = kafka_stream_updates(
+                    data,
+                    merchant_id,
+                    "".to_string(),
+                    locations,
+                    None,
+                    driver_mode,
+                    &driver_id,
+                )
+                .await;
+            });
+        }
     }
 }
 

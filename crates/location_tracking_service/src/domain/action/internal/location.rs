@@ -93,7 +93,7 @@ pub async fn get_nearby_drivers(
                 .await;
                 match nearby_drivers {
                     Ok(nearby_drivers) => {
-                        resp.extend(nearby_drivers.iter().cloned());
+                        resp.extend(nearby_drivers);
                     }
                     Err(err) => {
                         error!(tag="[Nearby Drivers For All Vehicle Types]", vehicle = %vehicle, "{:?}", err)
