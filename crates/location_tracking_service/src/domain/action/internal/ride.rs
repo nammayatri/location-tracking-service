@@ -43,7 +43,7 @@ async fn update_driver_location(
         persistent_redis,
         driver_id,
         merchant_id,
-        &vec![Point { lat, lon }],
+        &[Point { lat, lon }],
         redis_expiry,
     )
     .await
