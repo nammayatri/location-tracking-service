@@ -32,7 +32,7 @@ pub fn get_city(
     }
 
     if !intersection {
-        return Err(AppError::Unserviceable);
+        return Err(AppError::Unserviceable(lat, lon));
     }
 
     Ok(CityName(city))

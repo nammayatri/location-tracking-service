@@ -26,8 +26,8 @@ pub enum AppError {
     DeserializationError(String),
     #[error("Authentication failed with driver app")]
     DriverAppAuthFailed,
-    #[error("Location is unserviceable")]
-    Unserviceable,
+    #[error("Location is unserviceable : (Lat : {0}, Lon : {1})")]
+    Unserviceable(f64, f64),
     #[error("Hits limit exceeded")]
     HitsLimitExceeded,
     #[error("Driver bulk location update failed")]
@@ -103,7 +103,7 @@ impl AppError {
             AppError::SerializationError(_) => "SerializationError",
             AppError::DeserializationError(_) => "DeserializationError",
             AppError::DriverAppAuthFailed => "DriverAppAuthFailed",
-            AppError::Unserviceable => "Unserviceable",
+            AppError::Unserviceable(_, _) => "Unserviceable",
             AppError::HitsLimitExceeded => "HitsLimitExceeded",
             AppError::DriverBulkLocationUpdateFailed => "DriverBulkLocationUpdateFailed",
             AppError::InvalidConfiguration(_) => "InvalidConfiguration",
@@ -153,7 +153,7 @@ impl ResponseError for AppError {
             AppError::SerializationError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::DeserializationError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::DriverAppAuthFailed => StatusCode::UNAUTHORIZED,
-            AppError::Unserviceable => StatusCode::BAD_REQUEST,
+            AppError::Unserviceable(_, _) => StatusCode::BAD_REQUEST,
             AppError::HitsLimitExceeded => StatusCode::TOO_MANY_REQUESTS,
             AppError::DriverBulkLocationUpdateFailed => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::InvalidConfiguration(_) => StatusCode::INTERNAL_SERVER_ERROR,
