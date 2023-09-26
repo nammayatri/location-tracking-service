@@ -30,8 +30,10 @@ strum_macros = "0.24.1"
 enum-iterator = "1.4.0"
 rdkafka = {version = "0.33.2", features = ["cmake-build"] }
 tracing-actix-web = "0.7.5"
-
-shared = { version = "0.1.0", path = "../shared" }
 tracing = "0.1.37"
 uuid = "1.4.1"
 rustc-hash = "1.1.0"
+pprof = { version = "0.12", features = ["flamegraph"] }
+
+shared = { version = "0.1.0", path = "../shared" }
+profiling = { version = "0.1.0", path = "../profiling" }

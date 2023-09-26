@@ -44,19 +44,26 @@ Run `just services` to run the service dependencies (example: redis-server) usin
 
 Run `nix build` in the project which produces a `./result` symlink. You can also run `nix run` to run the program immediately after build.
 
+## Upstream Dependent Service
+
+Clone and Run [dynamic-driver-offer-app](https://github.com/nammayatri/nammayatri) as it will be used for Internal Authentication and Testing postman flow.
+
 ## Postman Collection
 
-Import the [Postman Collection](./Location%20Tracking%20Service%20Dev.postman_collection.json) in postman to test the API flow or Run `newman run LocationTrackingService.postman_collection.json`.
+Import the [Postman Collection](./Location%20Tracking%20Service%20Dev.postman_collection.json) in postman to test the API flow or Run `newman run LocationTrackingService.postman_collection.json --delay-request 2000`.
 
 ## Contributing PRs
 
 Run `nix run nixpkgs#nixci` locally to make sure that the project builds. The CI runs the same.
 
-# Redis key-value details
+## Profiling
 
-1. **Token cache**: (token, driver_id)
-2. **On ride status cache**: (ds:on_ride:merchant_id:city:driver_id, RideDetails {on_ride: bool, ride_id: String})
-3. **On ride location cache**: (dl:loc:merchant_id:city:driver_id, (timestamp, (longitude, latitude)))
-4. **Main redis cache**: (dl:loc:merchant_id:city:vehicle_type:bucket, (driver_id, (longitude, latitude)))
-5. **Driver location ts**: (dl:ts:driver_id, timestamp)
-6. **redis keys of all vt**: (dl:loc:{merchant_id}:{city}:*:{bucket}, allVtKeys)
+In cargo.toml add :
+
+```[profile.dev]
+debug = true
+debug-assertions = false
+
+[profile.release]
+debug = true
+debug-assertions = false```

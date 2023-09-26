@@ -2,6 +2,7 @@
 /.vscode/launch.json
 .DS_Store
 /target
+/profiling
 data
 logs
 
