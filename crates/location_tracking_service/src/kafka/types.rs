@@ -6,27 +6,26 @@
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 use crate::common::types::*;
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct UpdateDriverLocationRequest {
-    pub pt: Point,
-    pub ts: TimeStamp,
-    pub acc: Option<Accuracy>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Clone)]
 pub enum DriverRideStatus {
-    PreRide,
-    ActualRide,
+    #[serde(rename = "ON_RIDE")]
+    OnRide,
+    #[serde(rename = "ON_PICKUP")]
+    OnPickup,
+    IDLE,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(rename_all = "camelCase")]
-pub struct DriverLocationResponse {
-    pub curr_point: Point,
-    pub total_distance: f32,
-    pub status: DriverRideStatus,
-    pub last_update: DateTime<Utc>,
+#[derive(Serialize)]
+pub struct LocationUpdate {
+    pub r_id: Option<RideId>,
+    pub m_id: MerchantId,
+    pub ts: TimeStamp,
+    pub st: TimeStamp,
+    pub pt: Point,
+    pub acc: Accuracy,
+    pub ride_status: DriverRideStatus,
+    pub da: bool,
+    pub mode: Option<DriverMode>,
 }

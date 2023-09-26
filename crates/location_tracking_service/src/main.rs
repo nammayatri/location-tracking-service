@@ -21,7 +21,6 @@ use shared::utils::{
     prometheus::{self, *},
 };
 use std::{
-    cmp::min,
     env::var,
     sync::atomic::{AtomicBool, Ordering},
 };
@@ -199,8 +198,8 @@ async fn start_server() -> std::io::Result<()> {
     let data = web::Data::new(app_state);
 
     let graceful_termination_requested = Arc::new(AtomicBool::new(false));
-    let graceful_termination_requested_sigterm = graceful_termination_requested.clone();
-    let graceful_termination_requested_sigint = graceful_termination_requested.clone();
+    let graceful_termination_requested_sigterm = graceful_termination_requested.to_owned();
+    let graceful_termination_requested_sigint = graceful_termination_requested.to_owned();
     // Listen for SIGTERM signal.
     tokio::spawn(async move {
         let mut sigterm = signal(SignalKind::terminate()).unwrap();
@@ -214,17 +213,31 @@ async fn start_server() -> std::io::Result<()> {
         graceful_termination_requested_sigint.store(true, Ordering::Relaxed);
     });
 
-    let thread_data = data.clone();
+    let (
+        drainer_size,
+        drainer_delay,
+        new_ride_drainer_delay,
+        bucket_size,
+        nearby_bucket_threshold,
+        non_persistent_redis,
+    ) = (
+        data.drainer_size,
+        data.drainer_delay,
+        data.new_ride_drainer_delay,
+        data.bucket_size,
+        data.nearby_bucket_threshold,
+        data.non_persistent_redis.clone(),
+    );
     let channel_thread = tokio::spawn(async move {
         run_drainer(
             receiver,
             graceful_termination_requested,
-            thread_data.drainer_size,
-            thread_data.drainer_delay,
-            thread_data.new_ride_drainer_delay,
-            thread_data.bucket_size,
-            thread_data.nearby_bucket_threshold,
-            &thread_data.non_persistent_redis,
+            drainer_size,
+            drainer_delay,
+            new_ride_drainer_delay,
+            bucket_size,
+            nearby_bucket_threshold,
+            &non_persistent_redis,
         )
         .await;
     });

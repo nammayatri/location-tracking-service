@@ -8,5 +8,7 @@
 pub mod common;
 pub mod domain;
 pub mod environment;
+pub mod kafka;
 pub mod middleware;
+pub mod outbound;
 pub mod redis;

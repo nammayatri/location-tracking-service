@@ -26,15 +26,18 @@ where
     let mut header_map = HeaderMap::new();
 
     for (header_key, header_value) in headers {
-        header_map.insert(
-            HeaderName::from_str(header_key).expect("Invalid header name"),
-            HeaderValue::from_str(header_value).expect("Invalid header value"),
-        );
+        let header_name = HeaderName::from_str(header_key)
+            .map_err(|_| AppError::InvalidRequest(format!("Invalid Header Name : {header_key}")))?;
+        let header_value = HeaderValue::from_str(header_value).map_err(|_| {
+            AppError::InvalidRequest(format!("Invalid Header Value : {header_value}"))
+        })?;
+
+        header_map.insert(header_name, header_value);
     }
 
     let mut request = client
-        .request(method.clone(), url)
-        .headers(header_map.clone());
+        .request(method.to_owned(), url)
+        .headers(header_map.to_owned());
 
     if let Some(body) = &body {
         let body = serde_json::to_string(body)
