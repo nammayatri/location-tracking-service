@@ -7,7 +7,7 @@
 */
 use crate::common::types::*;
 use crate::redis::keys::*;
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use fred::types::{GeoPosition, GeoUnit, GeoValue, RedisValue, SortOrder};
 use futures::Future;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -150,7 +150,7 @@ pub async fn get_drivers_within_radius(
     info!("Get Nearby Drivers {:?}", nearby_drivers);
 
     let mut driver_ids: FxHashSet<DriverId> = FxHashSet::default();
-    let mut resp: Vec<DriverLocationPoint> = Vec::new();
+    let mut resp: Vec<DriverLocationPoint> = Vec::with_capacity(nearby_drivers.len());
 
     for driver in nearby_drivers.iter() {
         if let (RedisValue::String(driver_id), Some(pos)) = (&driver.member, &driver.position) {
@@ -324,16 +324,14 @@ pub async fn push_on_ride_driver_locations(
     persistent_redis_pool: &RedisConnectionPool,
     driver_id: &DriverId,
     merchant_id: &MerchantId,
-    geo_entries: &Vec<Point>,
+    geo_entries: &[Point],
     rpush_expiry: &u32,
 ) -> Result<i64, AppError> {
-    let mut geo_points: Vec<String> = Vec::new();
-
-    for entry in geo_entries {
-        let value = serde_json::to_string(&entry)
-            .map_err(|err| AppError::InternalError(err.to_string()))?;
-        geo_points.push(value);
-    }
+    let geo_points: Vec<String> = geo_entries
+        .iter()
+        .map(serde_json::to_string)
+        .filter_map(Result::ok)
+        .collect();
 
     persistent_redis_pool
         .rpush_with_expiry(
@@ -354,13 +352,11 @@ pub async fn get_on_ride_driver_locations(
         .lpop(&on_ride_loc_key(merchant_id, driver_id), Some(len as usize))
         .await?;
 
-    let mut geo_points: Vec<Point> = Vec::new();
-
-    for point in output {
-        let geo_point = serde_json::from_str::<Point>(&point)
-            .map_err(|err| AppError::InternalError(err.to_string()))?;
-        geo_points.push(geo_point);
-    }
+    let geo_points: Vec<Point> = output
+        .iter()
+        .map(|point| serde_json::from_str::<Point>(point))
+        .filter_map(Result::ok)
+        .collect();
 
     Ok(geo_points)
 }
@@ -418,41 +414,36 @@ where
 
 pub async fn get_all_driver_last_locations(
     persistent_redis_pool: &RedisConnectionPool,
-    nearby_drivers: &[DriverLocationPoint],
-) -> Result<Vec<Option<DateTime<Utc>>>, AppError> {
-    let driver_last_location_updates_keys = nearby_drivers
+    driver_ids: &[DriverId],
+) -> Result<Vec<Option<DriverAllDetails>>, AppError> {
+    let driver_last_location_updates_keys = driver_ids
         .iter()
-        .map(|driver| driver_details_key(&driver.driver_id))
+        .map(driver_details_key)
         .collect::<Vec<String>>();
 
-    let driver_last_locs_ts = persistent_redis_pool
+    let drivers_detail = persistent_redis_pool
         .mget_keys(driver_last_location_updates_keys)
         .await?;
 
-    let driver_last_ts = driver_last_locs_ts
+    let drivers_detail = drivers_detail
         .iter()
         .map(|driver_all_details| {
-            let driver_all_details: Option<DriverAllDetails> =
-                if let Some(driver_all_details) = driver_all_details {
-                    let driver_all_details =
-                        serde_json::from_str::<DriverAllDetails>(driver_all_details)
-                            .map_err(|err| AppError::DeserializationError(err.to_string()));
-                    match driver_all_details {
-                        Ok(driver_all_details) => Some(driver_all_details),
-                        Err(err) => {
-                            error!("DriverAllDetails DeserializationError : {}", err);
-                            None
-                        }
+            if let Some(driver_all_details) = driver_all_details {
+                let driver_all_details =
+                    serde_json::from_str::<DriverAllDetails>(driver_all_details)
+                        .map_err(|err| AppError::DeserializationError(err.to_string()));
+                match driver_all_details {
+                    Ok(driver_all_details) => Some(driver_all_details),
+                    Err(err) => {
+                        error!("DriverAllDetails DeserializationError : {}", err);
+                        None
                     }
-                } else {
-                    None
-                };
-
-            driver_all_details
-                .and_then(|driver_all_details| driver_all_details.driver_last_known_location)
-                .map(|driver_last_known_location| driver_last_known_location.timestamp)
+                }
+            } else {
+                None
+            }
         })
-        .collect::<Vec<Option<DateTime<Utc>>>>();
+        .collect::<Vec<Option<DriverAllDetails>>>();
 
-    Ok(driver_last_ts)
+    Ok(drivers_detail)
 }

@@ -44,19 +44,33 @@ async fn search_nearby_drivers_with_vehicle(
     )
     .await?;
 
-    let driver_last_locs = get_all_driver_last_locations(persistent_redis, &nearby_drivers).await?;
+    let driver_ids: Vec<DriverId> = nearby_drivers
+        .iter()
+        .map(|driver| driver.driver_id.to_owned())
+        .collect();
+
+    let drivers_detail = get_all_driver_last_locations(persistent_redis, &driver_ids).await?;
 
     let resp = nearby_drivers
         .iter()
-        .zip(driver_last_locs.iter())
-        .map(|(driver, last_location_update_ts)| DriverLocation {
-            driver_id: driver.driver_id.to_owned(),
-            lat: driver.location.lat,
-            lon: driver.location.lon,
-            coordinates_calculated_at: last_location_update_ts.unwrap_or(Utc::now()),
-            created_at: last_location_update_ts.unwrap_or(Utc::now()),
-            updated_at: last_location_update_ts.unwrap_or(Utc::now()),
-            merchant_id: merchant_id.to_owned(),
+        .zip(drivers_detail.iter())
+        .map(|(driver, driver_detail)| {
+            let last_location_update_ts = driver_detail
+                .as_ref()
+                .and_then(|driver_all_details| {
+                    driver_all_details.driver_last_known_location.as_ref()
+                })
+                .map(|driver_last_known_location| driver_last_known_location.timestamp)
+                .unwrap_or(Utc::now());
+            DriverLocation {
+                driver_id: driver.driver_id.to_owned(),
+                lat: driver.location.lat,
+                lon: driver.location.lon,
+                coordinates_calculated_at: last_location_update_ts,
+                created_at: last_location_update_ts,
+                updated_at: last_location_update_ts,
+                merchant_id: merchant_id.to_owned(),
+            }
         })
         .collect::<Vec<DriverLocation>>();
 
@@ -128,21 +142,24 @@ pub async fn get_drivers_location(
     data: Data<AppState>,
     driver_ids: Vec<DriverId>,
 ) -> Result<Vec<DriverLocation>, AppError> {
-    let mut driver_locations = Vec::new();
+    let mut driver_locations = Vec::with_capacity(driver_ids.len());
 
-    for driver_id in driver_ids {
-        let driver_details = get_driver_location(&data.persistent_redis, &driver_id).await;
-        if let Ok(driver_details) = driver_details {
-            let driver_location = DriverLocation {
-                driver_id,
-                lat: driver_details.location.lat,
-                lon: driver_details.location.lon,
-                coordinates_calculated_at: driver_details.timestamp,
-                created_at: driver_details.timestamp,
-                updated_at: driver_details.timestamp,
-                merchant_id: driver_details.merchant_id,
-            };
-            driver_locations.push(driver_location);
+    let drivers_detail = get_all_driver_last_locations(&data.persistent_redis, &driver_ids).await?;
+
+    for (driver_id, driver_detail) in driver_ids.iter().zip(drivers_detail.iter()) {
+        if let Some(driver_detail) = driver_detail {
+            if let Some(driver_details) = &driver_detail.driver_last_known_location {
+                let driver_location = DriverLocation {
+                    driver_id: driver_id.to_owned(),
+                    lat: driver_details.location.lat,
+                    lon: driver_details.location.lon,
+                    coordinates_calculated_at: driver_details.timestamp,
+                    created_at: driver_details.timestamp,
+                    updated_at: driver_details.timestamp,
+                    merchant_id: driver_details.merchant_id.to_owned(),
+                };
+                driver_locations.push(driver_location);
+            }
         }
     }
 
