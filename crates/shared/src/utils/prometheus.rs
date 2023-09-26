@@ -60,22 +60,22 @@ pub fn prometheus_metrics() -> PrometheusMetrics {
 
     prometheus
         .registry
-        .register(Box::new(INCOMING_API.clone()))
+        .register(Box::new(INCOMING_API.to_owned()))
         .expect("Failed to register incoming API metrics");
 
     prometheus
         .registry
-        .register(Box::new(CALL_EXTERNAL_API.clone()))
+        .register(Box::new(CALL_EXTERNAL_API.to_owned()))
         .expect("Failed to register call external API metrics");
 
     prometheus
         .registry
-        .register(Box::new(QUEUE_COUNTER.clone()))
+        .register(Box::new(QUEUE_COUNTER.to_owned()))
         .expect("Failed to register queue counter metrics");
 
     prometheus
         .registry
-        .register(Box::new(NEW_RIDE_QUEUE_COUNTER.clone()))
+        .register(Box::new(NEW_RIDE_QUEUE_COUNTER.to_owned()))
         .expect("Failed to register queue counter metrics");
 
     prometheus

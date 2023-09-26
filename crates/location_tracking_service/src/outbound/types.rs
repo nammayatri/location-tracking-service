@@ -5,28 +5,22 @@
     or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more details. You should have received a copy of
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-use crate::common::types::*;
-use chrono::{DateTime, Utc};
+
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct UpdateDriverLocationRequest {
-    pub pt: Point,
-    pub ts: TimeStamp,
-    pub acc: Option<Accuracy>,
-}
+use crate::common::types::*;
 
-#[derive(Serialize, Deserialize, Debug)]
-pub enum DriverRideStatus {
-    PreRide,
-    ActualRide,
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthResponseData {
+    #[serde(rename = "driverId")]
+    pub driver_id: DriverId,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
-pub struct DriverLocationResponse {
-    pub curr_point: Point,
-    pub total_distance: f32,
-    pub status: DriverRideStatus,
-    pub last_update: DateTime<Utc>,
+pub struct BulkDataReq {
+    pub ride_id: RideId,
+    pub loc: Vec<Point>,
+    pub driver_id: DriverId,
 }

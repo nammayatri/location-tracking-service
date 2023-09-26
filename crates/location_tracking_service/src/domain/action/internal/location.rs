@@ -25,20 +25,20 @@ async fn search_nearby_drivers_with_vehicle(
     persistent_redis: &RedisConnectionPool,
     non_persistent_redis: &RedisConnectionPool,
     nearby_bucket_threshold: &u64,
-    merchant_id: MerchantId,
-    city: CityName,
-    vehicle: VehicleType,
-    bucket: u64,
+    merchant_id: &MerchantId,
+    city: &CityName,
+    vehicle: &VehicleType,
+    bucket: &u64,
     location: Point,
-    radius: Radius,
+    radius: &Radius,
 ) -> Result<Vec<DriverLocation>, AppError> {
     let nearby_drivers = get_drivers_within_radius(
         non_persistent_redis,
         nearby_bucket_threshold,
-        &merchant_id,
-        &city,
-        &vehicle,
-        &bucket,
+        merchant_id,
+        city,
+        vehicle,
+        bucket,
         location,
         radius,
     )
@@ -50,13 +50,13 @@ async fn search_nearby_drivers_with_vehicle(
         .iter()
         .zip(driver_last_locs.iter())
         .map(|(driver, last_location_update_ts)| DriverLocation {
-            driver_id: driver.driver_id.clone(),
+            driver_id: driver.driver_id.to_owned(),
             lat: driver.location.lat,
             lon: driver.location.lon,
             coordinates_calculated_at: last_location_update_ts.unwrap_or(Utc::now()),
             created_at: last_location_update_ts.unwrap_or(Utc::now()),
             updated_at: last_location_update_ts.unwrap_or(Utc::now()),
-            merchant_id: merchant_id.clone(),
+            merchant_id: merchant_id.to_owned(),
         })
         .collect::<Vec<DriverLocation>>();
 
@@ -65,13 +65,19 @@ async fn search_nearby_drivers_with_vehicle(
 
 pub async fn get_nearby_drivers(
     data: Data<AppState>,
-    request_body: NearbyDriversRequest,
+    NearbyDriversRequest {
+        lat,
+        lon,
+        vehicle_type,
+        radius,
+        merchant_id,
+    }: NearbyDriversRequest,
 ) -> Result<NearbyDriverResponse, AppError> {
-    let city = get_city(request_body.lat, request_body.lon, data.polygon.clone())?;
+    let city = get_city(&lat, &lon, &data.polygon)?;
 
     let current_bucket = get_current_bucket(&data.bucket_size)?;
 
-    match request_body.clone().vehicle_type {
+    match vehicle_type {
         None => {
             let mut resp: Vec<DriverLocation> = Vec::new();
 
@@ -80,15 +86,12 @@ pub async fn get_nearby_drivers(
                     &data.persistent_redis,
                     &data.non_persistent_redis,
                     &data.nearby_bucket_threshold,
-                    request_body.clone().merchant_id,
-                    city.clone(),
-                    vehicle.clone(),
-                    current_bucket,
-                    Point {
-                        lat: request_body.clone().lat,
-                        lon: request_body.clone().lon,
-                    },
-                    request_body.clone().radius,
+                    &merchant_id,
+                    &city,
+                    &vehicle,
+                    &current_bucket,
+                    Point { lat, lon },
+                    &radius,
                 )
                 .await;
                 match nearby_drivers {
@@ -108,15 +111,12 @@ pub async fn get_nearby_drivers(
                 &data.persistent_redis,
                 &data.non_persistent_redis,
                 &data.nearby_bucket_threshold,
-                request_body.clone().merchant_id,
-                city,
-                vehicle,
-                current_bucket,
-                Point {
-                    lat: request_body.clone().lat,
-                    lon: request_body.clone().lon,
-                },
-                request_body.clone().radius,
+                &merchant_id,
+                &city,
+                &vehicle,
+                &current_bucket,
+                Point { lat, lon },
+                &radius,
             )
             .await?;
             Ok(resp)
@@ -134,7 +134,7 @@ pub async fn get_drivers_location(
         let driver_details = get_driver_location(&data.persistent_redis, &driver_id).await;
         if let Ok(driver_details) = driver_details {
             let driver_location = DriverLocation {
-                driver_id: driver_id.clone(),
+                driver_id,
                 lat: driver_details.location.lat,
                 lon: driver_details.location.lon,
                 coordinates_calculated_at: driver_details.timestamp,

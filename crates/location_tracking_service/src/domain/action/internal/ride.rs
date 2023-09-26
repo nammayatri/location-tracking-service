@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 /*  Copyright 2022-23, Juspay India Pvt Ltd
     This program is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License
     as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. This program
@@ -13,10 +15,14 @@ use crate::{
     domain::types::internal::ride::*,
 };
 use actix_web::web::Data;
+use shared::redis::types::RedisConnectionPool;
 use shared::tools::error::AppError;
 
+#[allow(clippy::too_many_arguments)]
 async fn update_driver_location(
-    data: Data<AppState>,
+    persistent_redis: &Arc<RedisConnectionPool>,
+    last_location_timstamp_expiry: &u32,
+    redis_expiry: &u32,
     driver_id: &DriverId,
     merchant_id: &MerchantId,
     lat: Latitude,
@@ -24,8 +30,8 @@ async fn update_driver_location(
     driver_mode: Option<DriverMode>,
 ) -> Result<i64, AppError> {
     set_driver_last_location_update(
-        &data.persistent_redis,
-        &data.last_location_timstamp_expiry,
+        persistent_redis,
+        last_location_timstamp_expiry,
         driver_id,
         merchant_id,
         &Point { lat, lon },
@@ -34,11 +40,11 @@ async fn update_driver_location(
     .await?;
 
     push_on_ride_driver_locations(
-        &data.persistent_redis,
+        persistent_redis,
         driver_id,
         merchant_id,
         &vec![Point { lat, lon }],
-        &data.redis_expiry,
+        redis_expiry,
     )
     .await
 }
@@ -60,7 +66,9 @@ pub async fn ride_start(
     .await?;
 
     update_driver_location(
-        data.clone(),
+        &data.persistent_redis,
+        &data.last_location_timstamp_expiry,
+        &data.redis_expiry,
         &request_body.driver_id,
         &request_body.merchant_id,
         request_body.lat,
@@ -85,7 +93,9 @@ pub async fn ride_end(
     .await?;
 
     let on_ride_driver_location_count = update_driver_location(
-        data.clone(),
+        &data.persistent_redis,
+        &data.last_location_timstamp_expiry,
+        &data.redis_expiry,
         &request_body.driver_id,
         &request_body.merchant_id,
         request_body.lat,
@@ -113,15 +123,15 @@ pub async fn ride_details(
     data: Data<AppState>,
     request_body: RideDetailsRequest,
 ) -> Result<APISuccess, AppError> {
-    let city = get_city(request_body.lat, request_body.lon, data.polygon.clone())?;
+    let city = get_city(&request_body.lat, &request_body.lon, &data.polygon)?;
 
     set_ride_details(
         &data.persistent_redis,
         &data.redis_expiry,
         &request_body.merchant_id,
         &request_body.driver_id,
-        Some(city.clone()),
-        request_body.ride_id.clone(),
+        Some(city.to_owned()),
+        request_body.ride_id.to_owned(),
         request_body.ride_status,
     )
     .await?;

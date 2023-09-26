@@ -126,7 +126,7 @@ pub async fn get_drivers_within_radius(
     vehicle: &VehicleType,
     bucket: &u64,
     location: Point,
-    Radius(radius): Radius,
+    Radius(radius): &Radius,
 ) -> Result<Vec<DriverLocationPoint>, AppError> {
     let Latitude(lat) = location.lat;
     let Longitude(lon) = location.lon;
@@ -140,7 +140,7 @@ pub async fn get_drivers_within_radius(
             bucket_keys,
             None,
             Some(GeoPosition::from((lon, lat))),
-            Some((radius, GeoUnit::Meters)),
+            Some((*radius, GeoUnit::Meters)),
             None,
             Some(SortOrder::Asc),
             None,
@@ -156,7 +156,7 @@ pub async fn get_drivers_within_radius(
         if let (RedisValue::String(driver_id), Some(pos)) = (&driver.member, &driver.position) {
             let driver_id = DriverId(driver_id.to_string());
             if !(driver_ids.contains(&driver_id)) {
-                driver_ids.insert(driver_id.clone());
+                driver_ids.insert(driver_id.to_owned());
                 resp.push(DriverLocationPoint {
                     driver_id,
                     location: Point {
@@ -286,7 +286,7 @@ pub async fn set_driver_last_location_update(
                 lon: last_location.lon,
             },
             timestamp: Utc::now(),
-            merchant_id: merchant_id.clone(),
+            merchant_id: merchant_id.to_owned(),
         };
         value.driver_last_known_location = Some(driver_last_known_location);
         if driver_mode.is_some() {
@@ -302,7 +302,7 @@ pub async fn set_driver_last_location_update(
                     lon: last_location.lon,
                 },
                 timestamp: Utc::now(),
-                merchant_id: merchant_id.clone(),
+                merchant_id: merchant_id.to_owned(),
             }),
         }
     };

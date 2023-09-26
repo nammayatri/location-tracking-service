@@ -329,9 +329,9 @@ impl RedisConnectionPool {
             let _ = pipeline
                 .geoadd::<RedisValue, &str, MultipleGeoValues>(
                     key,
-                    options.clone(),
+                    options.to_owned(),
                     changed,
-                    MultipleGeoValues::from(values.clone()),
+                    MultipleGeoValues::from(values.to_owned()),
                 )
                 .await;
             let _ = pipeline.expire::<(), &str>(key, expiry as i64).await;
@@ -396,7 +396,7 @@ impl RedisConnectionPool {
     ) -> Result<Vec<GeoRadiusInfo>, AppError> {
         let pipeline = self.pool.pipeline();
 
-        for key in keys.clone() {
+        for key in keys {
             let _ = pipeline
                 .geosearch(
                     key,
@@ -424,7 +424,7 @@ impl RedisConnectionPool {
                         position[..]
                     {
                         output.push(GeoRadiusInfo {
-                            member: member.clone(),
+                            member: member.to_owned(),
                             position: Some(GeoPosition {
                                 longitude,
                                 latitude,

@@ -11,22 +11,22 @@ use shared::tools::error::AppError;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub fn get_city(
-    lat: Latitude,
-    lon: Longitude,
-    polygon: Vec<MultiPolygonBody>,
+    lat: &Latitude,
+    lon: &Longitude,
+    polygon: &Vec<MultiPolygonBody>,
 ) -> Result<CityName, AppError> {
     let mut city = String::new();
     let mut intersection = false;
 
-    let Latitude(lat) = lat;
-    let Longitude(lon) = lon;
+    let Latitude(lat) = *lat;
+    let Longitude(lon) = *lon;
 
     for multi_polygon_body in polygon {
         intersection = multi_polygon_body
             .multipolygon
             .intersects(&point!(x: lon, y: lat));
         if intersection {
-            city = multi_polygon_body.region.clone();
+            city = multi_polygon_body.region.to_string();
             break;
         }
     }
