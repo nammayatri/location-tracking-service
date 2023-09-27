@@ -66,10 +66,14 @@ pub async fn clear_ride_details(
     persistent_redis_pool: &RedisConnectionPool,
     merchant_id: &MerchantId,
     driver_id: &DriverId,
+    ride_id: &RideId,
 ) -> Result<(), AppError> {
-    persistent_redis_pool
-        .delete_key(&on_ride_details_key(merchant_id, driver_id))
-        .await?;
+    let _ = persistent_redis_pool
+        .delete_keys(vec![
+            &on_ride_details_key(merchant_id, driver_id),
+            &on_ride_driver_details_key(ride_id),
+        ])
+        .await;
 
     Ok(())
 }

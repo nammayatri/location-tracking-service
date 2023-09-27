@@ -2,136 +2,155 @@ use actix_web::{
     http::{header::ContentType, StatusCode},
     HttpResponse, ResponseError,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize)]
-struct ErrorBody {
-    message: String,
-    code: String,
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ErrorBody {
+    error_message: String,
+    pub error_code: String,
 }
 
 #[derive(Debug, Serialize, thiserror::Error)]
 pub enum AppError {
-    #[error("Internal Server Error: {0}")]
+    #[error("InternalError")]
     InternalError(String),
-    #[error("Invalid Request: {0}")]
+    #[error("InvalidRequest")]
     InvalidRequest(String),
-    #[error("Invalid Ride Status : RideId - {0}")]
+    #[error("InvalidRideStatus")]
     InvalidRideStatus(String),
-    #[error("External Call API Error: {0}")]
+    #[error("ExternalAPICallError")]
     ExternalAPICallError(String),
-    #[error("Json Serialization Error: {0}")]
+    #[error("SerializationError")]
     SerializationError(String),
-    #[error("Json Deserialization Error: {0}")]
+    #[error("DeserializationError")]
     DeserializationError(String),
-    #[error("Authentication failed with driver app")]
-    DriverAppAuthFailed,
-    #[error("Location is unserviceable : (Lat : {0}, Lon : {1})")]
+    #[error("DriverAppAuthFailed")]
+    DriverAppAuthFailed(String),
+    #[error("Unserviceable")]
     Unserviceable(f64, f64),
-    #[error("Hits limit exceeded")]
+    #[error("HitsLimitExceeded")]
     HitsLimitExceeded,
-    #[error("Driver bulk location update failed")]
+    #[error("DriverBulkLocationUpdateFailed")]
     DriverBulkLocationUpdateFailed,
-    #[error("Invalid Redis configuration: {0}")]
+    #[error("InvalidConfiguration")]
     InvalidConfiguration(String),
-    #[error("Failed to set key value in Redis")]
+    #[error("SetFailed")]
     SetFailed,
-    #[error("Failed to set key value with expiry in Redis")]
+    #[error("SetExFailed")]
     SetExFailed,
-    #[error("Failed to set expiry for key value in Redis")]
+    #[error("SetExpiryFailed")]
     SetExpiryFailed,
-    #[error("Failed to get key value in Redis")]
+    #[error("GetFailed")]
     GetFailed,
-    #[error("Failed to mget key value in Redis")]
+    #[error("MGetFailed")]
     MGetFailed,
-    #[error("Failed to delete key value in Redis")]
+    #[error("DeleteFailed")]
     DeleteFailed,
-    #[error("Failed to set hash field in Redis")]
+    #[error("SetHashFieldFailed")]
     SetHashFieldFailed,
-    #[error("Failed to get hash field in Redis")]
+    #[error("GetHashFieldFailed")]
     GetHashFieldFailed,
-    #[error("Failed to rpush in Redis")]
+    #[error("RPushFailed")]
     RPushFailed,
-    #[error("Failed to do rpop in Redis")]
+    #[error("RPopFailed")]
     RPopFailed,
-    #[error("Failed to do lpop in Redis")]
+    #[error("LPopFailed")]
     LPopFailed,
-    #[error("Failed to get lrange in Redis")]
+    #[error("LRangeFailed")]
     LRangeFailed,
-    #[error("Failed to get llen in Redis")]
+    #[error("LLenFailed")]
     LLenFailed,
-    #[error("The requested value was not found in Redis")]
+    #[error("NotFound")]
     NotFound,
-    #[error("Invalid RedisEntryId provided")]
+    #[error("InvalidRedisEntryId")]
     InvalidRedisEntryId,
-    #[error("Failed to establish Redis connection")]
+    #[error("RedisConnectionError")]
     RedisConnectionError,
-    #[error("Failed to subscribe to a channel")]
+    #[error("SubscribeError")]
     SubscribeError,
-    #[error("Failed to publish to a channel")]
+    #[error("PublishError")]
     PublishError,
-    #[error("Failed to add geospatial items to Redis")]
+    #[error("GeoAddFailed")]
     GeoAddFailed,
-    #[error("Failed to zadd from Redis")]
+    #[error("ZAddFailed")]
     ZAddFailed,
-    #[error("Failed to zremrangebyrank from Redis")]
+    #[error("ZremrangeByRankFailed")]
     ZremrangeByRankFailed,
-    #[error("Failed to geo search from Redis")]
+    #[error("GeoSearchFailed")]
     GeoSearchFailed,
-    #[error("Failed to zcard from Redis")]
+    #[error("ZCardFailed")]
     ZCardFailed,
-    #[error("Failed to get geospatial values from Redis")]
+    #[error("GeoPosFailed")]
     GeoPosFailed,
-    #[error("Failed to get array of members from Redis")]
+    #[error("ZRangeFailed")]
     ZRangeFailed,
 }
 
 impl AppError {
     fn error_message(&self) -> ErrorBody {
         ErrorBody {
-            message: self.to_string(),
-            code: self.variant_to_string(),
+            error_message: self.variant_to_message(),
+            error_code: self.variant_to_code(),
         }
     }
 
-    fn variant_to_string(&self) -> String {
+    fn variant_to_message(&self) -> String {
         match self {
-            AppError::InternalError(_) => "InternalError",
-            AppError::InvalidRequest(_) => "InvalidRequest",
-            AppError::InvalidRideStatus(_) => "InvalidRideStatus",
-            AppError::ExternalAPICallError(_) => "ExternalAPICallError",
-            AppError::SerializationError(_) => "SerializationError",
-            AppError::DeserializationError(_) => "DeserializationError",
-            AppError::DriverAppAuthFailed => "DriverAppAuthFailed",
-            AppError::Unserviceable(_, _) => "Unserviceable",
-            AppError::HitsLimitExceeded => "HitsLimitExceeded",
-            AppError::DriverBulkLocationUpdateFailed => "DriverBulkLocationUpdateFailed",
-            AppError::InvalidConfiguration(_) => "InvalidConfiguration",
-            AppError::SetFailed => "SetFailed",
-            AppError::SetExFailed => "SetExFailed",
-            AppError::SetExpiryFailed => "SetExpiryFailed",
-            AppError::GetFailed => "GetFailed",
-            AppError::MGetFailed => "MGetFailed",
-            AppError::DeleteFailed => "DeleteFailed",
-            AppError::SetHashFieldFailed => "SetHashFieldFailed",
-            AppError::GetHashFieldFailed => "GetHashFieldFailed",
-            AppError::RPushFailed => "RPushFailed",
-            AppError::RPopFailed => "RPopFailed",
-            AppError::LPopFailed => "LPopFailed",
-            AppError::LRangeFailed => "LRangeFailed",
-            AppError::LLenFailed => "LLenFailed",
-            AppError::NotFound => "NotFound",
-            AppError::InvalidRedisEntryId => "InvalidRedisEntryId",
-            AppError::RedisConnectionError => "RedisConnectionError",
-            AppError::SubscribeError => "SubscribeError",
-            AppError::PublishError => "PublishError",
-            AppError::GeoAddFailed => "GeoAddFailed",
-            AppError::ZAddFailed => "ZAddFailed",
-            AppError::ZremrangeByRankFailed => "ZremrangeByRankFailed",
-            AppError::GeoSearchFailed => "GeoSearchFailed",
-            AppError::ZCardFailed => "ZCardFailed",
-            AppError::GeoPosFailed => "GeoPosFailed",
-            AppError::ZRangeFailed => "ZRangeFailed",
+            AppError::InternalError(err) => err.to_string(),
+            AppError::InvalidRequest(err) => err.to_string(),
+            AppError::InvalidRideStatus(ride_id) => {
+                format!("Invalid Ride Status : RideId - {ride_id}")
+            }
+            AppError::ExternalAPICallError(err) => err.to_string(),
+            AppError::SerializationError(err) => err.to_string(),
+            AppError::DeserializationError(err) => err.to_string(),
+            AppError::DriverAppAuthFailed(token) => format!("Invalid Token - {token}"),
+            AppError::Unserviceable(lat, lon) => {
+                format!("Location is unserviceable : (Lat : {lat}, Lon : {lon})")
+            }
+            _ => "".to_string(),
+        }
+    }
+
+    fn variant_to_code(&self) -> String {
+        match self {
+            AppError::InternalError(_) => "INTERNAL_ERROR",
+            AppError::InvalidRequest(_) => "INVALID_REQUEST",
+            AppError::InvalidRideStatus(_) => "INVALID_RIDE_STATUS",
+            AppError::ExternalAPICallError(_) => "EXTERNAL_API_CALL_ERROR",
+            AppError::SerializationError(_) => "SERIALIZATION_ERROR",
+            AppError::DeserializationError(_) => "DESERIALIZATION_ERROR",
+            AppError::DriverAppAuthFailed(_) => "INVALID_TOKEN",
+            AppError::Unserviceable(_, _) => "LOCATION_NOT_SERVICEABLE",
+            AppError::HitsLimitExceeded => "HITS_LIMIT_EXCEED",
+            AppError::DriverBulkLocationUpdateFailed => "DOBPP_BULK_LOCATION_UPDATE_FAILED",
+            AppError::InvalidConfiguration(_) => "INVALID_REDIS_CONFIGURATION",
+            AppError::SetFailed => "SET_FAILED",
+            AppError::SetExFailed => "SET_EX_FAILED",
+            AppError::SetExpiryFailed => "SET_EXPIRY_FAILED",
+            AppError::GetFailed => "GET_FAILED",
+            AppError::MGetFailed => "MGET_FAILED",
+            AppError::DeleteFailed => "DELETE_FAILED",
+            AppError::SetHashFieldFailed => "SETHASHFIELD_FAILED",
+            AppError::GetHashFieldFailed => "GETHASHFIELD_FAILED",
+            AppError::RPushFailed => "RPUSH_FAILED",
+            AppError::RPopFailed => "RPOP_FAILED",
+            AppError::LPopFailed => "LPOP_FAILED",
+            AppError::LRangeFailed => "LRANGE_FAILED",
+            AppError::LLenFailed => "LLEN_FAILED",
+            AppError::NotFound => "NOT_FOUND",
+            AppError::InvalidRedisEntryId => "INVALID_REDIS_ENTRY_ID",
+            AppError::RedisConnectionError => "REDIS_CONNECTION_FAILED",
+            AppError::SubscribeError => "SUBSCRIBE_FAILED",
+            AppError::PublishError => "PUBLISH_FAILED",
+            AppError::GeoAddFailed => "GEOADD_FAILED",
+            AppError::ZAddFailed => "ZADD_FAILED",
+            AppError::ZremrangeByRankFailed => "ZREMRANGEBYRANK_FAILED",
+            AppError::GeoSearchFailed => "GEOSEARCH_FAILED",
+            AppError::ZCardFailed => "ZCARD_FAILED",
+            AppError::GeoPosFailed => "GEOPOS_FAILED",
+            AppError::ZRangeFailed => "ZRANGE_FAILED",
         }
         .to_string()
     }
@@ -152,8 +171,8 @@ impl ResponseError for AppError {
             AppError::ExternalAPICallError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::SerializationError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::DeserializationError(_) => StatusCode::INTERNAL_SERVER_ERROR,
-            AppError::DriverAppAuthFailed => StatusCode::UNAUTHORIZED,
-            AppError::Unserviceable(_, _) => StatusCode::FORBIDDEN,
+            AppError::DriverAppAuthFailed(_) => StatusCode::UNAUTHORIZED,
+            AppError::Unserviceable(_, _) => StatusCode::BAD_REQUEST,
             AppError::HitsLimitExceeded => StatusCode::TOO_MANY_REQUESTS,
             AppError::DriverBulkLocationUpdateFailed => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::InvalidConfiguration(_) => StatusCode::INTERNAL_SERVER_ERROR,

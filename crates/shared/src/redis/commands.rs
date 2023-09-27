@@ -103,6 +103,23 @@ impl RedisConnectionPool {
         Ok(())
     }
 
+    // delete multiple keys
+    pub async fn delete_keys(&self, keys: Vec<&str>) -> Result<(), AppError> {
+        let pipeline = self.pool.pipeline();
+
+        for key in keys {
+            let _ = pipeline.del::<RedisValue, &str>(key).await;
+        }
+
+        let output: Result<Vec<RedisValue>, RedisError> = pipeline.all().await;
+
+        if output.is_err() {
+            return Err(AppError::DeleteFailed);
+        }
+
+        Ok(())
+    }
+
     //HSET
     pub async fn set_hash_fields<V>(
         &self,

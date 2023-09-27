@@ -24,7 +24,7 @@ async fn get_driver_id_from_authentication(
     auth_url: &str,
     auth_api_key: &str,
     auth_token_expiry: &u32,
-    wrapped_token @ Token(token): &Token,
+    Token(token): Token,
     MerchantId(merchant_id): &MerchantId,
 ) -> Result<Option<DriverId>, AppError> {
     let response = authenticate_dobpp(auth_url, token.as_str(), auth_api_key, merchant_id).await;
@@ -33,14 +33,14 @@ async fn get_driver_id_from_authentication(
         set_driver_id(
             persistent_redis,
             auth_token_expiry,
-            wrapped_token,
+            &Token(token),
             &response.driver_id,
         )
         .await?;
         return Ok(Some(response.driver_id));
     }
 
-    Err(AppError::DriverAppAuthFailed)
+    Err(AppError::DriverAppAuthFailed(token))
 }
 
 pub async fn update_driver_location(
@@ -65,7 +65,7 @@ pub async fn update_driver_location(
                 &data.auth_url,
                 &data.auth_api_key,
                 &data.auth_token_expiry,
-                &token,
+                token,
                 &merchant_id,
             )
             .await?
