@@ -153,7 +153,7 @@ impl ResponseError for AppError {
             AppError::SerializationError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::DeserializationError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::DriverAppAuthFailed => StatusCode::UNAUTHORIZED,
-            AppError::Unserviceable(_, _) => StatusCode::BAD_REQUEST,
+            AppError::Unserviceable(_, _) => StatusCode::FORBIDDEN,
             AppError::HitsLimitExceeded => StatusCode::TOO_MANY_REQUESTS,
             AppError::DriverBulkLocationUpdateFailed => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::InvalidConfiguration(_) => StatusCode::INTERNAL_SERVER_ERROR,
