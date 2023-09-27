@@ -1,6 +1,6 @@
 use actix::fut::{ready, Ready};
 use actix_web::{
-    body::MessageBody,
+    body::{BoxBody, MessageBody},
     dev::{forward_ready, Service, ServiceRequest, ServiceResponse, Transform},
     Error,
 };
@@ -34,13 +34,12 @@ impl RootSpanBuilder for DomainRootSpanBuilder {
 
 pub struct IncomingRequestMetrics;
 
-impl<S, B> Transform<S, ServiceRequest> for IncomingRequestMetrics
+impl<S> Transform<S, ServiceRequest> for IncomingRequestMetrics
 where
-    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error>,
+    S: Service<ServiceRequest, Response = ServiceResponse<BoxBody>, Error = Error>,
     S::Future: 'static,
-    B: 'static,
 {
-    type Response = ServiceResponse<B>;
+    type Response = ServiceResponse<BoxBody>;
     type Error = Error;
     type InitError = ();
     type Transform = IncomingRequestMetricsMiddleware<S>;
@@ -55,13 +54,12 @@ pub struct IncomingRequestMetricsMiddleware<S> {
     service: S,
 }
 
-impl<S, B> Service<ServiceRequest> for IncomingRequestMetricsMiddleware<S>
+impl<S> Service<ServiceRequest> for IncomingRequestMetricsMiddleware<S>
 where
-    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error>,
+    S: Service<ServiceRequest, Response = ServiceResponse<BoxBody>, Error = Error>,
     S::Future: 'static,
-    B: 'static,
 {
-    type Response = ServiceResponse<B>;
+    type Response = ServiceResponse<BoxBody>;
     type Error = Error;
     type Future = LocalBoxFuture<'static, Result<Self::Response, Self::Error>>;
 
@@ -75,7 +73,6 @@ where
 
         Box::pin(async move {
             let response = fut.await?;
-            info!(tag = "[INCOMING API]", request_method = %response.request().method(), request_path = %response.request().path(), response_status = %response.status(), latency = format!("{:?}ms", start_time.elapsed().as_millis()));
 
             let mut path = response.request().path().to_string();
             response
@@ -86,12 +83,29 @@ where
                     path = path.replace(path_val, format!(":{path_name}").as_str());
                 });
 
-            incoming_api!(
-                response.request().method().as_str(),
-                &path,
-                response.status().as_str(),
-                start_time
-            );
+            let resp_status = response.status();
+
+            if let Some(err_resp) = response.response().error() {
+                let err_resp = err_resp.to_string();
+                info!(tag = "[INCOMING API]", request_method = %response.request().method(), request_path = %response.request().path(), response_status = %response.status(), resp_code = %err_resp, latency = format!("{:?}ms", start_time.elapsed().as_millis()));
+                incoming_api!(
+                    response.request().method().as_str(),
+                    &path,
+                    resp_status.as_str(),
+                    err_resp.as_str(),
+                    start_time
+                );
+            } else {
+                info!(tag = "[INCOMING API]", request_method = %response.request().method(), request_path = %response.request().path(), response_status = %response.status(), resp_code = "SUCCESS", latency = format!("{:?}ms", start_time.elapsed().as_millis()));
+                incoming_api!(
+                    response.request().method().as_str(),
+                    &path,
+                    resp_status.as_str(),
+                    "SUCCESS",
+                    start_time
+                );
+            }
+
             Ok(response)
         })
     }

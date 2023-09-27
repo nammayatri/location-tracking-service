@@ -81,7 +81,7 @@ pub async fn ride_start(
 }
 
 pub async fn ride_end(
-    RideId(ride_id): RideId,
+    ride_id: RideId,
     data: Data<AppState>,
     request_body: RideEndRequest,
 ) -> Result<RideEndResponse, AppError> {
@@ -89,6 +89,7 @@ pub async fn ride_end(
         &data.persistent_redis,
         &request_body.merchant_id,
         &request_body.driver_id,
+        &ride_id,
     )
     .await?;
 
@@ -113,7 +114,7 @@ pub async fn ride_end(
     .await?;
 
     Ok(RideEndResponse {
-        ride_id: RideId(ride_id),
+        ride_id,
         driver_id: request_body.driver_id,
         loc: on_ride_driver_locations,
     })
