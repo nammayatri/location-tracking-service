@@ -1,5 +1,6 @@
 use crate::redis::types::*;
 use crate::tools::error::AppError;
+use crate::utils::logger::*;
 use error_stack::{IntoReport, ResultExt};
 use fred::{
     interfaces::{GeoInterface, HashesInterface, KeysInterface, SortedSetsInterface},
@@ -355,6 +356,8 @@ impl RedisConnectionPool {
         }
 
         let output: Result<Vec<RedisValue>, RedisError> = pipeline.all().await;
+
+        info!("output geoadd : {:?}", output);
 
         if let Ok([RedisValue::Integer(_), ..]) = output.as_deref() {
             return Ok(());

@@ -17,6 +17,8 @@ pub enum AppError {
     InternalError(String),
     #[error("InvalidRequest")]
     InvalidRequest(String),
+    #[error("UnprocessibleRequest")]
+    UnprocessibleRequest(String),
     #[error("InvalidRideStatus")]
     InvalidRideStatus(String),
     #[error("ExternalAPICallError")]
@@ -99,6 +101,7 @@ impl AppError {
         match self {
             AppError::InternalError(err) => err.to_string(),
             AppError::InvalidRequest(err) => err.to_string(),
+            AppError::UnprocessibleRequest(err) => err.to_string(),
             AppError::InvalidRideStatus(ride_id) => {
                 format!("Invalid Ride Status : RideId - {ride_id}")
             }
@@ -117,6 +120,7 @@ impl AppError {
         match self {
             AppError::InternalError(_) => "INTERNAL_ERROR",
             AppError::InvalidRequest(_) => "INVALID_REQUEST",
+            AppError::UnprocessibleRequest(_) => "UNPROCESSIBLE_REQUEST",
             AppError::InvalidRideStatus(_) => "INVALID_RIDE_STATUS",
             AppError::ExternalAPICallError(_) => "EXTERNAL_API_CALL_ERROR",
             AppError::SerializationError(_) => "SERIALIZATION_ERROR",
@@ -167,6 +171,7 @@ impl ResponseError for AppError {
         match self {
             AppError::InternalError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::InvalidRequest(_) => StatusCode::BAD_REQUEST,
+            AppError::UnprocessibleRequest(_) => StatusCode::BAD_REQUEST,
             AppError::InvalidRideStatus(_) => StatusCode::BAD_REQUEST,
             AppError::ExternalAPICallError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::SerializationError(_) => StatusCode::INTERNAL_SERVER_ERROR,
