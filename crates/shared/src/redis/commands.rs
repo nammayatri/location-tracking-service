@@ -1,6 +1,5 @@
 use crate::redis::types::*;
 use crate::tools::error::AppError;
-use crate::utils::logger::*;
 use error_stack::{IntoReport, ResultExt};
 use fred::{
     interfaces::{GeoInterface, HashesInterface, KeysInterface, SortedSetsInterface},
@@ -44,10 +43,14 @@ impl RedisConnectionPool {
         V: TryInto<RedisValue> + Debug + Send + Sync,
         V::Error: Into<fred::error::RedisError> + Send + Sync,
     {
-        let output: Result<RedisValue, _> = self.pool.msetnx((key, value)).await;
+        let pipeline = self.pool.pipeline();
 
-        if let Ok(RedisValue::Integer(1)) = output {
-            self.set_expiry(key, expiry).await?;
+        let _ = pipeline.msetnx::<RedisValue, _>((key, value)).await;
+        let _ = pipeline.expire::<(), &str>(key, expiry).await;
+
+        let output: Result<Vec<RedisValue>, RedisError> = pipeline.all().await;
+
+        if let Ok([RedisValue::Integer(1), ..]) = output.as_deref() {
             return Ok(());
         }
 
@@ -356,8 +359,6 @@ impl RedisConnectionPool {
         }
 
         let output: Result<Vec<RedisValue>, RedisError> = pipeline.all().await;
-
-        info!("output geoadd : {:?}", output);
 
         if let Ok([RedisValue::Integer(_), ..]) = output.as_deref() {
             return Ok(());

@@ -1,6 +1,6 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, ItemFn};
+use syn::{parse_macro_input, ItemEnum, ItemFn};
 
 #[proc_macro_attribute]
 pub fn measure_duration(_: TokenStream, input: TokenStream) -> TokenStream {
@@ -58,4 +58,48 @@ pub fn generate_flamegraph(_: TokenStream, input: TokenStream) -> TokenStream {
     };
 
     TokenStream::from(expanded)
+}
+
+#[proc_macro_attribute]
+pub fn add_error(_: TokenStream, input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as ItemEnum);
+    let enum_name = &input.ident;
+
+    let variants = input.variants.iter().map(|variant| {
+        let variant_name = &variant.ident;
+        let variant_screaming_snake_case = convert_to_snake_case(variant_name.to_string());
+        quote! {
+            #[error(#variant_screaming_snake_case)]
+            #variant,
+        }
+    });
+
+    let expanded = quote! {
+        #[derive(Debug, Serialize, thiserror::Error)]
+        pub enum #enum_name {
+            #(#variants)*
+        }
+    };
+
+    TokenStream::from(expanded)
+}
+
+fn convert_to_snake_case(input: String) -> String {
+    let mut result = String::new();
+    let mut last_char_was_upper = false;
+
+    for c in input.chars() {
+        if c.is_uppercase() {
+            if !last_char_was_upper && !result.is_empty() {
+                result.push('_');
+            }
+            result.push(c.to_ascii_uppercase());
+            last_char_was_upper = true;
+        } else {
+            result.push(c.to_ascii_uppercase());
+            last_char_was_upper = false;
+        }
+    }
+
+    result
 }
