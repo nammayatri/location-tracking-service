@@ -8,9 +8,9 @@
 use crate::common::types::*;
 use crate::redis::keys::*;
 use chrono::Utc;
-use fred::types::{GeoPosition, GeoUnit, GeoValue, RedisValue, SortOrder};
+use fred::types::{GeoPosition, GeoUnit, RedisValue, SortOrder};
 use futures::Future;
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashSet;
 use shared::utils::logger::*;
 use shared::{redis::types::RedisConnectionPool, tools::error::AppError};
 
@@ -46,7 +46,7 @@ pub async fn get_ride_details(
     persistent_redis_pool: &RedisConnectionPool,
     driver_id: &DriverId,
     merchant_id: &MerchantId,
-) -> Result<Option<RideDetails>, AppError> {
+) -> Result<RideDetails, AppError> {
     let ride_details: Option<String> = persistent_redis_pool
         .get_key(&on_ride_details_key(merchant_id, driver_id))
         .await?;
@@ -54,11 +54,11 @@ pub async fn get_ride_details(
     match ride_details {
         Some(ride_details) => {
             let ride_details = serde_json::from_str::<RideDetails>(&ride_details)
-                .map_err(|err| AppError::InternalError(err.to_string()))?;
+                .map_err(|err| AppError::SerializationError(err.to_string()))?;
 
-            Ok(Some(ride_details))
+            Ok(ride_details)
         }
-        None => Ok(None),
+        None => Err(AppError::DriverRideDetailsNotFound),
     }
 }
 
@@ -100,23 +100,19 @@ pub async fn set_driver_details(
 
 pub async fn get_driver_details(
     persistent_redis_pool: &RedisConnectionPool,
-    wrapped_ride_id @ RideId(ride_id): &RideId,
+    ride_id: &RideId,
 ) -> Result<DriverDetails, AppError> {
     let driver_details: Option<String> = persistent_redis_pool
-        .get_key(&on_ride_driver_details_key(wrapped_ride_id))
+        .get_key(&on_ride_driver_details_key(ride_id))
         .await?;
 
     let driver_details = match driver_details {
         Some(driver_details) => driver_details,
-        None => {
-            return Err(AppError::InternalError(
-                format!("Driver details not found for RideId : {ride_id}").to_string(),
-            ))
-        }
+        None => return Err(AppError::DriverDetailsForRideNotFound),
     };
 
     let driver_details = serde_json::from_str::<DriverDetails>(&driver_details)
-        .map_err(|err| AppError::InternalError(err.to_string()))?;
+        .map_err(|err| AppError::SerializationError(err.to_string()))?;
 
     Ok(driver_details)
 }
@@ -175,25 +171,6 @@ pub async fn get_drivers_within_radius(
     Ok(resp)
 }
 
-#[allow(clippy::too_many_arguments)]
-pub async fn push_drainer_driver_location(
-    geo_entries: &FxHashMap<String, Vec<GeoValue>>,
-    bucket_size: &u64,
-    nearby_bucket_threshold: &u64,
-    non_persistent_redis: &RedisConnectionPool,
-) -> Result<(), AppError> {
-    non_persistent_redis
-        .mgeo_add_with_expiry(
-            geo_entries,
-            None,
-            false,
-            bucket_size * nearby_bucket_threshold,
-        )
-        .await?;
-
-    Ok(())
-}
-
 pub async fn get_driver_location(
     persistent_redis_pool: &RedisConnectionPool,
     driver_id: &DriverId,
@@ -204,15 +181,13 @@ pub async fn get_driver_location(
 
     if let Some(val) = last_location_update {
         let driver_all_details = serde_json::from_str::<DriverAllDetails>(&val)
-            .map_err(|err| AppError::InternalError(err.to_string()))?;
+            .map_err(|err| AppError::SerializationError(err.to_string()))?;
         if let Some(last_known_location) = driver_all_details.driver_last_known_location {
             return Ok(last_known_location);
         }
     }
 
-    Err(AppError::InternalError(
-        "Failed to get_driver_location".to_string(),
-    ))
+    Err(AppError::DriverLastKnownLocationNotFound)
 }
 
 pub async fn get_driver_last_location_update(
@@ -231,9 +206,7 @@ pub async fn get_driver_last_location_update(
         }
     }
 
-    Err(AppError::InternalError(
-        "Failed to get_driver_last_location_update".to_string(),
-    ))
+    Err(AppError::DriverLastLocationTimestampNotFound)
 }
 
 pub async fn set_driver_mode_details(
@@ -247,7 +220,7 @@ pub async fn set_driver_mode_details(
         .await?;
     let driver_all_details = if let Some(val) = last_location_update {
         let mut value = serde_json::from_str::<DriverAllDetails>(&val)
-            .map_err(|err| AppError::InternalError(err.to_string()))?;
+            .map_err(|err| AppError::SerializationError(err.to_string()))?;
         value.driver_mode = Some(driver_mode);
         value
     } else {
@@ -257,7 +230,7 @@ pub async fn set_driver_mode_details(
         }
     };
     let value = serde_json::to_string(&driver_all_details)
-        .map_err(|err| AppError::InternalError(err.to_string()))?;
+        .map_err(|err| AppError::DeserializationError(err.to_string()))?;
     persistent_redis_pool
         .set_key(
             &driver_details_key(&driver_id),
@@ -282,7 +255,7 @@ pub async fn set_driver_last_location_update(
 
     let driver_all_details = if let Some(val) = last_location_update {
         let mut value = serde_json::from_str::<DriverAllDetails>(&val)
-            .map_err(|err| AppError::InternalError(err.to_string()))?;
+            .map_err(|err| AppError::SerializationError(err.to_string()))?;
 
         let driver_last_known_location: DriverLastKnownLocation = DriverLastKnownLocation {
             location: Point {
@@ -311,7 +284,7 @@ pub async fn set_driver_last_location_update(
         }
     };
     let value = serde_json::to_string(&driver_all_details)
-        .map_err(|err| AppError::InternalError(err.to_string()))?;
+        .map_err(|err| AppError::DeserializationError(err.to_string()))?;
 
     persistent_redis_pool
         .set_key(

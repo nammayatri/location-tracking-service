@@ -48,12 +48,29 @@ pub async fn update_driver_location(
     merchant_id: MerchantId,
     vehicle_type: VehicleType,
     data: Data<AppState>,
-    request_body: Vec<UpdateDriverLocationRequest>,
+    mut locations: Vec<UpdateDriverLocationRequest>,
     driver_mode: Option<DriverMode>,
 ) -> Result<APISuccess, AppError> {
+    locations.sort_by(|a, b| {
+        let TimeStamp(a_ts) = a.ts;
+        let TimeStamp(b_ts) = b.ts;
+        (a_ts).cmp(&b_ts)
+    });
+
+    let locations: Vec<UpdateDriverLocationRequest> = locations
+        .into_iter()
+        .filter(|request| request.acc.or(Some(Accuracy(0.0))) <= Some(data.min_location_accuracy))
+        .collect();
+
+    let latest_driver_location = if let Some(locations) = locations.last() {
+        locations.to_owned()
+    } else {
+        return Err(AppError::InaccurateLocation);
+    };
+
     let city = get_city(
-        &request_body[0].pt.lat,
-        &request_body[0].pt.lon,
+        &latest_driver_location.pt.lat,
+        &latest_driver_location.pt.lon,
         &data.polygon,
     )?;
 
@@ -75,7 +92,7 @@ pub async fn update_driver_location(
     if let Some(driver_id) = driver_id {
         info!(
             tag = "[Location Updates]",
-            "Got location updates for Driver Id : {:?} : {:?}", &driver_id, &request_body
+            "Got location updates for Driver Id : {:?} : {:?}", &driver_id, &locations
         );
 
         let _ = sliding_window_limiter(
@@ -93,7 +110,8 @@ pub async fn update_driver_location(
             process_driver_locations,
             (
                 data.clone(),
-                request_body,
+                locations,
+                latest_driver_location,
                 driver_id,
                 merchant_id,
                 vehicle_type,
@@ -111,10 +129,12 @@ pub async fn update_driver_location(
     }
 }
 
+#[allow(clippy::type_complexity)]
 async fn process_driver_locations(
     args: (
         Data<AppState>,
         Vec<UpdateDriverLocationRequest>,
+        UpdateDriverLocationRequest,
         DriverId,
         MerchantId,
         VehicleType,
@@ -122,34 +142,21 @@ async fn process_driver_locations(
         Option<DriverMode>,
     ),
 ) {
-    let (data, mut locations, driver_id, merchant_id, vehicle_type, city, driver_mode) = args;
-
-    locations.sort_by(|a, b| {
-        let TimeStamp(a_ts) = a.ts;
-        let TimeStamp(b_ts) = b.ts;
-        (a_ts).cmp(&b_ts)
-    });
-
-    let locations: Vec<UpdateDriverLocationRequest> = locations
-        .into_iter()
-        .filter(|request| request.acc.or(Some(Accuracy(0.0))) <= Some(data.min_location_accuracy))
-        .collect();
-
-    let driver_location = if let Some(locations) = locations.last() {
-        locations
-    } else {
-        return;
-    };
+    let (
+        data,
+        locations,
+        latest_driver_location,
+        driver_id,
+        merchant_id,
+        vehicle_type,
+        city,
+        driver_mode,
+    ) = args;
 
     let last_location_update_ts =
         get_driver_last_location_update(&data.persistent_redis, &driver_id)
             .await
-            .unwrap_or(driver_location.ts);
-
-    let driver_location = Point {
-        lat: driver_location.pt.lat,
-        lon: driver_location.pt.lon,
-    };
+            .unwrap_or(latest_driver_location.ts);
 
     let (
         t_persistent_redis,
@@ -165,38 +172,41 @@ async fn process_driver_locations(
         driver_mode.to_owned(),
     );
 
+    let locations: Vec<UpdateDriverLocationRequest> = locations
+        .into_iter()
+        .filter(|request| request.ts >= last_location_update_ts)
+        .collect();
+
+    let latest_driver_location = if let Some(location) = locations.last() {
+        location.to_owned()
+    } else {
+        return;
+    };
+
     Arbiter::current().spawn(async move {
         let _ = set_driver_last_location_update(
             &t_persistent_redis,
             &t_last_location_timstamp_expiry,
             &t_driver_id,
             &t_merchant_id,
-            &driver_location,
+            &Point {
+                lat: latest_driver_location.pt.lat,
+                lon: latest_driver_location.pt.lon,
+            },
             t_driver_mode,
         )
         .await;
     });
 
-    let locations: Vec<UpdateDriverLocationRequest> = locations
-        .into_iter()
-        .filter(|request| request.ts >= last_location_update_ts)
-        .collect();
-
-    let loc = if let Some(locations) = locations.last() {
-        locations
-    } else {
-        return;
-    };
-
     let driver_ride_details =
         get_ride_details(&data.persistent_redis, &driver_id, &merchant_id).await;
 
     match driver_ride_details {
-        Ok(Some(RideDetails {
+        Ok(RideDetails {
             ride_id,
             ride_status: RideStatus::INPROGRESS,
             ..
-        })) => {
+        }) => {
             let _ = &data
                 .sender
                 .send((
@@ -206,8 +216,8 @@ async fn process_driver_locations(
                         vehicle_type: vehicle_type.to_owned(),
                         new_ride: false,
                     },
-                    loc.pt.lat,
-                    loc.pt.lon,
+                    latest_driver_location.pt.lat,
+                    latest_driver_location.pt.lon,
                     driver_id.to_owned(),
                 ))
                 .await;
@@ -283,11 +293,11 @@ async fn process_driver_locations(
                 .await;
             });
         }
-        Ok(Some(RideDetails {
+        Ok(RideDetails {
             ride_id,
             ride_status: RideStatus::NEW,
             ..
-        })) => {
+        }) => {
             let _ = &data
                 .sender
                 .send((
@@ -297,8 +307,8 @@ async fn process_driver_locations(
                         vehicle_type: vehicle_type.to_owned(),
                         new_ride: true,
                     },
-                    loc.pt.lat,
-                    loc.pt.lon,
+                    latest_driver_location.pt.lat,
+                    latest_driver_location.pt.lon,
                     driver_id.to_owned(),
                 ))
                 .await;
@@ -334,8 +344,8 @@ async fn process_driver_locations(
                         vehicle_type: vehicle_type.to_owned(),
                         new_ride: false,
                     },
-                    loc.pt.lat,
-                    loc.pt.lon,
+                    latest_driver_location.pt.lat,
+                    latest_driver_location.pt.lon,
                     driver_id.to_owned(),
                 ))
                 .await;
@@ -377,30 +387,25 @@ pub async fn track_driver_location(
     )
     .await?;
 
-    match driver_ride_details {
-        Some(driver_ride_details) => {
-            let current_ride_status = match driver_ride_details.ride_status {
-                RideStatus::NEW => DriverRideStatus::PreRide,
-                RideStatus::INPROGRESS => DriverRideStatus::ActualRide,
-                _ => {
-                    return Err(AppError::InvalidRequest(
-                        "Driver Ride Status is Invalid".to_string(),
-                    ))
-                }
-            };
-
-            let driver_last_known_location_details =
-                get_driver_location(&data.persistent_redis, &driver_details.driver_id).await?;
-
-            Ok(DriverLocationResponse {
-                curr_point: driver_last_known_location_details.location,
-                total_distance: 0.0, // Backward Compatibility : To be removed
-                status: current_ride_status,
-                last_update: driver_last_known_location_details.timestamp,
-            })
+    let current_ride_status = match driver_ride_details.ride_status {
+        RideStatus::NEW => DriverRideStatus::PreRide,
+        RideStatus::INPROGRESS => DriverRideStatus::ActualRide,
+        ride_status => {
+            let RideId(ride_id) = ride_id;
+            return Err(AppError::InvalidRideStatus(
+                ride_id,
+                ride_status.to_string(),
+            ));
         }
-        None => Err(AppError::InvalidRequest(
-            "Driver Ride Details not found.".to_string(),
-        )),
-    }
+    };
+
+    let driver_last_known_location_details =
+        get_driver_location(&data.persistent_redis, &driver_details.driver_id).await?;
+
+    Ok(DriverLocationResponse {
+        curr_point: driver_last_known_location_details.location,
+        total_distance: 0.0, // Backward Compatibility : To be removed
+        status: current_ride_status,
+        last_update: driver_last_known_location_details.timestamp,
+    })
 }

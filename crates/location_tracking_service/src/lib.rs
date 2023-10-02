@@ -7,6 +7,7 @@
 */
 pub mod common;
 pub mod domain;
+pub mod drainer;
 pub mod environment;
 pub mod kafka;
 pub mod middleware;

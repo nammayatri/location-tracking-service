@@ -4,7 +4,7 @@ use prometheus::{opts, register_histogram_vec, register_int_counter, HistogramVe
 pub static INCOMING_API: once_cell::sync::Lazy<HistogramVec> = once_cell::sync::Lazy::new(|| {
     register_histogram_vec!(
         opts!("incoming_api", "Incoming API requests").into(),
-        &["method", "endpoint", "status", "code"]
+        &["method", "handler", "status_code", "code", "version"]
     )
     .expect("Failed to register incoming API metrics")
 });
@@ -36,8 +36,9 @@ pub static NEW_RIDE_QUEUE_COUNTER: once_cell::sync::Lazy<IntCounter> =
 macro_rules! incoming_api {
     ($method:expr, $endpoint:expr, $status:expr, $code:expr, $start:expr) => {
         let duration = $start.elapsed().as_secs_f64();
+        let version = std::env::var("DEPLOYMENT_VERSION").unwrap_or("DEV".to_string());
         INCOMING_API
-            .with_label_values(&[$method, $endpoint, $status, $code])
+            .with_label_values(&[$method, $endpoint, $status, $code, version.as_str()])
             .observe(duration);
     };
 }

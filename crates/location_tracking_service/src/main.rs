@@ -6,30 +6,25 @@
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 use actix_web::{web, App, HttpServer};
-use fred::types::{GeoPosition, GeoValue};
 use location_tracking_service::{
-    common::{types::*, utils::get_current_bucket},
+    common::types::*,
     domain::api,
+    drainer::run_drainer,
     environment::{AppConfig, AppState},
     middleware::*,
-    redis::{commands::*, keys::driver_loc_bucket_key},
 };
-use rustc_hash::FxHashMap;
-use shared::utils::{
-    logger::*,
-    prometheus::{self, *},
-};
-use shared::{redis::types::RedisConnectionPool, tools::error::AppError};
+use shared::utils::logger::*;
+use shared::{tools::error::AppError, utils::prometheus::prometheus_metrics};
 use std::{
     env::var,
     sync::atomic::{AtomicBool, Ordering},
 };
-use std::{sync::Arc, time::Duration};
+use std::{net::Ipv4Addr, sync::Arc};
+use tokio::signal::unix::SignalKind;
 use tokio::{
     signal::unix::signal,
     sync::mpsc::{self, Receiver, Sender},
 };
-use tokio::{signal::unix::SignalKind, time::interval};
 use tracing_actix_web::TracingLogger;
 
 pub fn read_dhall_config(config_path: &str) -> Result<AppConfig, String> {
@@ -37,154 +32,6 @@ pub fn read_dhall_config(config_path: &str) -> Result<AppConfig, String> {
     match config {
         Ok(config) => Ok(config),
         Err(e) => Err(format!("Error reading config: {}", e)),
-    }
-}
-
-async fn drain_driver_locations(
-    driver_locations: &FxHashMap<String, Vec<GeoValue>>,
-    bucket_size: u64,
-    near_by_bucket_threshold: u64,
-    non_persistent_redis: &RedisConnectionPool,
-) {
-    info!(
-        tag = "[Queued Entries For Draining]",
-        "Queue: {:?}\nPushing to redis server", driver_locations
-    );
-
-    let res = push_drainer_driver_location(
-        driver_locations,
-        &bucket_size,
-        &near_by_bucket_threshold,
-        non_persistent_redis,
-    )
-    .await;
-
-    if let Err(err) = res {
-        error!(tag = "[Error Pushing To Redis]", error = %err);
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-async fn run_drainer(
-    mut rx: mpsc::Receiver<(Dimensions, Latitude, Longitude, DriverId)>,
-    graceful_termination_requested: Arc<AtomicBool>,
-    drainer_capacity: usize,
-    drainer_delay: u64,
-    new_ride_drainer_delay: u64,
-    bucket_size: u64,
-    near_by_bucket_threshold: u64,
-    non_persistent_redis: &RedisConnectionPool,
-) {
-    let mut driver_locations: FxHashMap<String, Vec<GeoValue>> = FxHashMap::default();
-    let mut timer = interval(Duration::from_secs(drainer_delay));
-
-    let mut new_ride_driver_locations: FxHashMap<String, Vec<GeoValue>> = FxHashMap::default();
-    let mut new_ride_timer = interval(Duration::from_secs(new_ride_drainer_delay));
-
-    let mut drainer_size = 0;
-    let mut new_ride_drainer_size = 0;
-    loop {
-        if graceful_termination_requested.load(Ordering::Relaxed) {
-            info!(tag = "[Graceful Shutting Down]", length = %drainer_size);
-            if !driver_locations.is_empty() {
-                info!(tag = "[Force Draining Queue]", length = %drainer_size);
-                drain_driver_locations(
-                    &driver_locations,
-                    bucket_size,
-                    near_by_bucket_threshold,
-                    non_persistent_redis,
-                )
-                .await;
-                prometheus::QUEUE_COUNTER.reset();
-            }
-            if !new_ride_driver_locations.is_empty() {
-                info!(tag = "[Force Draining Queue - New Ride]", length = %new_ride_drainer_size);
-                drain_driver_locations(
-                    &new_ride_driver_locations,
-                    bucket_size,
-                    near_by_bucket_threshold,
-                    non_persistent_redis,
-                )
-                .await;
-                prometheus::NEW_RIDE_QUEUE_COUNTER.reset();
-            }
-            break;
-        }
-        tokio::select! {
-            item = rx.recv() => {
-                info!(tag = "[Recieved Entries For Queuing]");
-                match item {
-                    Some((Dimensions { merchant_id, city, vehicle_type, new_ride }, Latitude(latitude), Longitude(longitude), DriverId(driver_id))) => {
-                        if let Ok(bucket) = get_current_bucket(&bucket_size) {
-                            if new_ride {
-                                new_ride_driver_locations
-                                    .entry(driver_loc_bucket_key(&merchant_id, &city, &vehicle_type, &bucket))
-                                    .or_insert_with(Vec::new)
-                                    .push(GeoValue {
-                                        coordinates: GeoPosition {
-                                            latitude,
-                                            longitude,
-                                        },
-                                        member: driver_id.into(),
-                                    });
-                                new_ride_drainer_size += 1;
-                                prometheus::NEW_RIDE_QUEUE_COUNTER.inc();
-                            } else {
-                                driver_locations
-                                    .entry(driver_loc_bucket_key(&merchant_id, &city, &vehicle_type, &bucket))
-                                    .or_insert_with(Vec::new)
-                                    .push(GeoValue {
-                                        coordinates: GeoPosition {
-                                            latitude,
-                                            longitude,
-                                        },
-                                        member: driver_id.into(),
-                                    });
-                                drainer_size += 1;
-                                prometheus::QUEUE_COUNTER.inc();
-                            }
-                            if drainer_size >= drainer_capacity {
-                                info!(tag = "[Force Draining Queue]", length = %drainer_size);
-                                drain_driver_locations(&driver_locations, bucket_size, near_by_bucket_threshold, non_persistent_redis).await;
-                                // Cleanup
-                                prometheus::QUEUE_COUNTER.reset();
-                                drainer_size = 0;
-                                driver_locations.clear();
-                            }
-                            if new_ride_drainer_size >= drainer_capacity {
-                                info!(tag = "[Force Draining Queue - New Ride]", length = %new_ride_drainer_size);
-                                drain_driver_locations(&new_ride_driver_locations, bucket_size, near_by_bucket_threshold, non_persistent_redis).await;
-                                // Cleanup
-                                prometheus::NEW_RIDE_QUEUE_COUNTER.reset();
-                                new_ride_drainer_size = 0;
-                                new_ride_driver_locations.clear();
-                            }
-                        }
-                    },
-                    None => break,
-                }
-            },
-            _ = timer.tick() => {
-                if !driver_locations.is_empty() {
-                    info!(tag = "[Draining Queue]", length = %drainer_size);
-                    drain_driver_locations(&driver_locations, bucket_size, near_by_bucket_threshold, non_persistent_redis).await;
-                    // Cleanup
-                    prometheus::QUEUE_COUNTER.reset();
-                    drainer_size = 0;
-                    driver_locations.clear();
-                }
-            },
-            _ = new_ride_timer.tick() => {
-                if !new_ride_driver_locations.is_empty() {
-                    info!(tag = "[Draining Queue - New Ride]", length = %new_ride_drainer_size);
-                    drain_driver_locations(&new_ride_driver_locations, bucket_size, near_by_bucket_threshold, non_persistent_redis).await;
-                    // Cleanup
-                    prometheus::NEW_RIDE_QUEUE_COUNTER.reset();
-                    new_ride_drainer_size = 0;
-                    new_ride_driver_locations.clear();
-                }
-            },
-        }
     }
 }
 
@@ -270,7 +117,7 @@ async fn start_server() -> std::io::Result<()> {
             .configure(api::handler)
     })
     .workers(workers)
-    .bind(("0.0.0.0", port))?
+    .bind((Ipv4Addr::UNSPECIFIED, port))?
     .run()
     .await?;
 

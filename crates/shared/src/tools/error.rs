@@ -11,81 +11,49 @@ pub struct ErrorBody {
     pub error_code: String,
 }
 
-#[derive(Debug, Serialize, thiserror::Error)]
+#[macros::add_error]
 pub enum AppError {
-    #[error("InternalError")]
     InternalError(String),
-    #[error("InvalidRequest")]
     InvalidRequest(String),
-    #[error("UnprocessibleRequest")]
+    InaccurateLocation,
+    DriverDetailsForRideNotFound,
+    DriverRideDetailsNotFound,
+    DriverLastKnownLocationNotFound,
+    DriverLastLocationTimestampNotFound,
     UnprocessibleRequest(String),
-    #[error("InvalidRideStatus")]
-    InvalidRideStatus(String),
-    #[error("ExternalAPICallError")]
+    InvalidRideStatus(String, String),
     ExternalAPICallError(String),
-    #[error("SerializationError")]
     SerializationError(String),
-    #[error("DeserializationError")]
     DeserializationError(String),
-    #[error("DriverAppAuthFailed")]
     DriverAppAuthFailed(String),
-    #[error("Unserviceable")]
     Unserviceable(f64, f64),
-    #[error("HitsLimitExceeded")]
     HitsLimitExceeded,
-    #[error("DriverBulkLocationUpdateFailed")]
     DriverBulkLocationUpdateFailed,
-    #[error("InvalidConfiguration")]
     InvalidConfiguration(String),
-    #[error("SetFailed")]
     SetFailed,
-    #[error("SetExFailed")]
     SetExFailed,
-    #[error("SetExpiryFailed")]
     SetExpiryFailed,
-    #[error("GetFailed")]
     GetFailed,
-    #[error("MGetFailed")]
     MGetFailed,
-    #[error("DeleteFailed")]
     DeleteFailed,
-    #[error("SetHashFieldFailed")]
     SetHashFieldFailed,
-    #[error("GetHashFieldFailed")]
     GetHashFieldFailed,
-    #[error("RPushFailed")]
     RPushFailed,
-    #[error("RPopFailed")]
     RPopFailed,
-    #[error("LPopFailed")]
     LPopFailed,
-    #[error("LRangeFailed")]
     LRangeFailed,
-    #[error("LLenFailed")]
     LLenFailed,
-    #[error("NotFound")]
     NotFound,
-    #[error("InvalidRedisEntryId")]
     InvalidRedisEntryId,
-    #[error("RedisConnectionError")]
     RedisConnectionError,
-    #[error("SubscribeError")]
     SubscribeError,
-    #[error("PublishError")]
     PublishError,
-    #[error("GeoAddFailed")]
     GeoAddFailed,
-    #[error("ZAddFailed")]
     ZAddFailed,
-    #[error("ZremrangeByRankFailed")]
     ZremrangeByRankFailed,
-    #[error("GeoSearchFailed")]
     GeoSearchFailed,
-    #[error("ZCardFailed")]
     ZCardFailed,
-    #[error("GeoPosFailed")]
     GeoPosFailed,
-    #[error("ZRangeFailed")]
     ZRangeFailed,
 }
 
@@ -102,8 +70,8 @@ impl AppError {
             AppError::InternalError(err) => err.to_string(),
             AppError::InvalidRequest(err) => err.to_string(),
             AppError::UnprocessibleRequest(err) => err.to_string(),
-            AppError::InvalidRideStatus(ride_id) => {
-                format!("Invalid Ride Status : RideId - {ride_id}")
+            AppError::InvalidRideStatus(ride_id, ride_status) => {
+                format!("Invalid Ride Status : RideId - {ride_id}, Ride Status - {ride_status}")
             }
             AppError::ExternalAPICallError(err) => err.to_string(),
             AppError::SerializationError(err) => err.to_string(),
@@ -120,8 +88,15 @@ impl AppError {
         match self {
             AppError::InternalError(_) => "INTERNAL_ERROR",
             AppError::InvalidRequest(_) => "INVALID_REQUEST",
+            AppError::DriverDetailsForRideNotFound => "DRIVER_DETAILS_FOR_RIDE_NOT_FOUND",
+            AppError::DriverRideDetailsNotFound => "DRIVER_RIDE_DETAILS_NOT_FOUND",
+            AppError::DriverLastKnownLocationNotFound => "DRIVER_LAST_KNOWN_LOCATION_NOT_FOUND",
+            AppError::DriverLastLocationTimestampNotFound => {
+                "DRIVER_LAST_LOCATION_TIMESTAMP_NOT_FOUND"
+            }
+            AppError::InaccurateLocation => "INACCURATE_LOCATION",
             AppError::UnprocessibleRequest(_) => "UNPROCESSIBLE_REQUEST",
-            AppError::InvalidRideStatus(_) => "INVALID_RIDE_STATUS",
+            AppError::InvalidRideStatus(_, _) => "INVALID_RIDE_STATUS",
             AppError::ExternalAPICallError(_) => "EXTERNAL_API_CALL_ERROR",
             AppError::SerializationError(_) => "SERIALIZATION_ERROR",
             AppError::DeserializationError(_) => "DESERIALIZATION_ERROR",
@@ -171,8 +146,13 @@ impl ResponseError for AppError {
         match self {
             AppError::InternalError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::InvalidRequest(_) => StatusCode::BAD_REQUEST,
-            AppError::UnprocessibleRequest(_) => StatusCode::BAD_REQUEST,
-            AppError::InvalidRideStatus(_) => StatusCode::BAD_REQUEST,
+            AppError::DriverDetailsForRideNotFound => StatusCode::BAD_REQUEST,
+            AppError::DriverRideDetailsNotFound => StatusCode::BAD_REQUEST,
+            AppError::DriverLastKnownLocationNotFound => StatusCode::BAD_REQUEST,
+            AppError::DriverLastLocationTimestampNotFound => StatusCode::INTERNAL_SERVER_ERROR,
+            AppError::InaccurateLocation => StatusCode::BAD_REQUEST,
+            AppError::UnprocessibleRequest(_) => StatusCode::UNPROCESSABLE_ENTITY,
+            AppError::InvalidRideStatus(_, _) => StatusCode::BAD_REQUEST,
             AppError::ExternalAPICallError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::SerializationError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::DeserializationError(_) => StatusCode::INTERNAL_SERVER_ERROR,
