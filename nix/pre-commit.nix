@@ -56,6 +56,41 @@
               '';
             });
           };
+
+          add-gpl-header = {
+            enable = true;
+            name = "add-gpl-header";
+            description = "Add GNU GPL license header to Rust source files";
+            files = "\\.rs$";
+            pass_filenames = true;
+            entry = lib.getExe (pkgs.writeShellApplication {
+              name = "add-gpl-header";
+              text = ''
+                LICENSE="/*  Copyright 2022-23, Juspay India Pvt Ltd
+                    This program is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License
+                    as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. This program
+                    is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+                    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more details. You should have received a copy of
+                    the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
+                */"
+                if [[ ''$# -gt 0 ]]; then
+                  echo "Checking for GNU GPL license in ''$# files"
+                  FILES_NOT_WITH_LICENSE=$(grep -r -LF "''$LICENSE" "''$@" || true)
+                  if [ -z "''$FILES_NOT_WITH_LICENSE" ]; then
+                    echo "No file without license found"
+                  else
+                    echo "No license found in:"
+                    echo "''$FILES_NOT_WITH_LICENSE"
+
+                    echo "Adding license, please check and git add the changes"
+                    for FILE in ''$FILES_NOT_WITH_LICENSE; do
+                      printf "%s\n\n%s" "''$LICENSE" "''$(cat "''$FILE")" > "''$FILE"
+                    done
+                  fi
+                fi
+              '';
+            });
+          };
         };
       };
     };
