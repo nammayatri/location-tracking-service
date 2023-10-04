@@ -15,8 +15,6 @@ pub struct ErrorBody {
 pub enum AppError {
     InternalError(String),
     InvalidRequest(String),
-    InaccurateLocation,
-    DriverDetailsForRideNotFound,
     DriverRideDetailsNotFound,
     DriverLastKnownLocationNotFound,
     DriverLastLocationTimestampNotFound,
@@ -88,13 +86,11 @@ impl AppError {
         match self {
             AppError::InternalError(_) => "INTERNAL_ERROR",
             AppError::InvalidRequest(_) => "INVALID_REQUEST",
-            AppError::DriverDetailsForRideNotFound => "DRIVER_DETAILS_FOR_RIDE_NOT_FOUND",
             AppError::DriverRideDetailsNotFound => "DRIVER_RIDE_DETAILS_NOT_FOUND",
             AppError::DriverLastKnownLocationNotFound => "DRIVER_LAST_KNOWN_LOCATION_NOT_FOUND",
             AppError::DriverLastLocationTimestampNotFound => {
                 "DRIVER_LAST_LOCATION_TIMESTAMP_NOT_FOUND"
             }
-            AppError::InaccurateLocation => "INACCURATE_LOCATION",
             AppError::UnprocessibleRequest(_) => "UNPROCESSIBLE_REQUEST",
             AppError::InvalidRideStatus(_, _) => "INVALID_RIDE_STATUS",
             AppError::ExternalAPICallError(_) => "EXTERNAL_API_CALL_ERROR",
@@ -146,11 +142,9 @@ impl ResponseError for AppError {
         match self {
             AppError::InternalError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::InvalidRequest(_) => StatusCode::BAD_REQUEST,
-            AppError::DriverDetailsForRideNotFound => StatusCode::BAD_REQUEST,
             AppError::DriverRideDetailsNotFound => StatusCode::BAD_REQUEST,
             AppError::DriverLastKnownLocationNotFound => StatusCode::BAD_REQUEST,
             AppError::DriverLastLocationTimestampNotFound => StatusCode::INTERNAL_SERVER_ERROR,
-            AppError::InaccurateLocation => StatusCode::BAD_REQUEST,
             AppError::UnprocessibleRequest(_) => StatusCode::UNPROCESSABLE_ENTITY,
             AppError::InvalidRideStatus(_, _) => StatusCode::BAD_REQUEST,
             AppError::ExternalAPICallError(_) => StatusCode::INTERNAL_SERVER_ERROR,
