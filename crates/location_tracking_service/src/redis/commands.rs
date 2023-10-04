@@ -108,7 +108,7 @@ pub async fn get_driver_details(
 
     let driver_details = match driver_details {
         Some(driver_details) => driver_details,
-        None => return Err(AppError::DriverDetailsForRideNotFound),
+        None => return Err(AppError::DriverRideDetailsNotFound),
     };
 
     let driver_details = serde_json::from_str::<DriverDetails>(&driver_details)

@@ -26,7 +26,7 @@ async fn get_driver_id_from_authentication(
     auth_token_expiry: &u32,
     Token(token): Token,
     MerchantId(merchant_id): &MerchantId,
-) -> Result<Option<DriverId>, AppError> {
+) -> Result<DriverId, AppError> {
     let response = authenticate_dobpp(auth_url, token.as_str(), auth_api_key, merchant_id).await;
 
     if let Ok(response) = response {
@@ -37,7 +37,7 @@ async fn get_driver_id_from_authentication(
             &response.driver_id,
         )
         .await?;
-        return Ok(Some(response.driver_id));
+        return Ok(response.driver_id);
     }
 
     Err(AppError::DriverAppAuthFailed(token))
@@ -65,7 +65,7 @@ pub async fn update_driver_location(
     let latest_driver_location = if let Some(locations) = locations.last() {
         locations.to_owned()
     } else {
-        return Err(AppError::InaccurateLocation);
+        return Ok(APISuccess::default());
     };
 
     let city = get_city(
@@ -75,7 +75,7 @@ pub async fn update_driver_location(
     )?;
 
     let driver_id = match get_driver_id(&data.persistent_redis, &token).await? {
-        Some(driver_id) => Some(driver_id),
+        Some(driver_id) => driver_id,
         None => {
             get_driver_id_from_authentication(
                 &data.persistent_redis,
@@ -89,44 +89,38 @@ pub async fn update_driver_location(
         }
     };
 
-    if let Some(driver_id) = driver_id {
-        info!(
-            tag = "[Location Updates]",
-            "Got location updates for Driver Id : {:?} : {:?}", &driver_id, &locations
-        );
+    info!(
+        tag = "[Location Updates]",
+        "Got location updates for Driver Id : {:?} : {:?}", &driver_id, &locations
+    );
 
-        let _ = sliding_window_limiter(
-            &data.persistent_redis,
-            &sliding_rate_limiter_key(&driver_id, &city, &merchant_id),
-            data.location_update_limit,
-            data.location_update_interval as u32,
-        )
-        .await;
+    let _ = sliding_window_limiter(
+        &data.persistent_redis,
+        &sliding_rate_limiter_key(&driver_id, &city, &merchant_id),
+        data.location_update_limit,
+        data.location_update_interval as u32,
+    )
+    .await;
 
-        with_lock_redis(
-            &data.persistent_redis,
-            driver_processing_location_update_lock_key(&driver_id, &merchant_id, &city),
-            60,
-            process_driver_locations,
-            (
-                data.clone(),
-                locations,
-                latest_driver_location,
-                driver_id,
-                merchant_id,
-                vehicle_type,
-                city,
-                driver_mode,
-            ),
-        )
-        .await?;
+    with_lock_redis(
+        &data.persistent_redis,
+        driver_processing_location_update_lock_key(&driver_id, &merchant_id, &city),
+        60,
+        process_driver_locations,
+        (
+            data.clone(),
+            locations,
+            latest_driver_location,
+            driver_id,
+            merchant_id,
+            vehicle_type,
+            city,
+            driver_mode,
+        ),
+    )
+    .await?;
 
-        Ok(APISuccess::default())
-    } else {
-        Err(AppError::InternalError(
-            "Failed to authenticate and get driver_id".to_string(),
-        ))
-    }
+    Ok(APISuccess::default())
 }
 
 #[allow(clippy::type_complexity)]
@@ -378,23 +372,31 @@ pub async fn track_driver_location(
     data: Data<AppState>,
     ride_id: RideId,
 ) -> Result<DriverLocationResponse, AppError> {
-    let driver_details = get_driver_details(&data.persistent_redis, &ride_id).await?;
+    let RideId(unwrapped_ride_id) = ride_id.to_owned();
+
+    let driver_details = get_driver_details(&data.persistent_redis, &ride_id)
+        .await
+        .map_err(|_| {
+            AppError::InvalidRideStatus(unwrapped_ride_id.to_owned(), "COMPLETED".to_string())
+        })?;
 
     let driver_ride_details = get_ride_details(
         &data.persistent_redis,
         &driver_details.driver_id,
         &driver_details.merchant_id,
     )
-    .await?;
+    .await
+    .map_err(|_| {
+        AppError::InvalidRideStatus(unwrapped_ride_id.to_owned(), "COMPLETED".to_string())
+    })?;
 
     let current_ride_status = match driver_ride_details.ride_status {
         RideStatus::NEW => DriverRideStatus::PreRide,
         RideStatus::INPROGRESS => DriverRideStatus::ActualRide,
-        ride_status => {
-            let RideId(ride_id) = ride_id;
+        RideStatus::CANCELLED => {
             return Err(AppError::InvalidRideStatus(
-                ride_id,
-                ride_status.to_string(),
+                unwrapped_ride_id.to_owned(),
+                "CANCELLED".to_string(),
             ));
         }
     };
