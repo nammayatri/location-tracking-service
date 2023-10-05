@@ -342,7 +342,7 @@ impl RedisConnectionPool {
         mval: &FxHashMap<String, Vec<GeoValue>>,
         options: Option<SetOptions>,
         changed: bool,
-        expiry: u64,
+        expiry: i64,
     ) -> Result<(), AppError> {
         let pipeline = self.pool.pipeline();
 
@@ -355,7 +355,7 @@ impl RedisConnectionPool {
                     MultipleGeoValues::from(values.to_owned()),
                 )
                 .await;
-            let _ = pipeline.expire::<(), &str>(key, expiry as i64).await;
+            let _ = pipeline.expire::<(), &str>(key, expiry).await;
         }
 
         let output: Result<Vec<RedisValue>, RedisError> = pipeline.all().await;

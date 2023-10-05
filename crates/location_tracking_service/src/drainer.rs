@@ -7,18 +7,34 @@
 */
 use crate::{
     common::{types::*, utils::get_current_bucket},
-    redis::keys::driver_loc_bucket_key,
+    redis::{commands::push_drainer_driver_location, keys::driver_loc_bucket_key},
 };
-use fred::{
-    prelude::{GeoInterface, KeysInterface},
-    types::{GeoPosition, GeoValue, RedisValue},
-};
+use fred::types::{GeoPosition, GeoValue};
+use rustc_hash::FxHashMap;
 use shared::redis::types::RedisConnectionPool;
 use shared::utils::{logger::*, prometheus};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::{sync::Arc, time::Duration};
 use tokio::sync::mpsc;
 use tokio::time::interval;
+
+async fn drain_driver_locations(
+    driver_locations: &FxHashMap<String, Vec<GeoValue>>,
+    bucket_expiry: i64,
+    non_persistent_redis: &RedisConnectionPool,
+) {
+    info!(
+        tag = "[Queued Entries For Draining]",
+        "Queue: {:?}\nPushing to redis server", driver_locations
+    );
+
+    let res =
+        push_drainer_driver_location(driver_locations, &bucket_expiry, non_persistent_redis).await;
+
+    if let Err(err) = res {
+        error!(tag = "[Error Pushing To Redis]", error = %err);
+    }
+}
 
 #[allow(clippy::too_many_arguments)]
 pub async fn run_drainer(
@@ -31,10 +47,10 @@ pub async fn run_drainer(
     near_by_bucket_threshold: u64,
     non_persistent_redis: &RedisConnectionPool,
 ) {
-    let mut driver_locations = non_persistent_redis.pool.pipeline();
+    let mut driver_locations: FxHashMap<String, Vec<GeoValue>> = FxHashMap::default();
     let mut timer = interval(Duration::from_secs(drainer_delay));
 
-    let mut new_ride_driver_locations = non_persistent_redis.pool.pipeline();
+    let mut new_ride_driver_locations: FxHashMap<String, Vec<GeoValue>> = FxHashMap::default();
     let mut new_ride_timer = interval(Duration::from_secs(new_ride_drainer_delay));
 
     let mut drainer_size = 0;
@@ -47,12 +63,18 @@ pub async fn run_drainer(
             info!(tag = "[Graceful Shutting Down]", length = %drainer_size);
             if drainer_size > 0 {
                 info!(tag = "[Force Draining Queue]", length = %drainer_size);
-                let _ = driver_locations.all::<Vec<RedisValue>>().await;
+                drain_driver_locations(&driver_locations, bucket_expiry, non_persistent_redis)
+                    .await;
                 prometheus::QUEUE_COUNTER.reset();
             }
             if new_ride_drainer_size > 0 {
                 info!(tag = "[Force Draining Queue - New Ride]", length = %new_ride_drainer_size);
-                let _ = new_ride_driver_locations.all::<Vec<RedisValue>>().await;
+                drain_driver_locations(
+                    &new_ride_driver_locations,
+                    bucket_expiry,
+                    non_persistent_redis,
+                )
+                .await;
                 prometheus::NEW_RIDE_QUEUE_COUNTER.reset();
             }
             break;
@@ -64,54 +86,42 @@ pub async fn run_drainer(
                     Some((Dimensions { merchant_id, city, vehicle_type, new_ride }, Latitude(latitude), Longitude(longitude), DriverId(driver_id))) => {
                         if let Ok(bucket) = get_current_bucket(&bucket_size) {
                             if new_ride {
-                                let _ = new_ride_driver_locations.
-                                    geoadd::<RedisValue, &str, GeoValue>(
-                                        &driver_loc_bucket_key(&merchant_id, &city, &vehicle_type, &bucket),
-                                        None,
-                                        false,
-                                        GeoValue {
-                                            coordinates: GeoPosition {
-                                                latitude,
-                                                longitude,
-                                            },
-                                            member: driver_id.into(),
+                                new_ride_driver_locations
+                                    .entry(driver_loc_bucket_key(&merchant_id, &city, &vehicle_type, &bucket))
+                                    .or_insert_with(Vec::new)
+                                    .push(GeoValue {
+                                        coordinates: GeoPosition {
+                                            latitude,
+                                            longitude,
                                         },
-                                    )
-                                    .await;
-                                let _ = new_ride_driver_locations.expire::<(), &str>(&driver_loc_bucket_key(&merchant_id, &city, &vehicle_type, &bucket), bucket_expiry).await;
+                                        member: driver_id.into(),
+                                    });
                                 new_ride_drainer_size += 1;
                                 prometheus::NEW_RIDE_QUEUE_COUNTER.inc();
                             } else {
-                                let _ = driver_locations.
-                                    geoadd::<RedisValue, &str, GeoValue>(
-                                        &driver_loc_bucket_key(&merchant_id, &city, &vehicle_type, &bucket),
-                                        None,
-                                        false,
-                                        GeoValue {
-                                            coordinates: GeoPosition {
-                                                latitude,
-                                                longitude,
-                                            },
-                                            member: driver_id.into(),
+                                driver_locations
+                                    .entry(driver_loc_bucket_key(&merchant_id, &city, &vehicle_type, &bucket))
+                                    .or_insert_with(Vec::new)
+                                    .push(GeoValue {
+                                        coordinates: GeoPosition {
+                                            latitude,
+                                            longitude,
                                         },
-                                    )
-                                    .await;
-                                let _ = driver_locations.expire::<(), &str>(&driver_loc_bucket_key(&merchant_id, &city, &vehicle_type, &bucket), bucket_expiry).await;
+                                        member: driver_id.into(),
+                                    });
                                 drainer_size += 1;
                                 prometheus::QUEUE_COUNTER.inc();
                             }
                             if drainer_size >= drainer_capacity {
                                 info!(tag = "[Force Draining Queue]", length = %drainer_size);
-                                let _ = driver_locations.all::<Vec<RedisValue>>().await;
-                                driver_locations = non_persistent_redis.pool.pipeline();
+                                drain_driver_locations(&driver_locations, bucket_expiry, non_persistent_redis).await;
                                 // Cleanup
                                 prometheus::QUEUE_COUNTER.reset();
                                 drainer_size = 0;
                             }
                             if new_ride_drainer_size >= drainer_capacity {
                                 info!(tag = "[Force Draining Queue - New Ride]", length = %new_ride_drainer_size);
-                                let _ = new_ride_driver_locations.all::<Vec<RedisValue>>().await;
-                                new_ride_driver_locations = non_persistent_redis.pool.pipeline();
+                                drain_driver_locations(&new_ride_driver_locations, bucket_expiry, non_persistent_redis).await;
                                 // Cleanup
                                 prometheus::NEW_RIDE_QUEUE_COUNTER.reset();
                                 new_ride_drainer_size = 0;
@@ -124,8 +134,7 @@ pub async fn run_drainer(
             _ = timer.tick() => {
                 if drainer_size > 0 {
                     info!(tag = "[Draining Queue]", length = %drainer_size);
-                    let _ = driver_locations.all::<Vec<RedisValue>>().await;
-                    driver_locations = non_persistent_redis.pool.pipeline();
+                    drain_driver_locations(&driver_locations, bucket_expiry, non_persistent_redis).await;
                     // Cleanup
                     prometheus::QUEUE_COUNTER.reset();
                     drainer_size = 0;
@@ -134,8 +143,7 @@ pub async fn run_drainer(
             _ = new_ride_timer.tick() => {
                 if new_ride_drainer_size > 0 {
                     info!(tag = "[Draining Queue - New Ride]", length = %new_ride_drainer_size);
-                    let _ = new_ride_driver_locations.all::<Vec<RedisValue>>().await;
-                    new_ride_driver_locations = non_persistent_redis.pool.pipeline();
+                    drain_driver_locations(&new_ride_driver_locations, bucket_expiry, non_persistent_redis).await;
                     // Cleanup
                     prometheus::NEW_RIDE_QUEUE_COUNTER.reset();
                     new_ride_drainer_size = 0;

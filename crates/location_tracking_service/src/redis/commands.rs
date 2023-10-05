@@ -8,9 +8,9 @@
 use crate::common::types::*;
 use crate::redis::keys::*;
 use chrono::Utc;
-use fred::types::{GeoPosition, GeoUnit, RedisValue, SortOrder};
+use fred::types::{GeoPosition, GeoUnit, GeoValue, RedisValue, SortOrder};
 use futures::Future;
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 use shared::utils::logger::*;
 use shared::{redis::types::RedisConnectionPool, tools::error::AppError};
 
@@ -423,4 +423,17 @@ pub async fn get_all_driver_last_locations(
         .collect::<Vec<Option<DriverAllDetails>>>();
 
     Ok(drivers_detail)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn push_drainer_driver_location(
+    geo_entries: &FxHashMap<String, Vec<GeoValue>>,
+    bucket_expiry: &i64,
+    non_persistent_redis: &RedisConnectionPool,
+) -> Result<(), AppError> {
+    non_persistent_redis
+        .mgeo_add_with_expiry(geo_entries, None, false, *bucket_expiry)
+        .await?;
+
+    Ok(())
 }
