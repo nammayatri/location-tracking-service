@@ -60,4 +60,5 @@ in {
     batch_size = 100,
     bucket_size = 30,
     nearby_bucket_threshold = 4,
+    driver_location_accuracy_buffer = 50.0,
 }

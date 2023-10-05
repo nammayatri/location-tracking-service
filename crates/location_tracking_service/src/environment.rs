@@ -37,6 +37,7 @@ pub struct AppConfig {
     pub batch_size: i64,
     pub bucket_size: u64,
     pub nearby_bucket_threshold: u64,
+    pub driver_location_accuracy_buffer: f64,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -81,6 +82,7 @@ pub struct AppState {
     pub batch_size: i64,
     pub bucket_size: u64,
     pub nearby_bucket_threshold: u64,
+    pub driver_location_accuracy_buffer: f64,
 }
 
 impl AppState {
@@ -220,6 +222,7 @@ impl AppState {
             batch_size: app_config.batch_size,
             bucket_size: app_config.bucket_size,
             nearby_bucket_threshold: app_config.nearby_bucket_threshold,
+            driver_location_accuracy_buffer: app_config.driver_location_accuracy_buffer,
         }
     }
 }
