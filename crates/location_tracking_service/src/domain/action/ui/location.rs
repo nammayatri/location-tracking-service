@@ -5,6 +5,7 @@
     or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more details. You should have received a copy of
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
+use crate::common::utils::distance_between_in_meters;
 use crate::common::{
     sliding_window_rate_limiter::sliding_window_limiter, types::*, utils::get_city,
 };
@@ -15,11 +16,9 @@ use crate::outbound::external::{authenticate_dobpp, bulk_location_update_dobpp};
 use crate::redis::{commands::*, keys::*};
 use actix::Arbiter;
 use actix_web::web::Data;
-use rustc_hash::FxHashSet;
 use shared::redis::types::RedisConnectionPool;
 use shared::tools::error::AppError;
 use shared::utils::logger::*;
-use std::f64::consts::PI;
 
 async fn get_driver_id_from_authentication(
     persistent_redis: &RedisConnectionPool,
@@ -45,32 +44,31 @@ async fn get_driver_id_from_authentication(
     Err(AppError::DriverAppAuthFailed(token))
 }
 
-fn deg2rad(degrees: f64) -> f64 {
-    degrees * PI / 180.0
-}
+fn get_filtered_driver_locations(
+    last_known_location: DriverLastKnownLocation,
+    mut locations: Vec<UpdateDriverLocationRequest>,
+    min_location_accuracy: Accuracy,
+    driver_location_accuracy_buffer: f64,
+) -> Vec<UpdateDriverLocationRequest> {
+    locations.sort_by(|a, b| {
+        let TimeStamp(a_ts) = a.ts;
+        let TimeStamp(b_ts) = b.ts;
+        (a_ts).cmp(&b_ts)
+    });
 
-fn distance_between_in_meters(latlong1: &Point, latlong2: &Point) -> f64 {
-    // Radius of Earth in meters
-    let r: f64 = 6_371_000.0;
+    locations.dedup_by(|a, b| a.pt.lat == b.pt.lat && a.pt.lon == b.pt.lon);
 
-    let Latitude(lat1) = latlong1.lat;
-    let Longitude(lon1) = latlong1.lon;
-    let Latitude(lat2) = latlong2.lat;
-    let Longitude(lon2) = latlong2.lon;
+    let locations: Vec<UpdateDriverLocationRequest> = locations
+        .into_iter()
+        .filter(|location| {
+            location.acc.or(Some(Accuracy(0.0))) <= Some(min_location_accuracy)
+                && location.ts > TimeStamp(last_known_location.timestamp)
+                && distance_between_in_meters(&last_known_location.location, &location.pt)
+                    > driver_location_accuracy_buffer
+        })
+        .collect();
 
-    let dlat = deg2rad(lat2 - lat1);
-    let dlon = deg2rad(lon2 - lon1);
-
-    let rlat1 = deg2rad(lat1);
-    let rlat2 = deg2rad(lat2);
-
-    let sq = |x: f64| x * x;
-
-    // Calculated distance is real (not imaginary) when 0 <= h <= 1
-    // Ideally in our use case h wouldn't go out of bounds
-    let h = sq((dlat / 2.0).sin()) + rlat1.cos() * rlat2.cos() * sq((dlon / 2.0).sin());
-
-    2.0 * r * h.sqrt().atan2((1.0 - h).sqrt())
+    locations
 }
 
 pub async fn update_driver_location(
@@ -78,39 +76,9 @@ pub async fn update_driver_location(
     merchant_id: MerchantId,
     vehicle_type: VehicleType,
     data: Data<AppState>,
-    mut locations: Vec<UpdateDriverLocationRequest>,
+    locations: Vec<UpdateDriverLocationRequest>,
     driver_mode: Option<DriverMode>,
 ) -> Result<APISuccess, AppError> {
-    locations.sort_by(|a, b| {
-        let TimeStamp(a_ts) = a.ts;
-        let TimeStamp(b_ts) = b.ts;
-        (a_ts).cmp(&b_ts)
-    });
-
-    let mut unique_locations: FxHashSet<String> = FxHashSet::default();
-    let mut new_locations: Vec<UpdateDriverLocationRequest> = Vec::new();
-    for location in locations.iter() {
-        let x = serde_json::to_string(location).unwrap();
-        if !(unique_locations.contains(&x)) {
-            unique_locations.insert(x);
-            new_locations.push(location.clone());
-        }
-    }
-
-    let locations: Vec<UpdateDriverLocationRequest> = new_locations;
-
-    let latest_driver_location = if let Some(locations) = locations.last() {
-        locations.to_owned()
-    } else {
-        return Ok(APISuccess::default());
-    };
-
-    let city = get_city(
-        &latest_driver_location.pt.lat,
-        &latest_driver_location.pt.lon,
-        &data.polygon,
-    )?;
-
     let driver_id = match get_driver_id(&data.persistent_redis, &token).await? {
         Some(driver_id) => driver_id,
         None => {
@@ -125,31 +93,32 @@ pub async fn update_driver_location(
             .await?
         }
     };
-
-    let locations: Vec<UpdateDriverLocationRequest> = locations
-        .into_iter()
-        .filter(|request| request.acc.or(Some(Accuracy(0.0))) <= Some(data.min_location_accuracy))
-        .collect();
-
     let driver_last_known_location_details =
         get_driver_location(&data.persistent_redis, &driver_id).await?;
 
-    let locations: Vec<UpdateDriverLocationRequest> = locations
-        .into_iter()
-        .filter(|request| {
-            let request_location = &request.pt;
-            let distance = distance_between_in_meters(
-                request_location,
-                &driver_last_known_location_details.location,
-            );
-            distance > data.driver_location_accuracy_buffer
-        })
-        .collect();
+    let locations = get_filtered_driver_locations(
+        driver_last_known_location_details,
+        locations,
+        data.min_location_accuracy,
+        data.driver_location_accuracy_buffer,
+    );
+
+    let latest_driver_location = if let Some(locations) = locations.last() {
+        locations.to_owned()
+    } else {
+        return Ok(APISuccess::default());
+    };
 
     info!(
         tag = "[Location Updates]",
         "Got location updates for Driver Id : {:?} : {:?}", &driver_id, &locations
     );
+
+    let city = get_city(
+        &latest_driver_location.pt.lat,
+        &latest_driver_location.pt.lon,
+        &data.polygon,
+    )?;
 
     let _ = sliding_window_limiter(
         &data.persistent_redis,
@@ -204,11 +173,6 @@ async fn process_driver_locations(
         driver_mode,
     ) = args;
 
-    let last_location_update_ts =
-        get_driver_last_location_update(&data.persistent_redis, &driver_id)
-            .await
-            .unwrap_or(latest_driver_location.ts);
-
     let (
         t_persistent_redis,
         t_last_location_timstamp_expiry,
@@ -222,17 +186,6 @@ async fn process_driver_locations(
         merchant_id.to_owned(),
         driver_mode.to_owned(),
     );
-
-    let locations: Vec<UpdateDriverLocationRequest> = locations
-        .into_iter()
-        .filter(|request| request.ts >= last_location_update_ts)
-        .collect();
-
-    let latest_driver_location = if let Some(location) = locations.last() {
-        location.to_owned()
-    } else {
-        return;
-    };
 
     Arbiter::current().spawn(async move {
         let _ = set_driver_last_location_update(

@@ -8,7 +8,10 @@
 use super::types::*;
 use geo::{point, Intersects};
 use shared::tools::error::AppError;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::{
+    f64::consts::PI,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 pub fn get_city(
     lat: &Latitude,
@@ -43,4 +46,33 @@ pub fn get_current_bucket(location_expiry_in_seconds: &u64) -> Result<u64, AppEr
         &SystemTime::elapsed(&UNIX_EPOCH)
             .map_err(|err| AppError::InternalError(err.to_string()))?,
     ) / location_expiry_in_seconds)
+}
+
+fn deg2rad(degrees: f64) -> f64 {
+    degrees * PI / 180.0
+}
+
+pub fn distance_between_in_meters(latlong1: &Point, latlong2: &Point) -> f64 {
+    // Calculating using haversine formula
+    // Radius of Earth in meters
+    let r: f64 = 6371000.0;
+
+    let Latitude(lat1) = latlong1.lat;
+    let Longitude(lon1) = latlong1.lon;
+    let Latitude(lat2) = latlong2.lat;
+    let Longitude(lon2) = latlong2.lon;
+
+    let dlat = deg2rad(lat2 - lat1);
+    let dlon = deg2rad(lon2 - lon1);
+
+    let rlat1 = deg2rad(lat1);
+    let rlat2 = deg2rad(lat2);
+
+    let sq = |x: f64| x * x;
+
+    // Calculated distance is real (not imaginary) when 0 <= h <= 1
+    // Ideally in our use case h wouldn't go out of bounds
+    let h = sq((dlat / 2.0).sin()) + rlat1.cos() * rlat2.cos() * sq((dlon / 2.0).sin());
+
+    2.0 * r * h.sqrt().atan2((1.0 - h).sqrt())
 }
