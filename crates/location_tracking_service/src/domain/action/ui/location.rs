@@ -15,9 +15,11 @@ use crate::outbound::external::{authenticate_dobpp, bulk_location_update_dobpp};
 use crate::redis::{commands::*, keys::*};
 use actix::Arbiter;
 use actix_web::web::Data;
+use rustc_hash::FxHashSet;
 use shared::redis::types::RedisConnectionPool;
 use shared::tools::error::AppError;
 use shared::utils::logger::*;
+use std::f64::consts::PI;
 
 async fn get_driver_id_from_authentication(
     persistent_redis: &RedisConnectionPool,
@@ -43,6 +45,34 @@ async fn get_driver_id_from_authentication(
     Err(AppError::DriverAppAuthFailed(token))
 }
 
+fn deg2rad(degrees: f64) -> f64 {
+    degrees * PI / 180.0
+}
+
+fn distance_between_in_meters(latlong1: &Point, latlong2: &Point) -> f64 {
+    // Radius of Earth in meters
+    let r: f64 = 6_371_000.0;
+
+    let Latitude(lat1) = latlong1.lat;
+    let Longitude(lon1) = latlong1.lon;
+    let Latitude(lat2) = latlong2.lat;
+    let Longitude(lon2) = latlong2.lon;
+
+    let dlat = deg2rad(lat2 - lat1);
+    let dlon = deg2rad(lon2 - lon1);
+
+    let rlat1 = deg2rad(lat1);
+    let rlat2 = deg2rad(lat2);
+
+    let sq = |x: f64| x * x;
+
+    // Calculated distance is real (not imaginary) when 0 <= h <= 1
+    // Ideally in our use case h wouldn't go out of bounds
+    let h = sq((dlat / 2.0).sin()) + rlat1.cos() * rlat2.cos() * sq((dlon / 2.0).sin());
+
+    2.0 * r * h.sqrt().atan2((1.0 - h).sqrt())
+}
+
 pub async fn update_driver_location(
     token: Token,
     merchant_id: MerchantId,
@@ -57,10 +87,17 @@ pub async fn update_driver_location(
         (a_ts).cmp(&b_ts)
     });
 
-    let locations: Vec<UpdateDriverLocationRequest> = locations
-        .into_iter()
-        .filter(|request| request.acc.or(Some(Accuracy(0.0))) <= Some(data.min_location_accuracy))
-        .collect();
+    let mut unique_locations: FxHashSet<String> = FxHashSet::default();
+    let mut new_locations: Vec<UpdateDriverLocationRequest> = Vec::new();
+    for location in locations.iter() {
+        let x = serde_json::to_string(location).unwrap();
+        if !(unique_locations.contains(&x)) {
+            unique_locations.insert(x);
+            new_locations.push(location.clone());
+        }
+    }
+
+    let locations: Vec<UpdateDriverLocationRequest> = new_locations;
 
     let latest_driver_location = if let Some(locations) = locations.last() {
         locations.to_owned()
@@ -88,6 +125,26 @@ pub async fn update_driver_location(
             .await?
         }
     };
+
+    let locations: Vec<UpdateDriverLocationRequest> = locations
+        .into_iter()
+        .filter(|request| request.acc.or(Some(Accuracy(0.0))) <= Some(data.min_location_accuracy))
+        .collect();
+
+    let driver_last_known_location_details =
+        get_driver_location(&data.persistent_redis, &driver_id).await?;
+
+    let locations: Vec<UpdateDriverLocationRequest> = locations
+        .into_iter()
+        .filter(|request| {
+            let request_location = &request.pt;
+            let distance = distance_between_in_meters(
+                request_location,
+                &driver_last_known_location_details.location,
+            );
+            distance > data.driver_location_accuracy_buffer
+        })
+        .collect();
 
     info!(
         tag = "[Location Updates]",
