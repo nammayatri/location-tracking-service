@@ -45,7 +45,7 @@ async fn get_driver_id_from_authentication(
 }
 
 fn get_filtered_driver_locations(
-    last_known_location: Option<DriverLastKnownLocation>,
+    last_known_location: Option<&DriverLastKnownLocation>,
     mut locations: Vec<UpdateDriverLocationRequest>,
     min_location_accuracy: Accuracy,
     driver_location_accuracy_buffer: f64,
@@ -63,9 +63,8 @@ fn get_filtered_driver_locations(
         .filter(|location| {
             location.acc.or(Some(Accuracy(0.0))) <= Some(min_location_accuracy)
                 && last_known_location
-                    .as_ref()
                     .map(|last_known_location| {
-                        location.ts > TimeStamp(last_known_location.timestamp)
+                        location.ts > last_known_location.timestamp
                             && distance_between_in_meters(
                                 &last_known_location.location,
                                 &location.pt,
@@ -100,20 +99,25 @@ pub async fn update_driver_location(
             .await?
         }
     };
-    let driver_last_known_location_details =
-        get_driver_location(&data.persistent_redis, &driver_id)
-            .await
-            .ok();
+    let last_known_location = get_driver_location(&data.persistent_redis, &driver_id)
+        .await
+        .ok();
 
     let locations = get_filtered_driver_locations(
-        driver_last_known_location_details,
+        last_known_location.as_ref(),
         locations,
         data.min_location_accuracy,
         data.driver_location_accuracy_buffer,
     );
 
-    let latest_driver_location = if let Some(locations) = locations.last() {
-        locations.to_owned()
+    let latest_driver_location = if let Some(location) = locations.last() {
+        DriverLastKnownLocation {
+            location: location.pt.to_owned(),
+            timestamp: location.ts,
+            merchant_id: merchant_id.to_owned(),
+        }
+    } else if let Some(last_known_location) = last_known_location {
+        last_known_location
     } else {
         return Ok(APISuccess::default());
     };
@@ -124,8 +128,8 @@ pub async fn update_driver_location(
     );
 
     let city = get_city(
-        &latest_driver_location.pt.lat,
-        &latest_driver_location.pt.lon,
+        &latest_driver_location.location.lat,
+        &latest_driver_location.location.lon,
         &data.polygon,
     )?;
 
@@ -163,7 +167,7 @@ async fn process_driver_locations(
     args: (
         Data<AppState>,
         Vec<UpdateDriverLocationRequest>,
-        UpdateDriverLocationRequest,
+        DriverLastKnownLocation,
         DriverId,
         MerchantId,
         VehicleType,
@@ -188,12 +192,14 @@ async fn process_driver_locations(
         t_driver_id,
         t_merchant_id,
         t_driver_mode,
+        t_latest_driver_location,
     ) = (
         data.persistent_redis.clone(),
         data.last_location_timstamp_expiry,
         driver_id.to_owned(),
         merchant_id.to_owned(),
         driver_mode.to_owned(),
+        latest_driver_location.location.to_owned(),
     );
 
     Arbiter::current().spawn(async move {
@@ -202,10 +208,7 @@ async fn process_driver_locations(
             &t_last_location_timstamp_expiry,
             &t_driver_id,
             &t_merchant_id,
-            &Point {
-                lat: latest_driver_location.pt.lat,
-                lon: latest_driver_location.pt.lon,
-            },
+            t_latest_driver_location,
             t_driver_mode,
         )
         .await;
@@ -229,8 +232,8 @@ async fn process_driver_locations(
                         vehicle_type: vehicle_type.to_owned(),
                         new_ride: false,
                     },
-                    latest_driver_location.pt.lat,
-                    latest_driver_location.pt.lon,
+                    latest_driver_location.location.lat,
+                    latest_driver_location.location.lon,
                     driver_id.to_owned(),
                 ))
                 .await;
@@ -320,8 +323,8 @@ async fn process_driver_locations(
                         vehicle_type: vehicle_type.to_owned(),
                         new_ride: true,
                     },
-                    latest_driver_location.pt.lat,
-                    latest_driver_location.pt.lon,
+                    latest_driver_location.location.lat,
+                    latest_driver_location.location.lon,
                     driver_id.to_owned(),
                 ))
                 .await;
@@ -357,8 +360,8 @@ async fn process_driver_locations(
                         vehicle_type: vehicle_type.to_owned(),
                         new_ride: false,
                     },
-                    latest_driver_location.pt.lat,
-                    latest_driver_location.pt.lon,
+                    latest_driver_location.location.lat,
+                    latest_driver_location.location.lon,
                     driver_id.to_owned(),
                 ))
                 .await;

@@ -136,7 +136,7 @@ pub struct Dimensions {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct DriverLastKnownLocation {
     pub location: Point,
-    pub timestamp: DateTime<Utc>,
+    pub timestamp: TimeStamp,
     pub merchant_id: MerchantId,
 }
 

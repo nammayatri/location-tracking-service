@@ -61,7 +61,7 @@ async fn search_nearby_drivers_with_vehicle(
                     driver_all_details.driver_last_known_location.as_ref()
                 })
                 .map(|driver_last_known_location| driver_last_known_location.timestamp)
-                .unwrap_or(Utc::now());
+                .unwrap_or(TimeStamp(Utc::now()));
             DriverLocation {
                 driver_id: driver.driver_id.to_owned(),
                 lat: driver.location.lat,
