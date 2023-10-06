@@ -45,7 +45,7 @@ async fn get_driver_id_from_authentication(
 }
 
 fn get_filtered_driver_locations(
-    last_known_location: DriverLastKnownLocation,
+    last_known_location: Option<DriverLastKnownLocation>,
     mut locations: Vec<UpdateDriverLocationRequest>,
     min_location_accuracy: Accuracy,
     driver_location_accuracy_buffer: f64,
@@ -62,9 +62,16 @@ fn get_filtered_driver_locations(
         .into_iter()
         .filter(|location| {
             location.acc.or(Some(Accuracy(0.0))) <= Some(min_location_accuracy)
-                && location.ts > TimeStamp(last_known_location.timestamp)
-                && distance_between_in_meters(&last_known_location.location, &location.pt)
-                    > driver_location_accuracy_buffer
+                && last_known_location
+                    .as_ref()
+                    .map(|last_known_location| {
+                        location.ts > TimeStamp(last_known_location.timestamp)
+                            && distance_between_in_meters(
+                                &last_known_location.location,
+                                &location.pt,
+                            ) > driver_location_accuracy_buffer
+                    })
+                    .unwrap_or(true)
         })
         .collect();
 
@@ -94,7 +101,9 @@ pub async fn update_driver_location(
         }
     };
     let driver_last_known_location_details =
-        get_driver_location(&data.persistent_redis, &driver_id).await?;
+        get_driver_location(&data.persistent_redis, &driver_id)
+            .await
+            .ok();
 
     let locations = get_filtered_driver_locations(
         driver_last_known_location_details,
