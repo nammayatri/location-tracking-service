@@ -199,9 +199,10 @@ pub async fn get_driver_last_location_update(
         .await?;
 
     if let Some(val) = last_location_update {
-        if let Ok(x) = serde_json::from_str::<DriverAllDetails>(&val) {
-            if let Some(x) = x.driver_last_known_location {
-                return Ok(TimeStamp(x.timestamp.with_timezone(&Utc)));
+        if let Ok(driver_details) = serde_json::from_str::<DriverAllDetails>(&val) {
+            if let Some(last_known_location) = driver_details.driver_last_known_location {
+                let TimeStamp(last_known_location_timestamp) = last_known_location.timestamp;
+                return Ok(TimeStamp(last_known_location_timestamp.with_timezone(&Utc)));
             }
         }
     }
@@ -246,7 +247,7 @@ pub async fn set_driver_last_location_update(
     last_location_timstamp_expiry: &u32,
     driver_id: &DriverId,
     merchant_id: &MerchantId,
-    last_location: &Point,
+    last_location: Point,
     driver_mode: Option<DriverMode>,
 ) -> Result<(), AppError> {
     let last_location_update = persistent_redis_pool
@@ -262,7 +263,7 @@ pub async fn set_driver_last_location_update(
                 lat: last_location.lat,
                 lon: last_location.lon,
             },
-            timestamp: Utc::now(),
+            timestamp: TimeStamp(Utc::now()),
             merchant_id: merchant_id.to_owned(),
         };
         value.driver_last_known_location = Some(driver_last_known_location);
@@ -278,7 +279,7 @@ pub async fn set_driver_last_location_update(
                     lat: last_location.lat,
                     lon: last_location.lon,
                 },
-                timestamp: Utc::now(),
+                timestamp: TimeStamp(Utc::now()),
                 merchant_id: merchant_id.to_owned(),
             }),
         }

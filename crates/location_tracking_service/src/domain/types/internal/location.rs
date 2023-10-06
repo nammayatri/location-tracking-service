@@ -5,7 +5,6 @@
     or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more details. You should have received a copy of
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::common::types::*;
@@ -36,8 +35,8 @@ pub struct DriverLocation {
     pub driver_id: DriverId,
     pub lat: Latitude,
     pub lon: Longitude,
-    pub coordinates_calculated_at: DateTime<Utc>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub coordinates_calculated_at: TimeStamp,
+    pub created_at: TimeStamp,
+    pub updated_at: TimeStamp,
     pub merchant_id: MerchantId,
 }

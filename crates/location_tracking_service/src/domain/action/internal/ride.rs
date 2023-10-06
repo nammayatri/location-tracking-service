@@ -34,7 +34,7 @@ async fn update_driver_location(
         last_location_timstamp_expiry,
         driver_id,
         merchant_id,
-        &Point { lat, lon },
+        Point { lat, lon },
         driver_mode,
     )
     .await?;
