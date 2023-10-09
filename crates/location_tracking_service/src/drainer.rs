@@ -77,7 +77,7 @@ pub async fn run_drainer(
                 )
                 .await;
                 prometheus::NEW_RIDE_QUEUE_COUNTER.reset();
-                driver_locations.clear();
+                new_ride_driver_locations.clear();
             }
             break;
         }
