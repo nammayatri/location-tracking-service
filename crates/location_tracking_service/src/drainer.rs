@@ -66,6 +66,7 @@ pub async fn run_drainer(
                 drain_driver_locations(&driver_locations, bucket_expiry, non_persistent_redis)
                     .await;
                 prometheus::QUEUE_COUNTER.reset();
+                driver_locations.clear();
             }
             if new_ride_drainer_size > 0 {
                 info!(tag = "[Force Draining Queue - New Ride]", length = %new_ride_drainer_size);
@@ -76,6 +77,7 @@ pub async fn run_drainer(
                 )
                 .await;
                 prometheus::NEW_RIDE_QUEUE_COUNTER.reset();
+                driver_locations.clear();
             }
             break;
         }
@@ -118,6 +120,7 @@ pub async fn run_drainer(
                                 // Cleanup
                                 prometheus::QUEUE_COUNTER.reset();
                                 drainer_size = 0;
+                                driver_locations.clear();
                             }
                             if new_ride_drainer_size >= drainer_capacity {
                                 info!(tag = "[Force Draining Queue - New Ride]", length = %new_ride_drainer_size);
@@ -125,6 +128,7 @@ pub async fn run_drainer(
                                 // Cleanup
                                 prometheus::NEW_RIDE_QUEUE_COUNTER.reset();
                                 new_ride_drainer_size = 0;
+                                new_ride_driver_locations.clear();
                             }
                         }
                     },
@@ -138,6 +142,7 @@ pub async fn run_drainer(
                     // Cleanup
                     prometheus::QUEUE_COUNTER.reset();
                     drainer_size = 0;
+                    driver_locations.clear();
                 }
             },
             _ = new_ride_timer.tick() => {
@@ -147,6 +152,7 @@ pub async fn run_drainer(
                     // Cleanup
                     prometheus::NEW_RIDE_QUEUE_COUNTER.reset();
                     new_ride_drainer_size = 0;
+                    new_ride_driver_locations.clear();
                 }
             },
         }
