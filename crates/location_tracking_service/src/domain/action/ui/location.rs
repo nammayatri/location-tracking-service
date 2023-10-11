@@ -50,12 +50,6 @@ fn get_filtered_driver_locations(
     min_location_accuracy: Accuracy,
     driver_location_accuracy_buffer: f64,
 ) -> Vec<UpdateDriverLocationRequest> {
-    locations.sort_by(|a, b| {
-        let TimeStamp(a_ts) = a.ts;
-        let TimeStamp(b_ts) = b.ts;
-        (a_ts).cmp(&b_ts)
-    });
-
     locations.dedup_by(|a, b| a.pt.lat == b.pt.lat && a.pt.lon == b.pt.lon);
 
     let locations: Vec<UpdateDriverLocationRequest> = locations
@@ -82,7 +76,7 @@ pub async fn update_driver_location(
     merchant_id: MerchantId,
     vehicle_type: VehicleType,
     data: Data<AppState>,
-    locations: Vec<UpdateDriverLocationRequest>,
+    mut locations: Vec<UpdateDriverLocationRequest>,
     driver_mode: Option<DriverMode>,
 ) -> Result<APISuccess, AppError> {
     let driver_id = match get_driver_id(&data.persistent_redis, &token).await? {
@@ -99,25 +93,15 @@ pub async fn update_driver_location(
             .await?
         }
     };
-    let last_known_location = get_driver_location(&data.persistent_redis, &driver_id)
-        .await
-        .ok();
 
-    let locations = get_filtered_driver_locations(
-        last_known_location.as_ref(),
-        locations,
-        data.min_location_accuracy,
-        data.driver_location_accuracy_buffer,
-    );
+    locations.sort_by(|a, b| {
+        let TimeStamp(a_ts) = a.ts;
+        let TimeStamp(b_ts) = b.ts;
+        (a_ts).cmp(&b_ts)
+    });
 
     let latest_driver_location = if let Some(location) = locations.last() {
-        DriverLastKnownLocation {
-            location: location.pt.to_owned(),
-            timestamp: location.ts,
-            merchant_id: merchant_id.to_owned(),
-        }
-    } else if let Some(last_known_location) = last_known_location {
-        last_known_location
+        location.pt.to_owned()
     } else {
         return Ok(APISuccess::default());
     };
@@ -128,8 +112,8 @@ pub async fn update_driver_location(
     );
 
     let city = get_city(
-        &latest_driver_location.location.lat,
-        &latest_driver_location.location.lon,
+        &latest_driver_location.lat,
+        &latest_driver_location.lon,
         &data.polygon,
     )?;
 
@@ -167,7 +151,7 @@ async fn process_driver_locations(
     args: (
         Data<AppState>,
         Vec<UpdateDriverLocationRequest>,
-        DriverLastKnownLocation,
+        Point,
         DriverId,
         MerchantId,
         VehicleType,
@@ -199,20 +183,8 @@ async fn process_driver_locations(
         driver_id.to_owned(),
         merchant_id.to_owned(),
         driver_mode.to_owned(),
-        latest_driver_location.location.to_owned(),
+        latest_driver_location.to_owned(),
     );
-
-    Arbiter::current().spawn(async move {
-        let _ = set_driver_last_location_update(
-            &t_persistent_redis,
-            &t_last_location_timstamp_expiry,
-            &t_driver_id,
-            &t_merchant_id,
-            t_latest_driver_location,
-            t_driver_mode,
-        )
-        .await;
-    });
 
     let driver_ride_details =
         get_ride_details(&data.persistent_redis, &driver_id, &merchant_id).await;
@@ -223,6 +195,17 @@ async fn process_driver_locations(
             ride_status: RideStatus::INPROGRESS,
             ..
         }) => {
+            let last_known_location = get_driver_location(&data.persistent_redis, &driver_id)
+                .await
+                .ok();
+
+            let locations = get_filtered_driver_locations(
+                last_known_location.as_ref(),
+                locations,
+                data.min_location_accuracy,
+                data.driver_location_accuracy_buffer,
+            );
+
             let _ = &data
                 .sender
                 .send((
@@ -232,8 +215,8 @@ async fn process_driver_locations(
                         vehicle_type: vehicle_type.to_owned(),
                         new_ride: false,
                     },
-                    latest_driver_location.location.lat,
-                    latest_driver_location.location.lon,
+                    latest_driver_location.lat,
+                    latest_driver_location.lon,
                     driver_id.to_owned(),
                 ))
                 .await;
@@ -323,8 +306,8 @@ async fn process_driver_locations(
                         vehicle_type: vehicle_type.to_owned(),
                         new_ride: true,
                     },
-                    latest_driver_location.location.lat,
-                    latest_driver_location.location.lon,
+                    latest_driver_location.lat,
+                    latest_driver_location.lon,
                     driver_id.to_owned(),
                 ))
                 .await;
@@ -360,8 +343,8 @@ async fn process_driver_locations(
                         vehicle_type: vehicle_type.to_owned(),
                         new_ride: false,
                     },
-                    latest_driver_location.location.lat,
-                    latest_driver_location.location.lon,
+                    latest_driver_location.lat,
+                    latest_driver_location.lon,
                     driver_id.to_owned(),
                 ))
                 .await;
@@ -388,6 +371,16 @@ async fn process_driver_locations(
             });
         }
     }
+
+    let _ = set_driver_last_location_update(
+        &t_persistent_redis,
+        &t_last_location_timstamp_expiry,
+        &t_driver_id,
+        &t_merchant_id,
+        t_latest_driver_location,
+        t_driver_mode,
+    )
+    .await;
 }
 
 pub async fn track_driver_location(
