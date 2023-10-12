@@ -11,6 +11,7 @@ use crate::{
     domain::types::ui::location::UpdateDriverLocationRequest,
 };
 use chrono::Utc;
+use log::error;
 use rdkafka::producer::FutureProducer;
 
 #[allow(clippy::too_many_arguments)]
@@ -45,6 +46,8 @@ pub async fn kafka_stream_updates(
             da: true,
             mode: driver_mode.to_owned(),
         };
-        push_to_kafka(producer, topic, key.as_str(), message).await;
+        if let Err(err) = push_to_kafka(producer, topic, key.as_str(), message).await {
+            error!("Error occured in push_to_kafka => {}", err)
+        }
     }
 }

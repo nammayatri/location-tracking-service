@@ -51,8 +51,8 @@ async fn start_server() -> std::io::Result<()> {
 
     #[allow(clippy::type_complexity)]
     let (sender, receiver): (
-        Sender<(Dimensions, Latitude, Longitude, DriverId)>,
-        Receiver<(Dimensions, Latitude, Longitude, DriverId)>,
+        Sender<(Dimensions, Latitude, Longitude, TimeStamp, DriverId)>,
+        Receiver<(Dimensions, Latitude, Longitude, TimeStamp, DriverId)>,
     ) = mpsc::channel(app_config.drainer_size);
 
     let app_state = AppState::new(app_config, sender).await;

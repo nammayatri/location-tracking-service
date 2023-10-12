@@ -63,7 +63,7 @@ pub struct RedisConfig {
 pub struct AppState {
     pub non_persistent_redis: Arc<RedisConnectionPool>,
     pub persistent_redis: Arc<RedisConnectionPool>,
-    pub sender: Sender<(Dimensions, Latitude, Longitude, DriverId)>,
+    pub sender: Sender<(Dimensions, Latitude, Longitude, TimeStamp, DriverId)>,
     pub drainer_delay: u64,
     pub drainer_size: usize,
     pub new_ride_drainer_delay: u64,
@@ -88,7 +88,7 @@ pub struct AppState {
 impl AppState {
     pub async fn new(
         app_config: AppConfig,
-        sender: Sender<(Dimensions, Latitude, Longitude, DriverId)>,
+        sender: Sender<(Dimensions, Latitude, Longitude, TimeStamp, DriverId)>,
     ) -> AppState {
         let non_persistent_migration_redis_settings = if app_config.redis_migration_stage {
             Some(RedisSettings::new(

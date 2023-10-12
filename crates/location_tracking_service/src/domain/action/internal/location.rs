@@ -89,7 +89,7 @@ pub async fn get_nearby_drivers(
 ) -> Result<NearbyDriverResponse, AppError> {
     let city = get_city(&lat, &lon, &data.polygon)?;
 
-    let current_bucket = get_current_bucket(&data.bucket_size)?;
+    let current_bucket = get_current_bucket(&data.bucket_size);
 
     match vehicle_type {
         None => {

@@ -5,6 +5,7 @@
     or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more details. You should have received a copy of
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
+
 use crate::common::utils::distance_between_in_meters;
 use crate::common::{
     sliding_window_rate_limiter::sliding_window_limiter, types::*, utils::get_city,
@@ -16,9 +17,11 @@ use crate::outbound::external::{authenticate_dobpp, bulk_location_update_dobpp};
 use crate::redis::{commands::*, keys::*};
 use actix::Arbiter;
 use actix_web::web::Data;
+use chrono::Utc;
 use shared::redis::types::RedisConnectionPool;
 use shared::tools::error::AppError;
 use shared::utils::logger::*;
+use std::cmp::min;
 
 async fn get_driver_id_from_authentication(
     persistent_redis: &RedisConnectionPool,
@@ -38,10 +41,10 @@ async fn get_driver_id_from_authentication(
             &response.driver_id,
         )
         .await?;
-        return Ok(response.driver_id);
+        Ok(response.driver_id)
+    } else {
+        Err(AppError::DriverAppAuthFailed(token))
     }
-
-    Err(AppError::DriverAppAuthFailed(token))
 }
 
 fn get_filtered_driver_locations(
@@ -94,6 +97,13 @@ pub async fn update_driver_location(
         }
     };
 
+    if locations.len() > 100 {
+        error!(
+            "Way points more than 100 points => {} points",
+            locations.len()
+        );
+    }
+
     locations.sort_by(|a, b| {
         let TimeStamp(a_ts) = a.ts;
         let TimeStamp(b_ts) = b.ts;
@@ -101,7 +111,7 @@ pub async fn update_driver_location(
     });
 
     let latest_driver_location = if let Some(location) = locations.last() {
-        location.pt.to_owned()
+        location.to_owned()
     } else {
         return Ok(APISuccess::default());
     };
@@ -112,8 +122,8 @@ pub async fn update_driver_location(
     );
 
     let city = get_city(
-        &latest_driver_location.lat,
-        &latest_driver_location.lon,
+        &latest_driver_location.pt.lat,
+        &latest_driver_location.pt.lon,
         &data.polygon,
     )?;
 
@@ -151,7 +161,7 @@ async fn process_driver_locations(
     args: (
         Data<AppState>,
         Vec<UpdateDriverLocationRequest>,
-        Point,
+        UpdateDriverLocationRequest,
         DriverId,
         MerchantId,
         VehicleType,
@@ -170,82 +180,95 @@ async fn process_driver_locations(
         driver_mode,
     ) = args;
 
-    let (
-        t_persistent_redis,
-        t_last_location_timstamp_expiry,
-        t_driver_id,
-        t_merchant_id,
-        t_driver_mode,
-        t_latest_driver_location,
-    ) = (
-        data.persistent_redis.clone(),
-        data.last_location_timstamp_expiry,
-        driver_id.to_owned(),
-        merchant_id.to_owned(),
-        driver_mode.to_owned(),
-        latest_driver_location.to_owned(),
-    );
-
     let driver_ride_details =
         get_ride_details(&data.persistent_redis, &driver_id, &merchant_id).await;
 
-    match driver_ride_details {
-        Ok(RideDetails {
-            ride_id,
-            ride_status: RideStatus::INPROGRESS,
-            ..
-        }) => {
-            let last_known_location = get_driver_location(&data.persistent_redis, &driver_id)
-                .await
-                .ok();
+    let driver_ride_id = driver_ride_details
+        .as_ref()
+        .ok()
+        .map(|ride_details| ride_details.ride_id.to_owned());
 
-            let locations = get_filtered_driver_locations(
-                last_known_location.as_ref(),
-                locations,
-                data.min_location_accuracy,
-                data.driver_location_accuracy_buffer,
-            );
+    let driver_ride_status = driver_ride_details
+        .as_ref()
+        .ok()
+        .map(|ride_details| ride_details.ride_status.to_owned());
 
-            let _ = &data
-                .sender
-                .send((
-                    Dimensions {
-                        merchant_id: merchant_id.to_owned(),
-                        city: city.to_owned(),
-                        vehicle_type: vehicle_type.to_owned(),
-                        new_ride: false,
-                    },
-                    latest_driver_location.lat,
-                    latest_driver_location.lon,
-                    driver_id.to_owned(),
-                ))
-                .await;
+    let TimeStamp(latest_driver_location_ts) = latest_driver_location.ts;
+    let latest_driver_location_ts = TimeStamp(min(latest_driver_location_ts, Utc::now()));
 
-            if locations.len() > 100 {
-                error!(
-                    "Way points more than 100 points {} on_ride: True",
-                    locations.len()
-                );
-            }
+    if let Err(err) = set_driver_last_location_update(
+        &data.persistent_redis,
+        &data.last_location_timstamp_expiry,
+        &driver_id,
+        &merchant_id,
+        &latest_driver_location.pt,
+        &latest_driver_location_ts,
+        driver_mode.to_owned(),
+    )
+    .await
+    {
+        error!(
+            "Error occured in set_driver_last_location_update => {}",
+            err
+        )
+    };
 
-            let geo_entries = locations
-                .iter()
-                .map(|loc| Point {
-                    lat: loc.pt.lat,
-                    lon: loc.pt.lon,
-                })
-                .collect::<Vec<Point>>();
+    let _ = &data
+        .sender
+        .send((
+            Dimensions {
+                merchant_id: merchant_id.to_owned(),
+                city: city.to_owned(),
+                vehicle_type: vehicle_type.to_owned(),
+                new_ride: driver_ride_status
+                    .as_ref()
+                    .map(|ride_status| ride_status == &RideStatus::NEW)
+                    .unwrap_or(false),
+            },
+            latest_driver_location.pt.lat,
+            latest_driver_location.pt.lon,
+            latest_driver_location_ts.to_owned(),
+            driver_id.to_owned(),
+        ))
+        .await;
 
-            let on_ride_driver_location_count = push_on_ride_driver_locations(
-                &data.persistent_redis,
-                &driver_id.clone(),
-                &merchant_id,
-                &geo_entries,
-                &data.redis_expiry,
-            )
-            .await;
+    let locations = if let Some(RideStatus::INPROGRESS) = driver_ride_status.as_ref() {
+        let last_known_location = get_driver_location(&data.persistent_redis, &driver_id)
+            .await
+            .ok();
 
-            if let Ok(on_ride_driver_location_count) = on_ride_driver_location_count {
+        get_filtered_driver_locations(
+            last_known_location.as_ref(),
+            locations,
+            data.min_location_accuracy,
+            data.driver_location_accuracy_buffer,
+        )
+    } else {
+        locations
+    };
+
+    if let (Some(RideStatus::INPROGRESS), Some(ride_id)) =
+        (driver_ride_status.as_ref(), driver_ride_id.as_ref())
+    {
+        let geo_entries = locations
+            .iter()
+            .map(|loc| Point {
+                lat: loc.pt.lat,
+                lon: loc.pt.lon,
+            })
+            .collect::<Vec<Point>>();
+
+        let on_ride_driver_location_count = push_on_ride_driver_locations(
+            &data.persistent_redis,
+            &driver_id.clone(),
+            &merchant_id,
+            &geo_entries,
+            &data.redis_expiry,
+        )
+        .await;
+
+        match on_ride_driver_location_count {
+            Ok(on_ride_driver_location_count) => {
                 if on_ride_driver_location_count >= data.batch_size {
                     let on_ride_driver_locations = get_on_ride_driver_locations(
                         &data.persistent_redis,
@@ -255,132 +278,53 @@ async fn process_driver_locations(
                     )
                     .await;
 
-                    if let Ok(on_ride_driver_locations) = on_ride_driver_locations {
-                        let res = bulk_location_update_dobpp(
-                            &data.bulk_location_callback_url,
-                            ride_id.to_owned(),
-                            driver_id.to_owned(),
-                            on_ride_driver_locations.to_owned(),
-                        )
-                        .await;
-
-                        if res.is_err() {
-                            let _ = push_on_ride_driver_locations(
-                                &data.persistent_redis,
-                                &driver_id,
-                                &merchant_id,
-                                &on_ride_driver_locations,
-                                &data.redis_expiry,
+                    match on_ride_driver_locations {
+                        Ok(on_ride_driver_locations) => {
+                            let res = bulk_location_update_dobpp(
+                                &data.bulk_location_callback_url,
+                                ride_id.to_owned(),
+                                driver_id.to_owned(),
+                                on_ride_driver_locations.to_owned(),
                             )
                             .await;
+
+                            if let Err(err) = res {
+                                let _ = push_on_ride_driver_locations(
+                                    &data.persistent_redis,
+                                    &driver_id,
+                                    &merchant_id,
+                                    &on_ride_driver_locations,
+                                    &data.redis_expiry,
+                                )
+                                .await;
+                                error!("Error occurred during bulk_location_update_dobpp, Safely adding all locations back to Redis => {} : {:?}", err, on_ride_driver_locations);
+                            }
+                        }
+                        Err(err) => {
+                            error!("Error occurred during on_ride_driver_locations => {}", err);
                         }
                     }
                 }
             }
-
-            Arbiter::current().spawn(async move {
-                let _ = kafka_stream_updates(
-                    &data.producer,
-                    &data.driver_location_update_topic,
-                    locations,
-                    merchant_id,
-                    Some(ride_id),
-                    Some(RideStatus::INPROGRESS),
-                    driver_mode,
-                    &driver_id,
-                )
-                .await;
-            });
-        }
-        Ok(RideDetails {
-            ride_id,
-            ride_status: RideStatus::NEW,
-            ..
-        }) => {
-            let _ = &data
-                .sender
-                .send((
-                    Dimensions {
-                        merchant_id: merchant_id.to_owned(),
-                        city: city.to_owned(),
-                        vehicle_type: vehicle_type.to_owned(),
-                        new_ride: true,
-                    },
-                    latest_driver_location.lat,
-                    latest_driver_location.lon,
-                    driver_id.to_owned(),
-                ))
-                .await;
-
-            if locations.len() > 100 {
-                error!(
-                    "Way points more than 100 points {} on_ride: False",
-                    locations.len()
-                );
+            Err(err) => {
+                error!("Error occured during on_ride_driver_location_count {}", err);
             }
-
-            Arbiter::current().spawn(async move {
-                let _ = kafka_stream_updates(
-                    &data.producer,
-                    &data.driver_location_update_topic,
-                    locations,
-                    merchant_id,
-                    Some(ride_id),
-                    Some(RideStatus::NEW),
-                    driver_mode,
-                    &driver_id,
-                )
-                .await;
-            });
-        }
-        _ => {
-            let _ = &data
-                .sender
-                .send((
-                    Dimensions {
-                        merchant_id: merchant_id.to_owned(),
-                        city: city.to_owned(),
-                        vehicle_type: vehicle_type.to_owned(),
-                        new_ride: false,
-                    },
-                    latest_driver_location.lat,
-                    latest_driver_location.lon,
-                    driver_id.to_owned(),
-                ))
-                .await;
-
-            if locations.len() > 100 {
-                error!(
-                    "Way points more than 100 points {} on_ride: False",
-                    locations.len()
-                );
-            }
-
-            Arbiter::current().spawn(async move {
-                let _ = kafka_stream_updates(
-                    &data.producer,
-                    &data.driver_location_update_topic,
-                    locations,
-                    merchant_id,
-                    None,
-                    None,
-                    driver_mode,
-                    &driver_id,
-                )
-                .await;
-            });
         }
     }
 
-    let _ = set_driver_last_location_update(
-        &t_persistent_redis,
-        &t_last_location_timstamp_expiry,
-        &t_driver_id,
-        &t_merchant_id,
-        t_latest_driver_location,
-        t_driver_mode,
-    )
-    .await;
+    Arbiter::current().spawn(async move {
+        kafka_stream_updates(
+            &data.producer,
+            &data.driver_location_update_topic,
+            locations,
+            merchant_id,
+            driver_ride_id,
+            driver_ride_status,
+            driver_mode,
+            &driver_id,
+        )
+        .await;
+    });
 }
 
 pub async fn track_driver_location(
