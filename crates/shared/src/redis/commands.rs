@@ -51,10 +51,10 @@ impl RedisConnectionPool {
         let output: Result<Vec<RedisValue>, RedisError> = pipeline.all().await;
 
         if let Ok([RedisValue::Integer(1), ..]) = output.as_deref() {
-            return Ok(());
+            Ok(())
+        } else {
+            Err(AppError::SetExFailed)
         }
-
-        Err(AppError::SetExFailed)
     }
 
     pub async fn set_expiry(&self, key: &str, seconds: i64) -> Result<(), AppError> {
@@ -330,10 +330,10 @@ impl RedisConnectionPool {
         let output: Result<Vec<RedisValue>, RedisError> = pipeline.all().await;
 
         if let Ok([RedisValue::Integer(_), ..]) = output.as_deref() {
-            return Ok(());
+            Ok(())
+        } else {
+            Err(AppError::GeoAddFailed)
         }
-
-        Err(AppError::GeoAddFailed)
     }
 
     //MGEOADD with expiry
@@ -361,10 +361,10 @@ impl RedisConnectionPool {
         let output: Result<Vec<RedisValue>, RedisError> = pipeline.all().await;
 
         if let Ok([RedisValue::Integer(_), ..]) = output.as_deref() {
-            return Ok(());
+            Ok(())
+        } else {
+            Err(AppError::GeoAddFailed)
         }
-
-        Err(AppError::GeoAddFailed)
     }
 
     //GEOSEARCH

@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 /*  Copyright 2022-23, Juspay India Pvt Ltd
     This program is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License
     as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. This program
@@ -7,16 +5,18 @@ use std::sync::Arc;
     or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more details. You should have received a copy of
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
+
 use crate::environment::AppState;
 use crate::redis::commands::*;
-
 use crate::{
     common::{types::*, utils::get_city},
     domain::types::internal::ride::*,
 };
 use actix_web::web::Data;
+use chrono::Utc;
 use shared::redis::types::RedisConnectionPool;
 use shared::tools::error::AppError;
+use std::sync::Arc;
 
 #[allow(clippy::too_many_arguments)]
 async fn update_driver_location(
@@ -34,7 +34,8 @@ async fn update_driver_location(
         last_location_timstamp_expiry,
         driver_id,
         merchant_id,
-        Point { lat, lon },
+        &Point { lat, lon },
+        &TimeStamp(Utc::now()),
         driver_mode,
     )
     .await?;

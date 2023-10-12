@@ -12,27 +12,33 @@ use rdkafka::{
     util::Timeout,
 };
 use serde::Serialize;
-use shared::utils::logger::*;
+use shared::{tools::error::AppError, utils::logger::*};
 
-pub async fn push_to_kafka<T>(producer: &Option<FutureProducer>, topic: &str, key: &str, message: T)
+pub async fn push_to_kafka<T>(
+    producer: &Option<FutureProducer>,
+    topic: &str,
+    key: &str,
+    message: T,
+) -> Result<(), AppError>
 where
     T: Serialize,
 {
-    let message = serde_json::to_string(&message);
+    let message = serde_json::to_string(&message)
+        .map_err(|err| AppError::SerializationError(err.to_string()))?;
 
-    if let Ok(message) = message {
-        match producer {
-            Some(producer) => {
-                _ = producer
-                    .send(
-                        FutureRecord::to(topic).key(key).payload(&message),
-                        Timeout::After(Duration::from_secs(1)),
-                    )
-                    .await;
-            }
-            None => {
-                info!(tag = "[Kafka]", "Producer is None, unable to send message");
-            }
+    match producer {
+        Some(producer) => {
+            _ = producer
+                .send(
+                    FutureRecord::to(topic).key(key).payload(&message),
+                    Timeout::After(Duration::from_secs(1)),
+                )
+                .await;
+        }
+        None => {
+            info!(tag = "[Kafka]", "Producer is None, unable to send message");
         }
     }
+
+    Ok(())
 }

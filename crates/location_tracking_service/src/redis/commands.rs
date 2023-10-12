@@ -247,7 +247,8 @@ pub async fn set_driver_last_location_update(
     last_location_timstamp_expiry: &u32,
     driver_id: &DriverId,
     merchant_id: &MerchantId,
-    last_location: Point,
+    last_location_pt: &Point,
+    last_location_ts: &TimeStamp,
     driver_mode: Option<DriverMode>,
 ) -> Result<(), AppError> {
     let last_location_update = persistent_redis_pool
@@ -260,10 +261,10 @@ pub async fn set_driver_last_location_update(
 
         let driver_last_known_location: DriverLastKnownLocation = DriverLastKnownLocation {
             location: Point {
-                lat: last_location.lat,
-                lon: last_location.lon,
+                lat: last_location_pt.lat,
+                lon: last_location_pt.lon,
             },
-            timestamp: TimeStamp(Utc::now()),
+            timestamp: *last_location_ts,
             merchant_id: merchant_id.to_owned(),
         };
         value.driver_last_known_location = Some(driver_last_known_location);
@@ -276,10 +277,10 @@ pub async fn set_driver_last_location_update(
             driver_mode,
             driver_last_known_location: Some(DriverLastKnownLocation {
                 location: Point {
-                    lat: last_location.lat,
-                    lon: last_location.lon,
+                    lat: last_location_pt.lat,
+                    lon: last_location_pt.lon,
                 },
-                timestamp: TimeStamp(Utc::now()),
+                timestamp: *last_location_ts,
                 merchant_id: merchant_id.to_owned(),
             }),
         }

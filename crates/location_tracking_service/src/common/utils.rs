@@ -6,12 +6,10 @@
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 use super::types::*;
+use chrono::Utc;
 use geo::{point, Intersects};
 use shared::tools::error::AppError;
-use std::{
-    f64::consts::PI,
-    time::{Duration, SystemTime, UNIX_EPOCH},
-};
+use std::f64::consts::PI;
 
 pub fn get_city(
     lat: &Latitude,
@@ -41,11 +39,15 @@ pub fn get_city(
     Ok(CityName(city))
 }
 
-pub fn get_current_bucket(location_expiry_in_seconds: &u64) -> Result<u64, AppError> {
-    Ok(Duration::as_secs(
-        &SystemTime::elapsed(&UNIX_EPOCH)
-            .map_err(|err| AppError::InternalError(err.to_string()))?,
-    ) / location_expiry_in_seconds)
+pub fn get_current_bucket(location_expiry_in_seconds: &u64) -> u64 {
+    Utc::now().timestamp() as u64 / location_expiry_in_seconds
+}
+
+pub fn get_bucket_from_timestamp(
+    location_expiry_in_seconds: &u64,
+    TimeStamp(ts): TimeStamp,
+) -> u64 {
+    ts.timestamp() as u64 / location_expiry_in_seconds
 }
 
 fn deg2rad(degrees: f64) -> f64 {

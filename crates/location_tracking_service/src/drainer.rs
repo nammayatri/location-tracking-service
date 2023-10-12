@@ -6,7 +6,7 @@
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 use crate::{
-    common::{types::*, utils::get_current_bucket},
+    common::{types::*, utils::get_bucket_from_timestamp},
     redis::{commands::push_drainer_driver_location, keys::driver_loc_bucket_key},
 };
 use fred::types::{GeoPosition, GeoValue};
@@ -28,17 +28,16 @@ async fn drain_driver_locations(
         "Queue: {:?}\nPushing to redis server", driver_locations
     );
 
-    let res =
-        push_drainer_driver_location(driver_locations, &bucket_expiry, non_persistent_redis).await;
-
-    if let Err(err) = res {
+    if let Err(err) =
+        push_drainer_driver_location(driver_locations, &bucket_expiry, non_persistent_redis).await
+    {
         error!(tag = "[Error Pushing To Redis]", error = %err);
     }
 }
 
 #[allow(clippy::too_many_arguments)]
 pub async fn run_drainer(
-    mut rx: mpsc::Receiver<(Dimensions, Latitude, Longitude, DriverId)>,
+    mut rx: mpsc::Receiver<(Dimensions, Latitude, Longitude, TimeStamp, DriverId)>,
     graceful_termination_requested: Arc<AtomicBool>,
     drainer_capacity: usize,
     drainer_delay: u64,
@@ -85,51 +84,50 @@ pub async fn run_drainer(
             item = rx.recv() => {
                 info!(tag = "[Recieved Entries For Queuing]");
                 match item {
-                    Some((Dimensions { merchant_id, city, vehicle_type, new_ride }, Latitude(latitude), Longitude(longitude), DriverId(driver_id))) => {
-                        if let Ok(bucket) = get_current_bucket(&bucket_size) {
-                            if new_ride {
-                                new_ride_driver_locations
-                                    .entry(driver_loc_bucket_key(&merchant_id, &city, &vehicle_type, &bucket))
-                                    .or_insert_with(Vec::new)
-                                    .push(GeoValue {
-                                        coordinates: GeoPosition {
-                                            latitude,
-                                            longitude,
-                                        },
-                                        member: driver_id.into(),
-                                    });
-                                new_ride_drainer_size += 1;
-                                prometheus::NEW_RIDE_QUEUE_COUNTER.inc();
-                            } else {
-                                driver_locations
-                                    .entry(driver_loc_bucket_key(&merchant_id, &city, &vehicle_type, &bucket))
-                                    .or_insert_with(Vec::new)
-                                    .push(GeoValue {
-                                        coordinates: GeoPosition {
-                                            latitude,
-                                            longitude,
-                                        },
-                                        member: driver_id.into(),
-                                    });
-                                drainer_size += 1;
-                                prometheus::QUEUE_COUNTER.inc();
-                            }
-                            if drainer_size >= drainer_capacity {
-                                info!(tag = "[Force Draining Queue]", length = %drainer_size);
-                                drain_driver_locations(&driver_locations, bucket_expiry, non_persistent_redis).await;
-                                // Cleanup
-                                prometheus::QUEUE_COUNTER.reset();
-                                drainer_size = 0;
-                                driver_locations.clear();
-                            }
-                            if new_ride_drainer_size >= drainer_capacity {
-                                info!(tag = "[Force Draining Queue - New Ride]", length = %new_ride_drainer_size);
-                                drain_driver_locations(&new_ride_driver_locations, bucket_expiry, non_persistent_redis).await;
-                                // Cleanup
-                                prometheus::NEW_RIDE_QUEUE_COUNTER.reset();
-                                new_ride_drainer_size = 0;
-                                new_ride_driver_locations.clear();
-                            }
+                    Some((Dimensions { merchant_id, city, vehicle_type, new_ride }, Latitude(latitude), Longitude(longitude), timestamp, DriverId(driver_id))) => {
+                        let bucket = get_bucket_from_timestamp(&bucket_size, timestamp);
+                        if new_ride {
+                            new_ride_driver_locations
+                                .entry(driver_loc_bucket_key(&merchant_id, &city, &vehicle_type, &bucket))
+                                .or_insert_with(Vec::new)
+                                .push(GeoValue {
+                                    coordinates: GeoPosition {
+                                        latitude,
+                                        longitude,
+                                    },
+                                    member: driver_id.into(),
+                                });
+                            new_ride_drainer_size += 1;
+                            prometheus::NEW_RIDE_QUEUE_COUNTER.inc();
+                        } else {
+                            driver_locations
+                                .entry(driver_loc_bucket_key(&merchant_id, &city, &vehicle_type, &bucket))
+                                .or_insert_with(Vec::new)
+                                .push(GeoValue {
+                                    coordinates: GeoPosition {
+                                        latitude,
+                                        longitude,
+                                    },
+                                    member: driver_id.into(),
+                                });
+                            drainer_size += 1;
+                            prometheus::QUEUE_COUNTER.inc();
+                        }
+                        if drainer_size >= drainer_capacity {
+                            info!(tag = "[Force Draining Queue]", length = %drainer_size);
+                            drain_driver_locations(&driver_locations, bucket_expiry, non_persistent_redis).await;
+                            // Cleanup
+                            prometheus::QUEUE_COUNTER.reset();
+                            drainer_size = 0;
+                            driver_locations.clear();
+                        }
+                        if new_ride_drainer_size >= drainer_capacity {
+                            info!(tag = "[Force Draining Queue - New Ride]", length = %new_ride_drainer_size);
+                            drain_driver_locations(&new_ride_driver_locations, bucket_expiry, non_persistent_redis).await;
+                            // Cleanup
+                            prometheus::NEW_RIDE_QUEUE_COUNTER.reset();
+                            new_ride_drainer_size = 0;
+                            new_ride_driver_locations.clear();
                         }
                     },
                     None => break,
