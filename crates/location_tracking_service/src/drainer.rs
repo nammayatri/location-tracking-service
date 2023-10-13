@@ -12,11 +12,17 @@ use crate::{
 use fred::types::{GeoPosition, GeoValue};
 use rustc_hash::FxHashMap;
 use shared::redis::types::RedisConnectionPool;
-use shared::utils::{logger::*, prometheus};
+use shared::{
+    queue_drainer_latency,
+    utils::{
+        logger::*,
+        prometheus::{NEW_RIDE_QUEUE_COUNTER, QUEUE_COUNTER, QUEUE_DRAINER_LATENCY},
+    },
+};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::{sync::Arc, time::Duration};
-use tokio::sync::mpsc;
 use tokio::time::interval;
+use tokio::{sync::mpsc, time::Instant};
 
 async fn drain_driver_locations(
     driver_locations: &FxHashMap<String, Vec<GeoValue>>,
@@ -48,9 +54,11 @@ pub async fn run_drainer(
 ) {
     let mut driver_locations: FxHashMap<String, Vec<GeoValue>> = FxHashMap::default();
     let mut timer = interval(Duration::from_secs(drainer_delay));
+    let mut start_time = Instant::now();
 
     let mut new_ride_driver_locations: FxHashMap<String, Vec<GeoValue>> = FxHashMap::default();
     let mut new_ride_timer = interval(Duration::from_secs(new_ride_drainer_delay));
+    let mut new_ride_start_time = Instant::now();
 
     let mut drainer_size = 0;
     let mut new_ride_drainer_size = 0;
@@ -64,7 +72,9 @@ pub async fn run_drainer(
                 info!(tag = "[Force Draining Queue]", length = %drainer_size);
                 drain_driver_locations(&driver_locations, bucket_expiry, non_persistent_redis)
                     .await;
-                prometheus::QUEUE_COUNTER.reset();
+                // Cleanup
+                queue_drainer_latency!("OFF_RIDE", start_time);
+                QUEUE_COUNTER.reset();
                 driver_locations.clear();
             }
             if new_ride_drainer_size > 0 {
@@ -75,7 +85,9 @@ pub async fn run_drainer(
                     non_persistent_redis,
                 )
                 .await;
-                prometheus::NEW_RIDE_QUEUE_COUNTER.reset();
+                // Cleanup
+                queue_drainer_latency!("NEW_RIDE", new_ride_start_time);
+                NEW_RIDE_QUEUE_COUNTER.reset();
                 new_ride_driver_locations.clear();
             }
             break;
@@ -98,7 +110,7 @@ pub async fn run_drainer(
                                     member: driver_id.into(),
                                 });
                             new_ride_drainer_size += 1;
-                            prometheus::NEW_RIDE_QUEUE_COUNTER.inc();
+                            NEW_RIDE_QUEUE_COUNTER.inc();
                         } else {
                             driver_locations
                                 .entry(driver_loc_bucket_key(&merchant_id, &city, &vehicle_type, &bucket))
@@ -111,13 +123,15 @@ pub async fn run_drainer(
                                     member: driver_id.into(),
                                 });
                             drainer_size += 1;
-                            prometheus::QUEUE_COUNTER.inc();
+                            QUEUE_COUNTER.inc();
                         }
                         if drainer_size >= drainer_capacity {
                             info!(tag = "[Force Draining Queue]", length = %drainer_size);
                             drain_driver_locations(&driver_locations, bucket_expiry, non_persistent_redis).await;
                             // Cleanup
-                            prometheus::QUEUE_COUNTER.reset();
+                            queue_drainer_latency!("OFF_RIDE", start_time);
+                            start_time = Instant::now();
+                            QUEUE_COUNTER.reset();
                             drainer_size = 0;
                             driver_locations.clear();
                         }
@@ -125,7 +139,9 @@ pub async fn run_drainer(
                             info!(tag = "[Force Draining Queue - New Ride]", length = %new_ride_drainer_size);
                             drain_driver_locations(&new_ride_driver_locations, bucket_expiry, non_persistent_redis).await;
                             // Cleanup
-                            prometheus::NEW_RIDE_QUEUE_COUNTER.reset();
+                            queue_drainer_latency!("NEW_RIDE", new_ride_start_time);
+                            new_ride_start_time = Instant::now();
+                            NEW_RIDE_QUEUE_COUNTER.reset();
                             new_ride_drainer_size = 0;
                             new_ride_driver_locations.clear();
                         }
@@ -138,7 +154,9 @@ pub async fn run_drainer(
                     info!(tag = "[Draining Queue]", length = %drainer_size);
                     drain_driver_locations(&driver_locations, bucket_expiry, non_persistent_redis).await;
                     // Cleanup
-                    prometheus::QUEUE_COUNTER.reset();
+                    queue_drainer_latency!("OFF_RIDE", start_time);
+                    start_time = Instant::now();
+                    QUEUE_COUNTER.reset();
                     drainer_size = 0;
                     driver_locations.clear();
                 }
@@ -148,7 +166,9 @@ pub async fn run_drainer(
                     info!(tag = "[Draining Queue - New Ride]", length = %new_ride_drainer_size);
                     drain_driver_locations(&new_ride_driver_locations, bucket_expiry, non_persistent_redis).await;
                     // Cleanup
-                    prometheus::NEW_RIDE_QUEUE_COUNTER.reset();
+                    queue_drainer_latency!("NEW_RIDE", new_ride_start_time);
+                    new_ride_start_time = Instant::now();
+                    NEW_RIDE_QUEUE_COUNTER.reset();
                     new_ride_drainer_size = 0;
                     new_ride_driver_locations.clear();
                 }

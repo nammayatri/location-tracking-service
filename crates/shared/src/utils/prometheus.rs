@@ -32,6 +32,15 @@ pub static NEW_RIDE_QUEUE_COUNTER: once_cell::sync::Lazy<IntCounter> =
         .expect("Failed to register new ride queue counter metrics")
     });
 
+pub static QUEUE_DRAINER_LATENCY: once_cell::sync::Lazy<HistogramVec> =
+    once_cell::sync::Lazy::new(|| {
+        register_histogram_vec!(
+            opts!("queue_drainer_latency", "Queue Drainer Montitoring").into(),
+            &["type"]
+        )
+        .expect("Failed to register queue drainer latency metrics")
+    });
+
 #[macro_export]
 macro_rules! incoming_api {
     ($method:expr, $endpoint:expr, $status:expr, $code:expr, $start:expr) => {
@@ -49,6 +58,16 @@ macro_rules! call_external_api {
         let duration = $start.elapsed().as_secs_f64();
         CALL_EXTERNAL_API
             .with_label_values(&[$method, $url, $status])
+            .observe(duration);
+    };
+}
+
+#[macro_export]
+macro_rules! queue_drainer_latency {
+    ($type:expr, $start:expr) => {
+        let duration = $start.elapsed().as_secs_f64();
+        QUEUE_DRAINER_LATENCY
+            .with_label_values(&["type"])
             .observe(duration);
     };
 }
@@ -78,6 +97,11 @@ pub fn prometheus_metrics() -> PrometheusMetrics {
         .registry
         .register(Box::new(NEW_RIDE_QUEUE_COUNTER.to_owned()))
         .expect("Failed to register queue counter metrics");
+
+    prometheus
+        .registry
+        .register(Box::new(QUEUE_DRAINER_LATENCY.to_owned()))
+        .expect("Failed to register queue drainer latency metrics");
 
     prometheus
 }
