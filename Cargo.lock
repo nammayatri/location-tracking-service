@@ -2426,6 +2426,7 @@ dependencies = [
  "actix-web",
  "actix-web-prom",
  "async-trait",
+ "chrono",
  "error-stack",
  "fred",
  "futures",

@@ -24,13 +24,13 @@ let persistent_redis_cfg = {
 
 let kafka_cfg = {
     kafka_key = "bootstrap.servers",
-    kafka_host = "0.0.0.0:29092"
+    kafka_host = "0.0.0.0:9092"
 }
 
 let LogLevel = < TRACE | DEBUG | INFO | WARN | ERROR | OFF >
 
 let logger_cfg = {
-    level = LogLevel.INFO,
+    level = LogLevel.WARN,
     log_to_file = False
 }
 -- drainer_delay :: 4 * 1024KB * 1024MB * 1024GB / 100 Bytes = 41943040
