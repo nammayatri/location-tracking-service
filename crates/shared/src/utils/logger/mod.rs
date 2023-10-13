@@ -1,10 +1,21 @@
+/*  Copyright 2022-23, Juspay India Pvt Ltd
+    This program is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License
+    as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. This program
+    is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+    or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more details. You should have received a copy of
+    the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
+*/
+
+mod layer;
+
+use layer::CustomJsonLayer;
 use serde::Deserialize;
 use tracing::subscriber::set_global_default;
 pub use tracing::{debug, error, info, instrument, warn};
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_bunyan_formatter::{BunyanFormattingLayer, JsonStorageLayer};
 use tracing_log::LogTracer;
-use tracing_subscriber::{filter::LevelFilter, layer::SubscriberExt, Registry};
+use tracing_subscriber::{filter::LevelFilter, prelude::*, Registry};
 
 #[derive(Debug, Deserialize, Clone, Copy)]
 pub enum LogLevel {
@@ -59,10 +70,10 @@ pub fn setup_tracing(logger_cfg: LoggerConfig) -> WorkerGuard {
 
         set_global_default(subscriber).expect("Unable to set global tracing subscriber");
     } else {
-        let subscriber = Registry::default()
+        let subscriber = tracing_subscriber::registry()
             .with(LevelFilter::from(logger_cfg.level))
-            .with(JsonStorageLayer)
-            .with(bunyan_console_formatting_layer);
+            .with(bunyan_console_formatting_layer)
+            .with(CustomJsonLayer);
 
         set_global_default(subscriber).expect("Unable to set global tracing subscriber");
     }
