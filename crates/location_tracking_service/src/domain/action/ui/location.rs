@@ -21,7 +21,6 @@ use chrono::Utc;
 use shared::redis::types::RedisConnectionPool;
 use shared::tools::error::AppError;
 use shared::utils::logger::*;
-use std::cmp::min;
 
 async fn get_driver_id_from_authentication(
     persistent_redis: &RedisConnectionPool,
@@ -61,11 +60,8 @@ fn get_filtered_driver_locations(
             location.acc.or(Some(Accuracy(0.0))) <= Some(min_location_accuracy)
                 && last_known_location
                     .map(|last_known_location| {
-                        location.ts > last_known_location.timestamp
-                            && distance_between_in_meters(
-                                &last_known_location.location,
-                                &location.pt,
-                            ) > driver_location_accuracy_buffer
+                        distance_between_in_meters(&last_known_location.location, &location.pt)
+                            > driver_location_accuracy_buffer
                     })
                     .unwrap_or(true)
         })
@@ -98,7 +94,7 @@ pub async fn update_driver_location(
     };
 
     if locations.len() > 100 {
-        error!(
+        warn!(
             "Way points more than 100 points => {} points",
             locations.len()
         );
@@ -109,6 +105,20 @@ pub async fn update_driver_location(
         let TimeStamp(b_ts) = b.ts;
         (a_ts).cmp(&b_ts)
     });
+
+    let last_known_location = get_driver_location(&data.persistent_redis, &driver_id)
+        .await
+        .ok();
+
+    let locations: Vec<UpdateDriverLocationRequest> = locations
+        .into_iter()
+        .filter(|location| {
+            last_known_location
+                .as_ref()
+                .map(|last_known_location| location.ts > last_known_location.timestamp)
+                .unwrap_or(true)
+        })
+        .collect();
 
     let latest_driver_location = if let Some(location) = locations.last() {
         location.to_owned()
@@ -144,6 +154,7 @@ pub async fn update_driver_location(
             data.clone(),
             locations,
             latest_driver_location,
+            last_known_location,
             driver_id,
             merchant_id,
             vehicle_type,
@@ -162,6 +173,7 @@ async fn process_driver_locations(
         Data<AppState>,
         Vec<UpdateDriverLocationRequest>,
         UpdateDriverLocationRequest,
+        Option<DriverLastKnownLocation>,
         DriverId,
         MerchantId,
         VehicleType,
@@ -173,6 +185,7 @@ async fn process_driver_locations(
         data,
         locations,
         latest_driver_location,
+        last_known_location,
         driver_id,
         merchant_id,
         vehicle_type,
@@ -194,7 +207,16 @@ async fn process_driver_locations(
         .map(|ride_details| ride_details.ride_status.to_owned());
 
     let TimeStamp(latest_driver_location_ts) = latest_driver_location.ts;
-    let latest_driver_location_ts = TimeStamp(min(latest_driver_location_ts, Utc::now()));
+    let current_ts = Utc::now();
+    let latest_driver_location_ts = if latest_driver_location_ts > current_ts {
+        warn!(
+            "Latest driver location timestamp in future => {}, Switching to current time => {}",
+            latest_driver_location_ts, current_ts
+        );
+        TimeStamp(current_ts)
+    } else {
+        TimeStamp(latest_driver_location_ts)
+    };
 
     if let Err(err) = set_driver_last_location_update(
         &data.persistent_redis,
@@ -233,10 +255,6 @@ async fn process_driver_locations(
         .await;
 
     let locations = if let Some(RideStatus::INPROGRESS) = driver_ride_status.as_ref() {
-        let last_known_location = get_driver_location(&data.persistent_redis, &driver_id)
-            .await
-            .ok();
-
         get_filtered_driver_locations(
             last_known_location.as_ref(),
             locations,
@@ -297,11 +315,14 @@ async fn process_driver_locations(
                                     &data.redis_expiry,
                                 )
                                 .await;
-                                error!("Error occurred during bulk_location_update_dobpp, Safely adding all locations back to Redis => {} : {:?}", err, on_ride_driver_locations);
+                                warn!("Error occurred during bulk_location_update_dobpp, Safely adding all locations back to Redis => {} : {:?}", err, on_ride_driver_locations);
                             }
                         }
                         Err(err) => {
-                            error!("Error occurred during on_ride_driver_locations => {}", err);
+                            error!(
+                                "Error occurred during get_on_ride_driver_locations => {}",
+                                err
+                            );
                         }
                     }
                 }
