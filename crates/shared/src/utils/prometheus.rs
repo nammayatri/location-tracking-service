@@ -3,7 +3,7 @@ use prometheus::{opts, register_histogram_vec, register_int_counter, HistogramVe
 
 pub static INCOMING_API: once_cell::sync::Lazy<HistogramVec> = once_cell::sync::Lazy::new(|| {
     register_histogram_vec!(
-        opts!("incoming_api", "Incoming API requests").into(),
+        opts!("http_request_duration_seconds", "Incoming API requests").into(),
         &["method", "handler", "status_code", "code", "version"]
     )
     .expect("Failed to register incoming API metrics")

@@ -38,7 +38,7 @@ pub fn read_dhall_config(config_path: &str) -> Result<AppConfig, String> {
 #[actix_web::main]
 async fn start_server() -> std::io::Result<()> {
     let dhall_config_path = var("DHALL_CONFIG")
-        .unwrap_or_else(|_| "./dhall_config/location_tracking_service.dhall".to_string());
+        .unwrap_or_else(|_| "./dhall-configs/dev/location_tracking_service.dhall".to_string());
     let app_config = read_dhall_config(&dhall_config_path).unwrap_or_else(|err| {
         println!("Dhall Config Reading Error : {}", err);
         std::process::exit(1);
