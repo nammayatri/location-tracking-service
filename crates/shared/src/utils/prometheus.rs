@@ -67,7 +67,7 @@ macro_rules! queue_drainer_latency {
     ($type:expr, $start:expr) => {
         let duration = $start.elapsed().as_secs_f64();
         QUEUE_DRAINER_LATENCY
-            .with_label_values(&["type"])
+            .with_label_values(&[$type])
             .observe(duration);
     };
 }
