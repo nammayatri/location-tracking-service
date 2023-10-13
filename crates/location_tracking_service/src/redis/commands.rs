@@ -250,7 +250,7 @@ pub async fn set_driver_last_location_update(
     last_location_pt: &Point,
     last_location_ts: &TimeStamp,
     driver_mode: Option<DriverMode>,
-) -> Result<(), AppError> {
+) -> Result<DriverAllDetails, AppError> {
     let last_location_update = persistent_redis_pool
         .get_key(&driver_details_key(driver_id))
         .await?;
@@ -296,7 +296,7 @@ pub async fn set_driver_last_location_update(
         )
         .await?;
 
-    Ok(())
+    Ok(driver_all_details)
 }
 
 pub async fn push_on_ride_driver_locations(

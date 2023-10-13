@@ -218,7 +218,7 @@ async fn process_driver_locations(
         TimeStamp(latest_driver_location_ts)
     };
 
-    if let Err(err) = set_driver_last_location_update(
+    let driver_mode = match set_driver_last_location_update(
         &data.persistent_redis,
         &data.last_location_timstamp_expiry,
         &driver_id,
@@ -229,10 +229,14 @@ async fn process_driver_locations(
     )
     .await
     {
-        error!(
-            "Error occured in set_driver_last_location_update => {}",
-            err
-        )
+        Ok(driver_details) => driver_details.driver_mode,
+        Err(err) => {
+            error!(
+                "Error occured in set_driver_last_location_update => {}",
+                err
+            );
+            driver_mode
+        }
     };
 
     let _ = &data
