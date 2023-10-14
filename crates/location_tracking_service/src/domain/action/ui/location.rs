@@ -265,7 +265,7 @@ async fn process_driver_locations(
             data.min_location_accuracy,
             data.driver_location_accuracy_buffer,
         );
-        if locations.is_empty() {
+        if !locations.is_empty() {
             locations
         } else {
             return;
