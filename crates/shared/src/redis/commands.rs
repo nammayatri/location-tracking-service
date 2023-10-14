@@ -202,7 +202,7 @@ impl RedisConnectionPool {
         V::Error: Into<fred::error::RedisError> + Send + Sync,
     {
         if values.is_empty() {
-            self.llen(key).await?;
+            return self.llen(key).await;
         }
 
         let pipeline = self.pool.pipeline();
@@ -284,7 +284,7 @@ impl RedisConnectionPool {
         if let Ok(RedisValue::Integer(length)) = output {
             Ok(length)
         } else {
-            Err(AppError::RPushFailed)
+            Err(AppError::LLenFailed)
         }
     }
 

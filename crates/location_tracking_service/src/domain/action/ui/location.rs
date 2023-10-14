@@ -259,12 +259,17 @@ async fn process_driver_locations(
         .await;
 
     let locations = if let Some(RideStatus::INPROGRESS) = driver_ride_status.as_ref() {
-        get_filtered_driver_locations(
+        let locations = get_filtered_driver_locations(
             last_known_location.as_ref(),
             locations,
             data.min_location_accuracy,
             data.driver_location_accuracy_buffer,
-        )
+        );
+        if locations.is_empty() {
+            locations
+        } else {
+            return;
+        }
     } else {
         locations
     };
