@@ -9,6 +9,7 @@
 use std::{env::var, sync::Arc};
 
 use rdkafka::{error::KafkaError, producer::FutureProducer, ClientConfig};
+use reqwest::Url;
 use serde::Deserialize;
 use shared::{
     redis::types::{RedisConnectionPool, RedisSettings},
@@ -76,9 +77,9 @@ pub struct AppState {
     pub drainer_size: usize,
     pub new_ride_drainer_delay: u64,
     pub polygon: Vec<MultiPolygonBody>,
-    pub auth_url: String,
+    pub auth_url: Url,
     pub auth_api_key: String,
-    pub bulk_location_callback_url: String,
+    pub bulk_location_callback_url: Url,
     pub auth_token_expiry: u32,
     pub redis_expiry: u32,
     pub min_location_accuracy: Accuracy,
@@ -216,9 +217,10 @@ impl AppState {
             new_ride_drainer_delay: app_config.new_ride_drainer_delay,
             sender,
             polygon: polygons,
-            auth_url: app_config.auth_url,
+            auth_url: Url::parse(app_config.auth_url.as_str()).expect("Failed to parse auth_url."),
             auth_api_key: app_config.auth_api_key,
-            bulk_location_callback_url: app_config.bulk_location_callback_url,
+            bulk_location_callback_url: Url::parse(app_config.bulk_location_callback_url.as_str())
+                .expect("Failed to parse bulk_location_callback_url."),
             auth_token_expiry: app_config.auth_token_expiry,
             min_location_accuracy: Accuracy(app_config.min_location_accuracy),
             redis_expiry: app_config.redis_expiry,
