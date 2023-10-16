@@ -13,13 +13,13 @@ use crate::call_external_api;
 use crate::tools::error::AppError;
 use crate::utils::{logger::*, prometheus::CALL_EXTERNAL_API};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
-use reqwest::{Client, Method};
+use reqwest::{Client, Method, Url};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 pub async fn call_api<T, U>(
     method: Method,
-    url: &str,
+    url: &Url,
     headers: Vec<(&str, &str)>,
     body: Option<U>,
 ) -> Result<T, AppError>
@@ -44,7 +44,7 @@ where
     }
 
     let mut request = client
-        .request(method.to_owned(), url)
+        .request(method.to_owned(), url.to_owned())
         .headers(header_map.to_owned());
 
     if let Some(body) = &body {
@@ -55,15 +55,31 @@ where
 
     let resp = request.send().await;
 
+    let url_str = format!(
+        "{}://{}:{}",
+        url.scheme(),
+        url.host_str().unwrap_or(""),
+        url.port().unwrap_or(80)
+    );
+
     match resp {
         Ok(resp) => {
-            call_external_api!(method.as_str(), url, resp.status().as_str(), start_time);
-            info!(tag = "[OUTGOING API]", request_method = %method, request_body = format!("{:?}", body), request_url = url, request_headers = format!("{:?}", header_map), response = format!("{:?}", resp), latency = format!("{:?}ms", start_time.elapsed().as_millis()));
+            call_external_api!(
+                method.as_str(),
+                url_str.as_str(),
+                url.path(),
+                resp.status().as_str(),
+                start_time
+            );
+            info!(tag = "[OUTGOING API]", request_method = %method, request_body = format!("{:?}", body), request_url = %url_str, request_headers = format!("{:?}", header_map), response = format!("{:?}", resp), latency = format!("{:?}ms", start_time.elapsed().as_millis()));
             Ok(resp
                 .json::<T>()
                 .await
                 .map_err(|err| AppError::DeserializationError(err.to_string()))?)
         }
-        Err(err) => Err(AppError::ExternalAPICallError(err.to_string())),
+        Err(err) => {
+            error!(tag = "[OUTGOING API]", request_method = %method, request_body = format!("{:?}", body), request_url = %url_str, request_headers = format!("{:?}", header_map), error = format!("{:?}", err), latency = format!("{:?}ms", start_time.elapsed().as_millis()));
+            Err(AppError::ExternalAPICallError(err.to_string()))
+        }
     }
 }

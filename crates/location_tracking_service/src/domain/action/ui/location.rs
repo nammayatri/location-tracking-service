@@ -18,13 +18,14 @@ use crate::redis::{commands::*, keys::*};
 use actix::Arbiter;
 use actix_web::web::Data;
 use chrono::Utc;
+use reqwest::Url;
 use shared::redis::types::RedisConnectionPool;
 use shared::tools::error::AppError;
 use shared::utils::logger::*;
 
 async fn get_driver_id_from_authentication(
     persistent_redis: &RedisConnectionPool,
-    auth_url: &str,
+    auth_url: &Url,
     auth_api_key: &str,
     auth_token_expiry: &u32,
     Token(token): Token,
@@ -32,17 +33,18 @@ async fn get_driver_id_from_authentication(
 ) -> Result<DriverId, AppError> {
     let response = authenticate_dobpp(auth_url, token.as_str(), auth_api_key, merchant_id).await;
 
-    if let Ok(response) = response {
-        set_driver_id(
-            persistent_redis,
-            auth_token_expiry,
-            &Token(token),
-            &response.driver_id,
-        )
-        .await?;
-        Ok(response.driver_id)
-    } else {
-        Err(AppError::DriverAppAuthFailed(token))
+    match response {
+        Ok(response) => {
+            set_driver_id(
+                persistent_redis,
+                auth_token_expiry,
+                &Token(token),
+                &response.driver_id,
+            )
+            .await?;
+            Ok(response.driver_id)
+        }
+        Err(err) => Err(AppError::DriverAppAuthFailed(token, err.message())),
     }
 }
 

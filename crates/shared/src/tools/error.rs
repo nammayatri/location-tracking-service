@@ -31,7 +31,7 @@ pub enum AppError {
     ExternalAPICallError(String),
     SerializationError(String),
     DeserializationError(String),
-    DriverAppAuthFailed(String),
+    DriverAppAuthFailed(String, String),
     Unserviceable(f64, f64),
     HitsLimitExceeded,
     DriverBulkLocationUpdateFailed,
@@ -66,12 +66,12 @@ pub enum AppError {
 impl AppError {
     fn error_message(&self) -> ErrorBody {
         ErrorBody {
-            error_message: self.variant_to_message(),
-            error_code: self.variant_to_code(),
+            error_message: self.message(),
+            error_code: self.code(),
         }
     }
 
-    fn variant_to_message(&self) -> String {
+    pub fn message(&self) -> String {
         match self {
             AppError::InternalError(err) => err.to_string(),
             AppError::InvalidRequest(err) => err.to_string(),
@@ -82,7 +82,9 @@ impl AppError {
             AppError::ExternalAPICallError(err) => err.to_string(),
             AppError::SerializationError(err) => err.to_string(),
             AppError::DeserializationError(err) => err.to_string(),
-            AppError::DriverAppAuthFailed(token) => format!("Invalid Token - {token}"),
+            AppError::DriverAppAuthFailed(token, err) => {
+                format!("Invalid Token - {token} => {err}")
+            }
             AppError::Unserviceable(lat, lon) => {
                 format!("Location is unserviceable : (Lat : {lat}, Lon : {lon})")
             }
@@ -90,7 +92,7 @@ impl AppError {
         }
     }
 
-    fn variant_to_code(&self) -> String {
+    fn code(&self) -> String {
         match self {
             AppError::InternalError(_) => "INTERNAL_ERROR",
             AppError::InvalidRequest(_) => "INVALID_REQUEST",
@@ -104,7 +106,7 @@ impl AppError {
             AppError::ExternalAPICallError(_) => "EXTERNAL_API_CALL_ERROR",
             AppError::SerializationError(_) => "SERIALIZATION_ERROR",
             AppError::DeserializationError(_) => "DESERIALIZATION_ERROR",
-            AppError::DriverAppAuthFailed(_) => "INVALID_TOKEN",
+            AppError::DriverAppAuthFailed(_, _) => "INVALID_TOKEN",
             AppError::Unserviceable(_, _) => "LOCATION_NOT_SERVICEABLE",
             AppError::HitsLimitExceeded => "HITS_LIMIT_EXCEED",
             AppError::DriverBulkLocationUpdateFailed => "DOBPP_BULK_LOCATION_UPDATE_FAILED",
@@ -158,7 +160,7 @@ impl ResponseError for AppError {
             AppError::ExternalAPICallError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::SerializationError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::DeserializationError(_) => StatusCode::INTERNAL_SERVER_ERROR,
-            AppError::DriverAppAuthFailed(_) => StatusCode::UNAUTHORIZED,
+            AppError::DriverAppAuthFailed(_, _) => StatusCode::UNAUTHORIZED,
             AppError::Unserviceable(_, _) => StatusCode::BAD_REQUEST,
             AppError::HitsLimitExceeded => StatusCode::TOO_MANY_REQUESTS,
             AppError::DriverBulkLocationUpdateFailed => StatusCode::INTERNAL_SERVER_ERROR,

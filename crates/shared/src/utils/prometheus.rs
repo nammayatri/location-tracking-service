@@ -20,8 +20,8 @@ pub static INCOMING_API: once_cell::sync::Lazy<HistogramVec> = once_cell::sync::
 pub static CALL_EXTERNAL_API: once_cell::sync::Lazy<HistogramVec> =
     once_cell::sync::Lazy::new(|| {
         register_histogram_vec!(
-            opts!("call_external_api", "Call external API requests").into(),
-            &["method", "url", "status"]
+            opts!("external_request_duration", "Call external API requests").into(),
+            &["method", "host", "service", "status"]
         )
         .expect("Failed to register call external API metrics")
     });
@@ -62,10 +62,10 @@ macro_rules! incoming_api {
 
 #[macro_export]
 macro_rules! call_external_api {
-    ($method:expr, $url:expr, $status:expr, $start:expr) => {
+    ($method:expr, $host:expr, $path:expr, $status:expr, $start:expr) => {
         let duration = $start.elapsed().as_secs_f64();
         CALL_EXTERNAL_API
-            .with_label_values(&[$method, $url, $status])
+            .with_label_values(&[$method, $host, $path, $status])
             .observe(duration);
     };
 }

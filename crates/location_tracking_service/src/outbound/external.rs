@@ -7,11 +7,11 @@
 */
 use super::types::*;
 use crate::common::types::*;
-use reqwest::Method;
+use reqwest::{Method, Url};
 use shared::{tools::error::AppError, utils::callapi::call_api};
 
 pub async fn authenticate_dobpp(
-    auth_url: &str,
+    auth_url: &Url,
     token: &str,
     auth_api_key: &str,
     merchant_id: &str,
@@ -31,7 +31,7 @@ pub async fn authenticate_dobpp(
 }
 
 pub async fn bulk_location_update_dobpp(
-    bulk_location_callback_url: &str,
+    bulk_location_callback_url: &Url,
     ride_id: RideId,
     driver_id: DriverId,
     on_ride_driver_locations: Vec<Point>,
