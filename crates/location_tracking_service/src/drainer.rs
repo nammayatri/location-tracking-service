@@ -41,6 +41,23 @@ async fn drain_driver_locations(
     }
 }
 
+fn cleanup_drainer(
+    drainer_size: &mut usize,
+    driver_locations: &mut FxHashMap<String, Vec<GeoValue>>,
+    start_time: &mut Instant,
+    tag: &str,
+) {
+    queue_drainer_latency!(tag, start_time);
+    *start_time = Instant::now();
+    if tag == "OFF_RIDE" {
+        QUEUE_COUNTER.reset()
+    } else {
+        NEW_RIDE_QUEUE_COUNTER.reset();
+    }
+    *drainer_size = 0;
+    driver_locations.clear();
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn run_drainer(
     mut rx: mpsc::Receiver<(Dimensions, Latitude, Longitude, TimeStamp, DriverId)>,
@@ -72,10 +89,12 @@ pub async fn run_drainer(
                 info!(tag = "[Force Draining Queue]", length = %drainer_size);
                 drain_driver_locations(&driver_locations, bucket_expiry, non_persistent_redis)
                     .await;
-                // Cleanup
-                queue_drainer_latency!("OFF_RIDE", start_time);
-                QUEUE_COUNTER.reset();
-                driver_locations.clear();
+                cleanup_drainer(
+                    &mut drainer_size,
+                    &mut driver_locations,
+                    &mut start_time,
+                    "OFF_RIDE",
+                );
             }
             if new_ride_drainer_size > 0 {
                 info!(tag = "[Force Draining Queue - New Ride]", length = %new_ride_drainer_size);
@@ -85,10 +104,12 @@ pub async fn run_drainer(
                     non_persistent_redis,
                 )
                 .await;
-                // Cleanup
-                queue_drainer_latency!("NEW_RIDE", new_ride_start_time);
-                NEW_RIDE_QUEUE_COUNTER.reset();
-                new_ride_driver_locations.clear();
+                cleanup_drainer(
+                    &mut new_ride_drainer_size,
+                    &mut new_ride_driver_locations,
+                    &mut new_ride_start_time,
+                    "NEW_RIDE",
+                );
             }
             break;
         }
@@ -128,22 +149,22 @@ pub async fn run_drainer(
                         if drainer_size >= drainer_capacity {
                             info!(tag = "[Force Draining Queue]", length = %drainer_size);
                             drain_driver_locations(&driver_locations, bucket_expiry, non_persistent_redis).await;
-                            // Cleanup
-                            queue_drainer_latency!("OFF_RIDE", start_time);
-                            start_time = Instant::now();
-                            QUEUE_COUNTER.reset();
-                            drainer_size = 0;
-                            driver_locations.clear();
+                            cleanup_drainer(
+                                &mut drainer_size,
+                                &mut driver_locations,
+                                &mut start_time,
+                                "OFF_RIDE",
+                            );
                         }
                         if new_ride_drainer_size >= drainer_capacity {
                             info!(tag = "[Force Draining Queue - New Ride]", length = %new_ride_drainer_size);
                             drain_driver_locations(&new_ride_driver_locations, bucket_expiry, non_persistent_redis).await;
-                            // Cleanup
-                            queue_drainer_latency!("NEW_RIDE", new_ride_start_time);
-                            new_ride_start_time = Instant::now();
-                            NEW_RIDE_QUEUE_COUNTER.reset();
-                            new_ride_drainer_size = 0;
-                            new_ride_driver_locations.clear();
+                            cleanup_drainer(
+                                &mut new_ride_drainer_size,
+                                &mut new_ride_driver_locations,
+                                &mut new_ride_start_time,
+                                "NEW_RIDE",
+                            );
                         }
                     },
                     None => break,
@@ -153,24 +174,24 @@ pub async fn run_drainer(
                 if drainer_size > 0 {
                     info!(tag = "[Draining Queue]", length = %drainer_size);
                     drain_driver_locations(&driver_locations, bucket_expiry, non_persistent_redis).await;
-                    // Cleanup
-                    queue_drainer_latency!("OFF_RIDE", start_time);
-                    start_time = Instant::now();
-                    QUEUE_COUNTER.reset();
-                    drainer_size = 0;
-                    driver_locations.clear();
+                    cleanup_drainer(
+                        &mut drainer_size,
+                        &mut driver_locations,
+                        &mut start_time,
+                        "OFF_RIDE",
+                    );
                 }
             },
             _ = new_ride_timer.tick() => {
                 if new_ride_drainer_size > 0 {
                     info!(tag = "[Draining Queue - New Ride]", length = %new_ride_drainer_size);
                     drain_driver_locations(&new_ride_driver_locations, bucket_expiry, non_persistent_redis).await;
-                    // Cleanup
-                    queue_drainer_latency!("NEW_RIDE", new_ride_start_time);
-                    new_ride_start_time = Instant::now();
-                    NEW_RIDE_QUEUE_COUNTER.reset();
-                    new_ride_drainer_size = 0;
-                    new_ride_driver_locations.clear();
+                    cleanup_drainer(
+                        &mut new_ride_drainer_size,
+                        &mut new_ride_driver_locations,
+                        &mut new_ride_start_time,
+                        "NEW_RIDE",
+                    );
                 }
             },
         }
