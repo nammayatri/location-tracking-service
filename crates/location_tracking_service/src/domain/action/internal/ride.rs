@@ -27,7 +27,6 @@ async fn update_driver_location(
     merchant_id: &MerchantId,
     lat: Latitude,
     lon: Longitude,
-    driver_mode: Option<DriverMode>,
 ) -> Result<i64, AppError> {
     set_driver_last_location_update(
         persistent_redis,
@@ -36,7 +35,6 @@ async fn update_driver_location(
         merchant_id,
         &Point { lat, lon },
         &TimeStamp(Utc::now()),
-        driver_mode,
     )
     .await?;
 
@@ -74,7 +72,6 @@ pub async fn ride_start(
         &request_body.merchant_id,
         request_body.lat,
         request_body.lon,
-        None,
     )
     .await?;
 
@@ -102,7 +99,6 @@ pub async fn ride_end(
         &request_body.merchant_id,
         request_body.lat,
         request_body.lon,
-        None,
     )
     .await?;
 

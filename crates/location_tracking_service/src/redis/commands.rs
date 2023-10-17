@@ -7,7 +7,6 @@
 */
 use crate::common::types::*;
 use crate::redis::keys::*;
-use chrono::Utc;
 use fred::types::{GeoPosition, GeoUnit, GeoValue, RedisValue, SortOrder};
 use futures::Future;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -165,6 +164,11 @@ pub async fn get_drivers_within_radius(
                     },
                 })
             }
+        } else {
+            error!(
+                "GeoRadius Info not handled for mgeo_search for Driver : {:?}",
+                driver
+            )
         }
     }
 
@@ -180,66 +184,11 @@ pub async fn get_driver_location(
         .await?;
 
     if let Some(val) = last_location_update {
-        let driver_all_details = serde_json::from_str::<DriverAllDetails>(&val)
-            .map_err(|err| AppError::SerializationError(err.to_string()))?;
-        if let Some(last_known_location) = driver_all_details.driver_last_known_location {
-            return Ok(last_known_location);
-        }
-    }
-
-    Err(AppError::DriverLastKnownLocationNotFound)
-}
-
-pub async fn get_driver_last_location_update(
-    persistent_redis_pool: &RedisConnectionPool,
-    driver_id: &DriverId,
-) -> Result<TimeStamp, AppError> {
-    let last_location_update = persistent_redis_pool
-        .get_key(&driver_details_key(driver_id))
-        .await?;
-
-    if let Some(val) = last_location_update {
-        if let Ok(driver_details) = serde_json::from_str::<DriverAllDetails>(&val) {
-            if let Some(last_known_location) = driver_details.driver_last_known_location {
-                let TimeStamp(last_known_location_timestamp) = last_known_location.timestamp;
-                return Ok(TimeStamp(last_known_location_timestamp.with_timezone(&Utc)));
-            }
-        }
-    }
-
-    Err(AppError::DriverLastLocationTimestampNotFound)
-}
-
-pub async fn set_driver_mode_details(
-    persistent_redis_pool: &RedisConnectionPool,
-    last_location_timstamp_expiry: &u32,
-    driver_id: DriverId,
-    driver_mode: DriverMode,
-) -> Result<(), AppError> {
-    let last_location_update = persistent_redis_pool
-        .get_key(&driver_details_key(&driver_id))
-        .await?;
-    let driver_all_details = if let Some(val) = last_location_update {
-        let mut value = serde_json::from_str::<DriverAllDetails>(&val)
-            .map_err(|err| AppError::SerializationError(err.to_string()))?;
-        value.driver_mode = Some(driver_mode);
-        value
+        Ok(serde_json::from_str::<DriverLastKnownLocation>(&val)
+            .map_err(|err| AppError::DeserializationError(err.to_string()))?)
     } else {
-        DriverAllDetails {
-            driver_mode: Some(driver_mode),
-            driver_last_known_location: None,
-        }
-    };
-    let value = serde_json::to_string(&driver_all_details)
-        .map_err(|err| AppError::DeserializationError(err.to_string()))?;
-    persistent_redis_pool
-        .set_key(
-            &driver_details_key(&driver_id),
-            value,
-            *last_location_timstamp_expiry,
-        )
-        .await?;
-    Ok(())
+        Err(AppError::DriverLastKnownLocationNotFound)
+    }
 }
 
 pub async fn set_driver_last_location_update(
@@ -249,43 +198,17 @@ pub async fn set_driver_last_location_update(
     merchant_id: &MerchantId,
     last_location_pt: &Point,
     last_location_ts: &TimeStamp,
-    driver_mode: Option<DriverMode>,
-) -> Result<DriverAllDetails, AppError> {
-    let last_location_update = persistent_redis_pool
-        .get_key(&driver_details_key(driver_id))
-        .await?;
-
-    let driver_all_details = if let Some(val) = last_location_update {
-        let mut value = serde_json::from_str::<DriverAllDetails>(&val)
-            .map_err(|err| AppError::SerializationError(err.to_string()))?;
-
-        let driver_last_known_location: DriverLastKnownLocation = DriverLastKnownLocation {
-            location: Point {
-                lat: last_location_pt.lat,
-                lon: last_location_pt.lon,
-            },
-            timestamp: *last_location_ts,
-            merchant_id: merchant_id.to_owned(),
-        };
-        value.driver_last_known_location = Some(driver_last_known_location);
-        if driver_mode.is_some() {
-            value.driver_mode = driver_mode;
-        }
-        value
-    } else {
-        DriverAllDetails {
-            driver_mode,
-            driver_last_known_location: Some(DriverLastKnownLocation {
-                location: Point {
-                    lat: last_location_pt.lat,
-                    lon: last_location_pt.lon,
-                },
-                timestamp: *last_location_ts,
-                merchant_id: merchant_id.to_owned(),
-            }),
-        }
+) -> Result<DriverLastKnownLocation, AppError> {
+    let last_known_location = DriverLastKnownLocation {
+        location: Point {
+            lat: last_location_pt.lat,
+            lon: last_location_pt.lon,
+        },
+        timestamp: *last_location_ts,
+        merchant_id: merchant_id.to_owned(),
     };
-    let value = serde_json::to_string(&driver_all_details)
+
+    let value = serde_json::to_string(&last_known_location)
         .map_err(|err| AppError::DeserializationError(err.to_string()))?;
 
     persistent_redis_pool
@@ -296,7 +219,7 @@ pub async fn set_driver_last_location_update(
         )
         .await?;
 
-    Ok(driver_all_details)
+    Ok(last_known_location)
 }
 
 pub async fn push_on_ride_driver_locations(
@@ -388,13 +311,13 @@ where
         return Ok(resp);
     }
 
-    Err(AppError::HitsLimitExceeded)
+    Err(AppError::HitsLimitExceeded(key))
 }
 
 pub async fn get_all_driver_last_locations(
     persistent_redis_pool: &RedisConnectionPool,
     driver_ids: &[DriverId],
-) -> Result<Vec<Option<DriverAllDetails>>, AppError> {
+) -> Result<Vec<Option<DriverLastKnownLocation>>, AppError> {
     let driver_last_location_updates_keys = driver_ids
         .iter()
         .map(driver_details_key)
@@ -409,12 +332,12 @@ pub async fn get_all_driver_last_locations(
         .map(|driver_all_details| {
             if let Some(driver_all_details) = driver_all_details {
                 let driver_all_details =
-                    serde_json::from_str::<DriverAllDetails>(driver_all_details)
+                    serde_json::from_str::<DriverLastKnownLocation>(driver_all_details)
                         .map_err(|err| AppError::DeserializationError(err.to_string()));
                 match driver_all_details {
                     Ok(driver_all_details) => Some(driver_all_details),
                     Err(err) => {
-                        error!("DriverAllDetails DeserializationError : {}", err);
+                        error!("DriverLastKnownLocation DeserializationError : {}", err);
                         None
                     }
                 }
@@ -422,7 +345,7 @@ pub async fn get_all_driver_last_locations(
                 None
             }
         })
-        .collect::<Vec<Option<DriverAllDetails>>>();
+        .collect::<Vec<Option<DriverLastKnownLocation>>>();
 
     Ok(drivers_detail)
 }

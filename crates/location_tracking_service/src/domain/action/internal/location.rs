@@ -49,17 +49,15 @@ async fn search_nearby_drivers_with_vehicle(
         .map(|driver| driver.driver_id.to_owned())
         .collect();
 
-    let drivers_detail = get_all_driver_last_locations(persistent_redis, &driver_ids).await?;
+    let driver_last_known_location =
+        get_all_driver_last_locations(persistent_redis, &driver_ids).await?;
 
     let resp = nearby_drivers
         .iter()
-        .zip(drivers_detail.iter())
-        .map(|(driver, driver_detail)| {
-            let last_location_update_ts = driver_detail
+        .zip(driver_last_known_location.iter())
+        .map(|(driver, driver_last_known_location)| {
+            let last_location_update_ts = driver_last_known_location
                 .as_ref()
-                .and_then(|driver_all_details| {
-                    driver_all_details.driver_last_known_location.as_ref()
-                })
                 .map(|driver_last_known_location| driver_last_known_location.timestamp)
                 .unwrap_or(TimeStamp(Utc::now()));
             DriverLocation {
@@ -144,22 +142,28 @@ pub async fn get_drivers_location(
 ) -> Result<Vec<DriverLocation>, AppError> {
     let mut driver_locations = Vec::with_capacity(driver_ids.len());
 
-    let drivers_detail = get_all_driver_last_locations(&data.persistent_redis, &driver_ids).await?;
+    let driver_last_known_location =
+        get_all_driver_last_locations(&data.persistent_redis, &driver_ids).await?;
 
-    for (driver_id, driver_detail) in driver_ids.iter().zip(drivers_detail.iter()) {
-        if let Some(driver_detail) = driver_detail {
-            if let Some(driver_details) = &driver_detail.driver_last_known_location {
-                let driver_location = DriverLocation {
-                    driver_id: driver_id.to_owned(),
-                    lat: driver_details.location.lat,
-                    lon: driver_details.location.lon,
-                    coordinates_calculated_at: driver_details.timestamp,
-                    created_at: driver_details.timestamp,
-                    updated_at: driver_details.timestamp,
-                    merchant_id: driver_details.merchant_id.to_owned(),
-                };
-                driver_locations.push(driver_location);
-            }
+    for (driver_id, driver_last_known_location) in
+        driver_ids.iter().zip(driver_last_known_location.iter())
+    {
+        if let Some(driver_last_known_location) = driver_last_known_location {
+            let driver_location = DriverLocation {
+                driver_id: driver_id.to_owned(),
+                lat: driver_last_known_location.location.lat,
+                lon: driver_last_known_location.location.lon,
+                coordinates_calculated_at: driver_last_known_location.timestamp,
+                created_at: driver_last_known_location.timestamp,
+                updated_at: driver_last_known_location.timestamp,
+                merchant_id: driver_last_known_location.merchant_id.to_owned(),
+            };
+            driver_locations.push(driver_location);
+        } else {
+            warn!(
+                "Driver last known location not found for DriverId : {:?}",
+                driver_id
+            );
         }
     }
 

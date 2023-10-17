@@ -78,7 +78,7 @@ pub async fn update_driver_location(
     vehicle_type: VehicleType,
     data: Data<AppState>,
     mut locations: Vec<UpdateDriverLocationRequest>,
-    driver_mode: Option<DriverMode>,
+    driver_mode: DriverMode,
 ) -> Result<APISuccess, AppError> {
     let driver_id = match get_driver_id(&data.persistent_redis, &token).await? {
         Some(driver_id) => driver_id,
@@ -139,13 +139,13 @@ pub async fn update_driver_location(
         &data.polygon,
     )?;
 
-    let _ = sliding_window_limiter(
+    sliding_window_limiter(
         &data.persistent_redis,
         &sliding_rate_limiter_key(&driver_id, &city, &merchant_id),
         data.location_update_limit,
         data.location_update_interval as u32,
     )
-    .await;
+    .await?;
 
     with_lock_redis(
         &data.persistent_redis,
@@ -180,7 +180,7 @@ async fn process_driver_locations(
         MerchantId,
         VehicleType,
         CityName,
-        Option<DriverMode>,
+        DriverMode,
     ),
 ) {
     let (
@@ -220,26 +220,21 @@ async fn process_driver_locations(
         TimeStamp(latest_driver_location_ts)
     };
 
-    let driver_mode = match set_driver_last_location_update(
+    if let Err(err) = set_driver_last_location_update(
         &data.persistent_redis,
         &data.last_location_timstamp_expiry,
         &driver_id,
         &merchant_id,
         &latest_driver_location.pt,
         &latest_driver_location_ts,
-        driver_mode.to_owned(),
     )
     .await
     {
-        Ok(driver_details) => driver_details.driver_mode,
-        Err(err) => {
-            error!(
-                "Error occured in set_driver_last_location_update => {}",
-                err
-            );
-            driver_mode
-        }
-    };
+        error!(
+            "Error occured in set_driver_last_location_update => {}",
+            err.message()
+        );
+    }
 
     let _ = &data
         .sender

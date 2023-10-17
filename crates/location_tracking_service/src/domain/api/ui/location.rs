@@ -66,7 +66,10 @@ pub async fn update_driver_location(
         .headers()
         .get("dm")
         .and_then(|header_value| header_value.to_str().ok())
-        .and_then(|dm_str| DriverMode::from_str(dm_str).ok());
+        .and_then(|dm_str| DriverMode::from_str(dm_str).ok())
+        .ok_or(AppError::InvalidRequest(
+            "dm (DriverMode - Header) not found".to_string(),
+        ))?;
 
     Ok(Json(
         location::update_driver_location(

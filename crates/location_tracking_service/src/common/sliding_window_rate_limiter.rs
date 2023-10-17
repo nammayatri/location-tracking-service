@@ -31,7 +31,7 @@ pub async fn sliding_window_limiter(
     let (filt_hits, ret) = sliding_window_limiter_pure(curr_time, hits, frame_hits_lim, frame_len);
 
     if !ret {
-        return Err(AppError::HitsLimitExceeded);
+        return Err(AppError::HitsLimitExceeded(key.to_string()));
     }
 
     let _ = persistent_redis_pool

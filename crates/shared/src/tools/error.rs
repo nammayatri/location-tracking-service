@@ -33,7 +33,7 @@ pub enum AppError {
     DeserializationError(String),
     DriverAppAuthFailed(String, String),
     Unserviceable(f64, f64),
-    HitsLimitExceeded,
+    HitsLimitExceeded(String),
     DriverBulkLocationUpdateFailed,
     InvalidConfiguration(String),
     SetFailed,
@@ -82,6 +82,7 @@ impl AppError {
             AppError::ExternalAPICallError(err) => err.to_string(),
             AppError::SerializationError(err) => err.to_string(),
             AppError::DeserializationError(err) => err.to_string(),
+            AppError::HitsLimitExceeded(err) => err.to_string(),
             AppError::DriverAppAuthFailed(token, err) => {
                 format!("Invalid Token - {token} => {err}")
             }
@@ -108,7 +109,7 @@ impl AppError {
             AppError::DeserializationError(_) => "DESERIALIZATION_ERROR",
             AppError::DriverAppAuthFailed(_, _) => "INVALID_TOKEN",
             AppError::Unserviceable(_, _) => "LOCATION_NOT_SERVICEABLE",
-            AppError::HitsLimitExceeded => "HITS_LIMIT_EXCEED",
+            AppError::HitsLimitExceeded(_) => "HITS_LIMIT_EXCEED",
             AppError::DriverBulkLocationUpdateFailed => "DOBPP_BULK_LOCATION_UPDATE_FAILED",
             AppError::InvalidConfiguration(_) => "INVALID_REDIS_CONFIGURATION",
             AppError::SetFailed => "SET_FAILED",
@@ -162,7 +163,7 @@ impl ResponseError for AppError {
             AppError::DeserializationError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::DriverAppAuthFailed(_, _) => StatusCode::UNAUTHORIZED,
             AppError::Unserviceable(_, _) => StatusCode::BAD_REQUEST,
-            AppError::HitsLimitExceeded => StatusCode::TOO_MANY_REQUESTS,
+            AppError::HitsLimitExceeded(_) => StatusCode::TOO_MANY_REQUESTS,
             AppError::DriverBulkLocationUpdateFailed => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::InvalidConfiguration(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::SetFailed => StatusCode::INTERNAL_SERVER_ERROR,

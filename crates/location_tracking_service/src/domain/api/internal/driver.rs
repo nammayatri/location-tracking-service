@@ -5,20 +5,13 @@
     or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more details. You should have received a copy of
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-use actix_web::{
-    post,
-    web::{Data, Json},
-};
+use actix_web::{post, web::Json};
 
-use crate::{common::types::*, domain::action::internal::*, environment::AppState};
+use crate::common::types::*;
 use shared::tools::error::AppError;
 
+// To be deprecated...
 #[post("/internal/driver/driverDetails")]
-async fn driver_details(
-    data: Data<AppState>,
-    param_obj: Json<DriverModeDetails>,
-) -> Result<Json<APISuccess>, AppError> {
-    let request_body = param_obj.into_inner();
-
-    Ok(Json(driver::driver_details(data, request_body).await?))
+async fn driver_details() -> Result<Json<APISuccess>, AppError> {
+    Ok(Json(APISuccess::default()))
 }

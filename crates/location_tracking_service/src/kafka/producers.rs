@@ -22,7 +22,7 @@ pub async fn kafka_stream_updates(
     merchant_id: MerchantId,
     ride_id: Option<RideId>,
     ride_status: Option<RideStatus>,
-    driver_mode: Option<DriverMode>,
+    driver_mode: DriverMode,
     DriverId(key): &DriverId,
 ) {
     let ride_status = match ride_status {

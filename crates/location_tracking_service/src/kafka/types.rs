@@ -27,5 +27,5 @@ pub struct LocationUpdate {
     pub acc: Accuracy,
     pub ride_status: DriverRideStatus,
     pub da: bool,
-    pub mode: Option<DriverMode>,
+    pub mode: DriverMode,
 }
