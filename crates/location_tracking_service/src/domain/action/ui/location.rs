@@ -366,34 +366,13 @@ pub async fn track_driver_location(
             AppError::InvalidRideStatus(unwrapped_ride_id.to_owned(), "COMPLETED".to_string())
         })?;
 
-    let driver_ride_details = get_ride_details(
-        &data.persistent_redis,
-        &driver_details.driver_id,
-        &driver_details.merchant_id,
-    )
-    .await
-    .map_err(|_| {
-        AppError::InvalidRideStatus(unwrapped_ride_id.to_owned(), "COMPLETED".to_string())
-    })?;
-
-    let current_ride_status = match driver_ride_details.ride_status {
-        RideStatus::NEW => DriverRideStatus::PreRide,
-        RideStatus::INPROGRESS => DriverRideStatus::ActualRide,
-        RideStatus::CANCELLED => {
-            return Err(AppError::InvalidRideStatus(
-                unwrapped_ride_id.to_owned(),
-                "CANCELLED".to_string(),
-            ));
-        }
-    };
-
     let driver_last_known_location_details =
         get_driver_location(&data.persistent_redis, &driver_details.driver_id).await?;
 
     Ok(DriverLocationResponse {
         curr_point: driver_last_known_location_details.location,
-        total_distance: 0.0, // Backward Compatibility : To be removed
-        status: current_ride_status,
+        total_distance: 0.0,    // TODO :: Backward Compatibility : To be removed
+        status: "".to_string(), // TODO :: Backward Compatibility : To be removed
         last_update: driver_last_known_location_details.timestamp,
     })
 }

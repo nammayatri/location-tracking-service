@@ -96,14 +96,13 @@ pub struct MultiPolygonBody {
 pub struct RideDetails {
     pub ride_id: RideId,
     pub ride_status: RideStatus,
-    pub city: Option<CityName>,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug, Eq, PartialEq)]
 pub struct DriverDetails {
     pub driver_id: DriverId,
     pub merchant_id: MerchantId,
-    pub city: CityName,
+    pub city: Option<CityName>, // TODO :: To be removed, in next release. We dont want city during ride
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug)]

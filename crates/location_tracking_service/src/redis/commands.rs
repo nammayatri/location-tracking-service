@@ -18,17 +18,15 @@ pub async fn set_ride_details(
     redis_expiry: &u32,
     merchant_id: &MerchantId,
     driver_id: &DriverId,
-    city: Option<CityName>,
     ride_id: RideId,
     ride_status: RideStatus,
 ) -> Result<(), AppError> {
     let ride_details = RideDetails {
         ride_id,
         ride_status,
-        city,
     };
     let ride_details = serde_json::to_string(&ride_details)
-        .map_err(|err| AppError::DeserializationError(err.to_string()))?;
+        .map_err(|err| AppError::SerializationError(err.to_string()))?;
 
     persistent_redis_pool
         .set_key(
@@ -53,7 +51,7 @@ pub async fn get_ride_details(
     match ride_details {
         Some(ride_details) => {
             let ride_details = serde_json::from_str::<RideDetails>(&ride_details)
-                .map_err(|err| AppError::SerializationError(err.to_string()))?;
+                .map_err(|err| AppError::DeserializationError(err.to_string()))?;
 
             Ok(ride_details)
         }
@@ -84,7 +82,7 @@ pub async fn set_driver_details(
     driver_details: DriverDetails,
 ) -> Result<(), AppError> {
     let driver_details = serde_json::to_string(&driver_details)
-        .map_err(|err| AppError::DeserializationError(err.to_string()))?;
+        .map_err(|err| AppError::SerializationError(err.to_string()))?;
 
     let _ = persistent_redis_pool
         .set_key(
@@ -111,7 +109,7 @@ pub async fn get_driver_details(
     };
 
     let driver_details = serde_json::from_str::<DriverDetails>(&driver_details)
-        .map_err(|err| AppError::SerializationError(err.to_string()))?;
+        .map_err(|err| AppError::DeserializationError(err.to_string()))?;
 
     Ok(driver_details)
 }

@@ -58,7 +58,6 @@ pub async fn ride_start(
         &data.redis_expiry,
         &request_body.merchant_id,
         &request_body.driver_id,
-        None,
         RideId(ride_id),
         RideStatus::INPROGRESS,
     )
@@ -128,7 +127,6 @@ pub async fn ride_details(
         &data.redis_expiry,
         &request_body.merchant_id,
         &request_body.driver_id,
-        Some(city.to_owned()),
         request_body.ride_id.to_owned(),
         request_body.ride_status,
     )
@@ -137,7 +135,7 @@ pub async fn ride_details(
     let driver_details = DriverDetails {
         driver_id: request_body.driver_id,
         merchant_id: request_body.merchant_id,
-        city,
+        city: Some(city),
     };
 
     set_driver_details(
