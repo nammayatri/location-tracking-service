@@ -100,9 +100,7 @@ pub struct RideDetails {
 
 #[derive(Deserialize, Serialize, Clone, Debug, Eq, PartialEq)]
 pub struct DriverDetails {
-    pub driver_id: DriverId,
-    pub merchant_id: MerchantId,
-    pub city: Option<CityName>, // TODO :: To be removed, in next release. We dont want city during ride
+    pub driver_id: DriverId, // TODO :: Make it string from json to save deserialization cost.
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug)]

@@ -8,10 +8,7 @@
 
 use crate::environment::AppState;
 use crate::redis::commands::*;
-use crate::{
-    common::{types::*, utils::get_city},
-    domain::types::internal::ride::*,
-};
+use crate::{common::types::*, domain::types::internal::ride::*};
 use actix_web::web::Data;
 use chrono::Utc;
 use shared::redis::types::RedisConnectionPool;
@@ -120,8 +117,6 @@ pub async fn ride_details(
     data: Data<AppState>,
     request_body: RideDetailsRequest,
 ) -> Result<APISuccess, AppError> {
-    let city = get_city(&request_body.lat, &request_body.lon, &data.polygon)?;
-
     set_ride_details(
         &data.persistent_redis,
         &data.redis_expiry,
@@ -134,8 +129,6 @@ pub async fn ride_details(
 
     let driver_details = DriverDetails {
         driver_id: request_body.driver_id,
-        merchant_id: request_body.merchant_id,
-        city: Some(city),
     };
 
     set_driver_details(
