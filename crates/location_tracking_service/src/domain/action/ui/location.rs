@@ -95,9 +95,10 @@ pub async fn update_driver_location(
         }
     };
 
-    if locations.len() > 100 {
+    if locations.len() > data.batch_size as usize {
         warn!(
-            "Way points more than 100 points => {} points",
+            "Way points more than {} points => {} points",
+            data.batch_size,
             locations.len()
         );
     }
@@ -188,7 +189,7 @@ async fn process_driver_locations(
         CityName,
         DriverMode,
     ),
-) {
+) -> Result<(), AppError> {
     let (
         data,
         locations,
@@ -269,9 +270,16 @@ async fn process_driver_locations(
             data.driver_location_accuracy_buffer,
         );
         if !locations.is_empty() {
+            if locations.len() > data.batch_size as usize {
+                warn!(
+                    "On Ride Way points more than {} points after filtering => {} points",
+                    data.batch_size,
+                    locations.len()
+                );
+            }
             locations
         } else {
-            return;
+            return Ok(());
         }
     } else {
         locations
@@ -288,60 +296,40 @@ async fn process_driver_locations(
             })
             .collect::<Vec<Point>>();
 
-        let on_ride_driver_location_count = push_on_ride_driver_locations(
+        let on_ride_driver_locations_count = get_on_ride_driver_locations_count(
             &data.persistent_redis,
             &driver_id.clone(),
             &merchant_id,
-            &geo_entries,
-            &data.redis_expiry,
         )
-        .await;
+        .await?;
 
-        match on_ride_driver_location_count {
-            Ok(on_ride_driver_location_count) => {
-                if on_ride_driver_location_count >= data.batch_size {
-                    let on_ride_driver_locations = get_on_ride_driver_locations(
-                        &data.persistent_redis,
-                        &driver_id,
-                        &merchant_id,
-                        on_ride_driver_location_count,
-                    )
-                    .await;
+        if on_ride_driver_locations_count + geo_entries.len() as i64 > data.batch_size {
+            let mut on_ride_driver_locations = get_on_ride_driver_locations(
+                &data.persistent_redis,
+                &driver_id,
+                &merchant_id,
+                on_ride_driver_locations_count,
+            )
+            .await?;
+            on_ride_driver_locations.extend(geo_entries);
 
-                    match on_ride_driver_locations {
-                        Ok(on_ride_driver_locations) => {
-                            let res = bulk_location_update_dobpp(
-                                &data.bulk_location_callback_url,
-                                ride_id.to_owned(),
-                                driver_id.to_owned(),
-                                on_ride_driver_locations.to_owned(),
-                            )
-                            .await;
-
-                            if let Err(err) = res {
-                                let _ = push_on_ride_driver_locations(
-                                    &data.persistent_redis,
-                                    &driver_id,
-                                    &merchant_id,
-                                    &on_ride_driver_locations,
-                                    &data.redis_expiry,
-                                )
-                                .await;
-                                warn!("Error occurred during bulk_location_update_dobpp, Safely adding all locations back to Redis => {} : {:?}", err, on_ride_driver_locations);
-                            }
-                        }
-                        Err(err) => {
-                            error!(
-                                "Error occurred during get_on_ride_driver_locations => {}",
-                                err
-                            );
-                        }
-                    }
-                }
-            }
-            Err(err) => {
-                error!("Error occured during on_ride_driver_location_count {}", err);
-            }
+            let _ = bulk_location_update_dobpp(
+                &data.bulk_location_callback_url,
+                ride_id.to_owned(),
+                driver_id.to_owned(),
+                on_ride_driver_locations,
+            )
+            .await
+            .map_err(|err| AppError::DriverBulkLocationUpdateFailed(err.message()));
+        } else {
+            let _ = push_on_ride_driver_locations(
+                &data.persistent_redis,
+                &driver_id,
+                &merchant_id,
+                &geo_entries,
+                &data.redis_expiry,
+            )
+            .await;
         }
     }
 
@@ -358,6 +346,8 @@ async fn process_driver_locations(
         )
         .await;
     });
+
+    Ok(())
 }
 
 pub async fn track_driver_location(

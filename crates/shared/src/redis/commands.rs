@@ -109,10 +109,10 @@ impl RedisConnectionPool {
         let output: Result<(), _> = self.pool.del(key).await;
 
         if output.is_err() {
-            return Err(AppError::DeleteFailed);
+            Err(AppError::DeleteFailed)
+        } else {
+            Ok(())
         }
-
-        Ok(())
     }
 
     // delete multiple keys
@@ -126,10 +126,10 @@ impl RedisConnectionPool {
         let output: Result<Vec<RedisValue>, RedisError> = pipeline.all().await;
 
         if output.is_err() {
-            return Err(AppError::DeleteFailed);
+            Err(AppError::DeleteFailed)
+        } else {
+            Ok(())
         }
-
-        Ok(())
     }
 
     //HSET

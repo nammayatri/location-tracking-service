@@ -10,64 +10,50 @@ use crate::environment::AppState;
 use crate::redis::commands::*;
 use crate::{common::types::*, domain::types::internal::ride::*};
 use actix_web::web::Data;
-use chrono::Utc;
-use shared::redis::types::RedisConnectionPool;
 use shared::tools::error::AppError;
-use std::sync::Arc;
 
-#[allow(clippy::too_many_arguments)]
-async fn update_driver_location(
-    persistent_redis: &Arc<RedisConnectionPool>,
-    last_location_timstamp_expiry: &u32,
-    redis_expiry: &u32,
-    driver_id: &DriverId,
-    merchant_id: &MerchantId,
-    lat: Latitude,
-    lon: Longitude,
-) -> Result<i64, AppError> {
-    set_driver_last_location_update(
-        persistent_redis,
-        last_location_timstamp_expiry,
-        driver_id,
-        merchant_id,
-        &Point { lat, lon },
-        &TimeStamp(Utc::now()),
-    )
-    .await?;
-
-    push_on_ride_driver_locations(
-        persistent_redis,
-        driver_id,
-        merchant_id,
-        &[Point { lat, lon }],
-        redis_expiry,
-    )
-    .await
-}
-
-pub async fn ride_start(
-    RideId(ride_id): RideId,
+pub async fn ride_create(
+    ride_id: RideId,
     data: Data<AppState>,
-    request_body: RideStartRequest,
+    request_body: RideRequest,
 ) -> Result<APISuccess, AppError> {
     set_ride_details(
         &data.persistent_redis,
         &data.redis_expiry,
         &request_body.merchant_id,
         &request_body.driver_id,
-        RideId(ride_id),
-        RideStatus::INPROGRESS,
+        ride_id.to_owned(),
+        RideStatus::NEW,
     )
     .await?;
 
-    update_driver_location(
+    let driver_details = DriverDetails {
+        driver_id: request_body.driver_id,
+    };
+
+    set_driver_details(
         &data.persistent_redis,
-        &data.last_location_timstamp_expiry,
         &data.redis_expiry,
-        &request_body.driver_id,
+        &ride_id,
+        driver_details,
+    )
+    .await?;
+
+    Ok(APISuccess::default())
+}
+
+pub async fn ride_start(
+    ride_id: RideId,
+    data: Data<AppState>,
+    request_body: RideRequest,
+) -> Result<APISuccess, AppError> {
+    set_ride_details(
+        &data.persistent_redis,
+        &data.redis_expiry,
         &request_body.merchant_id,
-        request_body.lat,
-        request_body.lon,
+        &request_body.driver_id,
+        ride_id,
+        RideStatus::INPROGRESS,
     )
     .await?;
 
@@ -79,30 +65,25 @@ pub async fn ride_end(
     data: Data<AppState>,
     request_body: RideEndRequest,
 ) -> Result<RideEndResponse, AppError> {
-    clear_ride_details(
+    let mut on_ride_driver_locations = get_on_ride_driver_locations(
+        &data.persistent_redis,
+        &request_body.driver_id,
+        &request_body.merchant_id,
+        data.batch_size,
+    )
+    .await?;
+
+    // TODO :: Driver end LatLon to Be deprecated
+    on_ride_driver_locations.push(Point {
+        lat: request_body.lat,
+        lon: request_body.lon,
+    });
+
+    ride_cleanup(
         &data.persistent_redis,
         &request_body.merchant_id,
         &request_body.driver_id,
         &ride_id,
-    )
-    .await?;
-
-    let on_ride_driver_location_count = update_driver_location(
-        &data.persistent_redis,
-        &data.last_location_timstamp_expiry,
-        &data.redis_expiry,
-        &request_body.driver_id,
-        &request_body.merchant_id,
-        request_body.lat,
-        request_body.lon,
-    )
-    .await?;
-
-    let on_ride_driver_locations = get_on_ride_driver_locations(
-        &data.persistent_redis,
-        &request_body.driver_id,
-        &request_body.merchant_id,
-        on_ride_driver_location_count,
     )
     .await?;
 
@@ -113,31 +94,58 @@ pub async fn ride_end(
     })
 }
 
+pub async fn ride_clear(
+    ride_id: RideId,
+    data: Data<AppState>,
+    request_body: RideRequest,
+) -> Result<APISuccess, AppError> {
+    ride_cleanup(
+        &data.persistent_redis,
+        &request_body.merchant_id,
+        &request_body.driver_id,
+        &ride_id,
+    )
+    .await?;
+
+    Ok(APISuccess::default())
+}
+
+// TODO :: To be deprecated...
 pub async fn ride_details(
     data: Data<AppState>,
     request_body: RideDetailsRequest,
 ) -> Result<APISuccess, AppError> {
-    set_ride_details(
-        &data.persistent_redis,
-        &data.redis_expiry,
-        &request_body.merchant_id,
-        &request_body.driver_id,
-        request_body.ride_id.to_owned(),
-        request_body.ride_status,
-    )
-    .await?;
+    if let RideStatus::CANCELLED = request_body.ride_status {
+        ride_cleanup(
+            &data.persistent_redis,
+            &request_body.merchant_id,
+            &request_body.driver_id,
+            &request_body.ride_id,
+        )
+        .await?;
+    } else {
+        set_ride_details(
+            &data.persistent_redis,
+            &data.redis_expiry,
+            &request_body.merchant_id,
+            &request_body.driver_id,
+            request_body.ride_id.to_owned(),
+            request_body.ride_status,
+        )
+        .await?;
 
-    let driver_details = DriverDetails {
-        driver_id: request_body.driver_id,
-    };
+        let driver_details = DriverDetails {
+            driver_id: request_body.driver_id,
+        };
 
-    set_driver_details(
-        &data.persistent_redis,
-        &data.redis_expiry,
-        &request_body.ride_id,
-        driver_details,
-    )
-    .await?;
+        set_driver_details(
+            &data.persistent_redis,
+            &data.redis_expiry,
+            &request_body.ride_id,
+            driver_details,
+        )
+        .await?;
+    }
 
     Ok(APISuccess::default())
 }

@@ -34,7 +34,7 @@ pub enum AppError {
     DriverAppAuthFailed(String, String),
     Unserviceable(f64, f64),
     HitsLimitExceeded(String),
-    DriverBulkLocationUpdateFailed,
+    DriverBulkLocationUpdateFailed(String),
     InvalidConfiguration(String),
     SetFailed,
     SetExFailed,
@@ -84,7 +84,10 @@ impl AppError {
             AppError::DeserializationError(err) => err.to_string(),
             AppError::HitsLimitExceeded(err) => err.to_string(),
             AppError::DriverAppAuthFailed(token, err) => {
-                format!("Invalid Token - {token} => {err}")
+                format!("Invalid Token - {token} : {err}")
+            }
+            AppError::DriverBulkLocationUpdateFailed(err) => {
+                format!("Driver Bulk Location Update Failed : {err}")
             }
             AppError::Unserviceable(lat, lon) => {
                 format!("Location is unserviceable : (Lat : {lat}, Lon : {lon})")
@@ -110,7 +113,7 @@ impl AppError {
             AppError::DriverAppAuthFailed(_, _) => "INVALID_TOKEN",
             AppError::Unserviceable(_, _) => "LOCATION_NOT_SERVICEABLE",
             AppError::HitsLimitExceeded(_) => "HITS_LIMIT_EXCEED",
-            AppError::DriverBulkLocationUpdateFailed => "DOBPP_BULK_LOCATION_UPDATE_FAILED",
+            AppError::DriverBulkLocationUpdateFailed(_) => "DOBPP_BULK_LOCATION_UPDATE_FAILED",
             AppError::InvalidConfiguration(_) => "INVALID_REDIS_CONFIGURATION",
             AppError::SetFailed => "SET_FAILED",
             AppError::SetExFailed => "SET_EX_FAILED",
@@ -164,7 +167,7 @@ impl ResponseError for AppError {
             AppError::DriverAppAuthFailed(_, _) => StatusCode::UNAUTHORIZED,
             AppError::Unserviceable(_, _) => StatusCode::BAD_REQUEST,
             AppError::HitsLimitExceeded(_) => StatusCode::TOO_MANY_REQUESTS,
-            AppError::DriverBulkLocationUpdateFailed => StatusCode::INTERNAL_SERVER_ERROR,
+            AppError::DriverBulkLocationUpdateFailed(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::InvalidConfiguration(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::SetFailed => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::SetExFailed => StatusCode::INTERNAL_SERVER_ERROR,

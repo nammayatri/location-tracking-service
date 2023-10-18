@@ -9,14 +9,19 @@ use serde::{Deserialize, Serialize};
 
 use crate::common::types::*;
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
-pub struct RideStartRequest {
-    pub lat: Latitude,
-    pub lon: Longitude,
-    pub driver_id: DriverId,
+pub struct RideRequest {
     pub merchant_id: MerchantId,
+    pub driver_id: DriverId,
 }
+
+#[derive(Serialize, Debug)]
+pub struct ResponseData {
+    pub result: String,
+}
+
+// TODO :: To be deprecated...
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct RideEndRequest {
@@ -26,6 +31,7 @@ pub struct RideEndRequest {
     pub merchant_id: MerchantId,
 }
 
+// TODO :: To be deprecated...
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct RideEndResponse {
@@ -34,16 +40,7 @@ pub struct RideEndResponse {
     pub driver_id: DriverId,
 }
 
-#[derive(Serialize, Debug)]
-pub struct ResponseData {
-    pub result: String,
-}
-
-#[derive(Deserialize, Serialize, Clone, Debug)]
-pub struct DriverRideResponse {
-    pub resp: Vec<(Longitude, Latitude)>,
-}
-
+// TODO :: To be deprecated...
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct RideDetailsRequest {

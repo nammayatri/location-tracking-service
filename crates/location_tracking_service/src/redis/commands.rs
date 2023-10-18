@@ -59,7 +59,7 @@ pub async fn get_ride_details(
     }
 }
 
-pub async fn clear_ride_details(
+pub async fn ride_cleanup(
     persistent_redis_pool: &RedisConnectionPool,
     merchant_id: &MerchantId,
     driver_id: &DriverId,
@@ -69,6 +69,7 @@ pub async fn clear_ride_details(
         .delete_keys(vec![
             &on_ride_details_key(merchant_id, driver_id),
             &on_ride_driver_details_key(ride_id),
+            &on_ride_loc_key(merchant_id, driver_id),
         ])
         .await;
 
@@ -242,6 +243,16 @@ pub async fn push_on_ride_driver_locations(
         .await
 }
 
+pub async fn get_on_ride_driver_locations_count(
+    persistent_redis_pool: &RedisConnectionPool,
+    driver_id: &DriverId,
+    merchant_id: &MerchantId,
+) -> Result<i64, AppError> {
+    persistent_redis_pool
+        .llen(&on_ride_loc_key(merchant_id, driver_id))
+        .await
+}
+
 pub async fn get_on_ride_driver_locations(
     persistent_redis_pool: &RedisConnectionPool,
     driver_id: &DriverId,
@@ -297,7 +308,7 @@ pub async fn with_lock_redis<F, Args, Fut>(
 where
     F: Fn(Args) -> Fut,
     Args: Send + 'static,
-    Fut: Future<Output = ()>,
+    Fut: Future<Output = Result<(), AppError>>,
 {
     let lock = redis.setnx_with_expiry(&key, true, expiry).await;
 
@@ -306,7 +317,7 @@ where
         let resp = callback(args).await;
         let _ = redis.delete_key(&key).await;
         info!("Released lock : {}", &key);
-        return Ok(resp);
+        return resp;
     }
 
     Err(AppError::HitsLimitExceeded(key))
