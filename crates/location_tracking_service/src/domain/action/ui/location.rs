@@ -108,9 +108,15 @@ pub async fn update_driver_location(
         (a_ts).cmp(&b_ts)
     });
 
-    let last_known_location = get_driver_location(&data.persistent_redis, &driver_id)
-        .await
-        .ok();
+    let last_known_location = get_driver_location(&data.persistent_redis, &driver_id).await;
+
+    let last_known_location = match last_known_location {
+        Ok(last_known_location) => Some(last_known_location),
+        Err(err) => {
+            warn!("Driver last_known_location not found. {}", err.message());
+            None
+        }
+    };
 
     let locations: Vec<UpdateDriverLocationRequest> = locations
         .into_iter()
@@ -371,8 +377,8 @@ pub async fn track_driver_location(
 
     Ok(DriverLocationResponse {
         curr_point: driver_last_known_location_details.location,
-        total_distance: 0.0,    // TODO :: Backward Compatibility : To be removed
-        status: "".to_string(), // TODO :: Backward Compatibility : To be removed
+        total_distance: 0.0, // TODO :: Backward Compatibility : To be removed
+        status: "PreRide".to_string(), // TODO :: Backward Compatibility : To be removed
         last_update: driver_last_known_location_details.timestamp,
     })
 }
