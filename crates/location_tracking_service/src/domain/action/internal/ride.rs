@@ -73,7 +73,6 @@ pub async fn ride_end(
     )
     .await?;
 
-    // TODO :: Driver end LatLon to Be deprecated
     on_ride_driver_locations.push(Point {
         lat: request_body.lat,
         lon: request_body.lon,

@@ -9,6 +9,7 @@
 use crate::common::utils::distance_between_in_meters;
 use crate::common::{
     sliding_window_rate_limiter::sliding_window_limiter, types::*, utils::get_city,
+    utils::get_special_zone,
 };
 use crate::domain::types::ui::location::*;
 use crate::environment::AppState;
@@ -243,24 +244,45 @@ async fn process_driver_locations(
         );
     }
 
-    let _ = &data
-        .sender
-        .send((
-            Dimensions {
-                merchant_id: merchant_id.to_owned(),
-                city: city.to_owned(),
-                vehicle_type: vehicle_type.to_owned(),
-                new_ride: driver_ride_status
-                    .as_ref()
-                    .map(|ride_status| ride_status == &RideStatus::NEW)
-                    .unwrap_or(false),
-            },
-            latest_driver_location.pt.lat,
-            latest_driver_location.pt.lon,
-            latest_driver_location_ts.to_owned(),
-            driver_id.to_owned(),
-        ))
-        .await;
+    let MerchantId(m_id) = merchant_id.clone();
+
+    let blacklist_merchant = data.blacklist_merchants.contains(&m_id);
+
+    let special_zone = if blacklist_merchant {
+        get_special_zone(
+            &latest_driver_location.pt.lat,
+            &latest_driver_location.pt.lon,
+            &data.blacklist_polygon,
+        )
+    } else {
+        false
+    };
+
+    warn!(
+        "Driver Id : {:?} : Merchant Id : {:?} : Blacklist Merchant : {:?} : special zone {:?}",
+        &driver_id, &merchant_id, blacklist_merchant, special_zone
+    );
+
+    if !special_zone {
+        let _ = &data
+            .sender
+            .send((
+                Dimensions {
+                    merchant_id: merchant_id.to_owned(),
+                    city: city.to_owned(),
+                    vehicle_type: vehicle_type.to_owned(),
+                    new_ride: driver_ride_status
+                        .as_ref()
+                        .map(|ride_status| ride_status == &RideStatus::NEW)
+                        .unwrap_or(false),
+                },
+                latest_driver_location.pt.lat,
+                latest_driver_location.pt.lon,
+                latest_driver_location_ts.to_owned(),
+                driver_id.to_owned(),
+            ))
+            .await;
+    }
 
     let locations = if let Some(RideStatus::INPROGRESS) = driver_ride_status.as_ref() {
         let locations = get_filtered_driver_locations(

@@ -39,6 +39,27 @@ pub fn get_city(
     Ok(CityName(city))
 }
 
+pub fn get_special_zone(lat: &Latitude, lon: &Longitude, polygon: &Vec<MultiPolygonBody>) -> bool {
+    let mut intersection = false;
+
+    let Latitude(lat) = *lat;
+    let Longitude(lon) = *lon;
+
+    for multi_polygon_body in polygon {
+        intersection = multi_polygon_body
+            .multipolygon
+            .intersects(&point!(x: lon, y: lat));
+        if intersection {
+            break;
+        }
+    }
+
+    if !intersection {
+        return false;
+    }
+    true
+}
+
 pub fn get_current_bucket(location_expiry_in_seconds: &u64) -> u64 {
     Utc::now().timestamp() as u64 / location_expiry_in_seconds
 }
