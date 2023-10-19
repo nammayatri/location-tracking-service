@@ -8,7 +8,6 @@
 
 use crate::redis::types::*;
 use crate::tools::error::AppError;
-use error_stack::{IntoReport, ResultExt};
 use fred::{
     interfaces::{GeoInterface, HashesInterface, KeysInterface, SortedSetsInterface},
     prelude::{ListInterface, RedisError},
@@ -33,11 +32,11 @@ impl RedisConnectionPool {
             .set(key, value, Some(Expiration::EX(expiry.into())), None, false)
             .await;
 
-        if output.is_err() {
-            return Err(AppError::SetFailed);
+        if let Err(err) = output {
+            Err(AppError::SetFailed(err.to_string()))
+        } else {
+            Ok(())
         }
-
-        Ok(())
     }
 
     // setnx key with expiry
@@ -58,21 +57,24 @@ impl RedisConnectionPool {
 
         let output: Result<Vec<RedisValue>, RedisError> = pipeline.all().await;
 
-        if let Ok([RedisValue::Integer(1), ..]) = output.as_deref() {
-            Ok(())
-        } else {
-            Err(AppError::SetExFailed)
+        match output.as_deref() {
+            Ok([RedisValue::Integer(1), ..]) => Ok(()),
+            Err(err) => Err(AppError::SetExFailed(err.to_string())),
+            Ok(case) => Err(AppError::SetExFailed(format!(
+                "Case not handled : {:?}",
+                case
+            ))),
         }
     }
 
     pub async fn set_expiry(&self, key: &str, seconds: i64) -> Result<(), AppError> {
         let output: Result<(), _> = self.pool.expire(key, seconds).await;
 
-        if output.is_err() {
-            return Err(AppError::SetExpiryFailed);
+        if let Err(err) = output {
+            Err(AppError::SetExpiryFailed(err.to_string()))
+        } else {
+            Ok(())
         }
-
-        Ok(())
     }
 
     // get key
@@ -82,7 +84,11 @@ impl RedisConnectionPool {
         match output {
             Ok(RedisValue::String(val)) => Ok(Some(val.to_string())),
             Ok(RedisValue::Null) => Ok(None),
-            _ => Err(AppError::GetFailed),
+            Err(err) => Err(AppError::GetFailed(err.to_string())),
+            Ok(case) => Err(AppError::GetFailed(format!(
+                "Case not handled : {:?}",
+                case
+            ))),
         }
     }
 
@@ -100,7 +106,11 @@ impl RedisConnectionPool {
             Ok(RedisValue::Array(val)) => Ok(val.into_iter().map(|v| v.into_string()).collect()),
             Ok(RedisValue::String(val)) => Ok(vec![Some(val.to_string())]),
             Ok(RedisValue::Null) => Ok(vec![None]),
-            _ => Err(AppError::MGetFailed),
+            Err(err) => Err(AppError::MGetFailed(err.to_string())),
+            Ok(case) => Err(AppError::MGetFailed(format!(
+                "Case not handled : {:?}",
+                case
+            ))),
         }
     }
 
@@ -108,8 +118,8 @@ impl RedisConnectionPool {
     pub async fn delete_key(&self, key: &str) -> Result<(), AppError> {
         let output: Result<(), _> = self.pool.del(key).await;
 
-        if output.is_err() {
-            Err(AppError::DeleteFailed)
+        if let Err(err) = output {
+            Err(AppError::DeleteFailed(err.to_string()))
         } else {
             Ok(())
         }
@@ -125,8 +135,8 @@ impl RedisConnectionPool {
 
         let output: Result<Vec<RedisValue>, RedisError> = pipeline.all().await;
 
-        if output.is_err() {
-            Err(AppError::DeleteFailed)
+        if let Err(err) = output {
+            Err(AppError::DeleteFailed(err.to_string()))
         } else {
             Ok(())
         }
@@ -143,21 +153,15 @@ impl RedisConnectionPool {
         V: TryInto<RedisMap> + Debug + Send + Sync,
         V::Error: Into<fred::error::RedisError> + Send + Sync,
     {
-        let output: Result<(), _> = self
-            .pool
-            .hset(key, values)
-            .await
-            .into_report()
-            .change_context(AppError::SetHashFieldFailed);
+        let output: Result<(), _> = self.pool.hset(key, values).await;
 
         // setting expiry for the key
-        if output.is_ok() {
-            self.set_expiry(key, expiry).await?;
+        if let Err(err) = output {
+            Err(AppError::SetHashFieldFailed(err.to_string()))
         } else {
-            return Err(AppError::SetHashFieldFailed);
+            self.set_expiry(key, expiry).await?;
+            Ok(())
         }
-
-        Ok(())
     }
 
     //HGET
@@ -165,36 +169,34 @@ impl RedisConnectionPool {
     where
         V: FromRedis + Unpin + Send + 'static,
     {
-        let output: Result<V, _> = self
-            .pool
-            .hget(key, field)
-            .await
-            .into_report()
-            .change_context(AppError::GetHashFieldFailed);
+        let output: Result<V, _> = self.pool.hget(key, field).await;
 
         if output.is_err() {
-            return Err(AppError::GetHashFieldFailed);
+            return Err(AppError::GetHashFieldFailed("Case not handled".to_string()));
         }
 
         Ok(output.unwrap())
     }
 
     //RPUSH
-    pub async fn rpush<V>(&self, key: &str, values: Vec<V>) -> Result<(), AppError>
+    pub async fn rpush<V>(&self, key: &str, values: Vec<V>) -> Result<i64, AppError>
     where
         V: TryInto<RedisValue> + Debug + Send + Sync + Clone,
         V::Error: Into<fred::error::RedisError> + Send + Sync,
     {
         if values.is_empty() {
-            return Ok(());
+            return self.llen(key).await;
         }
 
         let output = self.pool.rpush(key, values).await;
 
-        if let Ok(RedisValue::Integer(_length)) = output {
-            Ok(())
-        } else {
-            Err(AppError::RPushFailed)
+        match output {
+            Ok(RedisValue::Integer(length)) => Ok(length),
+            Err(err) => Err(AppError::RPushFailed(err.to_string())),
+            Ok(case) => Err(AppError::RPushFailed(format!(
+                "Case not handled : {:?}",
+                case
+            ))),
         }
     }
 
@@ -222,10 +224,13 @@ impl RedisConnectionPool {
 
         let output: Result<Vec<RedisValue>, RedisError> = pipeline.all().await;
 
-        if let Ok([RedisValue::Integer(length), ..]) = output.as_deref() {
-            Ok(length.to_owned())
-        } else {
-            Err(AppError::RPushFailed)
+        match output.as_deref() {
+            Ok([RedisValue::Integer(length), ..]) => Ok(length.to_owned()),
+            Err(err) => Err(AppError::RPushFailed(err.to_string())),
+            Ok(case) => Err(AppError::RPushFailed(format!(
+                "Case not handled : {:?}",
+                case
+            ))),
         }
     }
 
@@ -244,7 +249,11 @@ impl RedisConnectionPool {
                 Ok(values)
             }
             Ok(RedisValue::String(value)) => Ok(vec![value.to_string()]),
-            _ => Err(AppError::RPopFailed),
+            Err(err) => Err(AppError::RPopFailed(err.to_string())),
+            Ok(case) => Err(AppError::RPopFailed(format!(
+                "Case not handled : {:?}",
+                case
+            ))),
         }
     }
 
@@ -263,7 +272,12 @@ impl RedisConnectionPool {
                 Ok(values)
             }
             Ok(RedisValue::String(value)) => Ok(vec![value.to_string()]),
-            _ => Err(AppError::LPopFailed),
+            Ok(RedisValue::Null) => Ok(vec![]),
+            Err(err) => Err(AppError::LPopFailed(err.to_string())),
+            Ok(case) => Err(AppError::LPopFailed(format!(
+                "Case not handled : {:?}",
+                case
+            ))),
         }
     }
 
@@ -281,7 +295,11 @@ impl RedisConnectionPool {
                 }
                 Ok(values)
             }
-            _ => Err(AppError::LRangeFailed),
+            Err(err) => Err(AppError::LRangeFailed(err.to_string())),
+            Ok(case) => Err(AppError::LRangeFailed(format!(
+                "Case not handled : {:?}",
+                case
+            ))),
         }
     }
 
@@ -289,10 +307,13 @@ impl RedisConnectionPool {
     pub async fn llen(&self, key: &str) -> Result<i64, AppError> {
         let output = self.pool.llen(key).await;
 
-        if let Ok(RedisValue::Integer(length)) = output {
-            Ok(length)
-        } else {
-            Err(AppError::LLenFailed)
+        match output {
+            Ok(RedisValue::Integer(length)) => Ok(length),
+            Err(err) => Err(AppError::LLenFailed(err.to_string())),
+            Ok(case) => Err(AppError::LLenFailed(format!(
+                "Case not handled : {:?}",
+                case
+            ))),
         }
     }
 
@@ -309,11 +330,11 @@ impl RedisConnectionPool {
     {
         let output: Result<(), _> = self.pool.geoadd(key, options, changed, values).await;
 
-        if output.is_err() {
-            return Err(AppError::GeoAddFailed);
+        if let Err(err) = output {
+            Err(AppError::GeoAddFailed(err.to_string()))
+        } else {
+            Ok(())
         }
-
-        Ok(())
     }
 
     //GEOADD with expiry
@@ -337,10 +358,10 @@ impl RedisConnectionPool {
 
         let output: Result<Vec<RedisValue>, RedisError> = pipeline.all().await;
 
-        if let Ok([RedisValue::Integer(_), ..]) = output.as_deref() {
-            Ok(())
+        if let Err(err) = output {
+            Err(AppError::GeoAddFailed(err.to_string()))
         } else {
-            Err(AppError::GeoAddFailed)
+            Ok(())
         }
     }
 
@@ -368,10 +389,10 @@ impl RedisConnectionPool {
 
         let output: Result<Vec<RedisValue>, RedisError> = pipeline.all().await;
 
-        if let Ok([RedisValue::Integer(_), ..]) = output.as_deref() {
-            Ok(())
+        if let Err(err) = output {
+            Err(AppError::GeoAddFailed(err.to_string()))
         } else {
-            Err(AppError::GeoAddFailed)
+            Ok(())
         }
     }
 
@@ -407,8 +428,8 @@ impl RedisConnectionPool {
             .await;
 
         match output {
-            Err(_) => Err(AppError::GeoSearchFailed),
             Ok(output) => Ok(output),
+            Err(err) => Err(AppError::GeoSearchFailed(err.to_string())),
         }
     }
 
@@ -444,29 +465,30 @@ impl RedisConnectionPool {
 
         let output: Result<Vec<Vec<RedisValue>>, RedisError> = pipeline.all().await;
 
-        if let Ok(geovals) = output {
-            let mut output = Vec::new();
+        match output {
+            Ok(geovals) => {
+                let mut output = Vec::new();
 
-            for geoval in geovals {
-                if let [member, RedisValue::Array(position)] = &geoval[..] {
-                    if let [RedisValue::Double(longitude), RedisValue::Double(latitude)] =
-                        position[..]
-                    {
-                        output.push(GeoRadiusInfo {
-                            member: member.to_owned(),
-                            position: Some(GeoPosition {
-                                longitude,
-                                latitude,
-                            }),
-                            distance: None,
-                            hash: None,
-                        })
+                for geoval in geovals {
+                    if let [member, RedisValue::Array(position)] = &geoval[..] {
+                        if let [RedisValue::Double(longitude), RedisValue::Double(latitude)] =
+                            position[..]
+                        {
+                            output.push(GeoRadiusInfo {
+                                member: member.to_owned(),
+                                position: Some(GeoPosition {
+                                    longitude,
+                                    latitude,
+                                }),
+                                distance: None,
+                                hash: None,
+                            })
+                        }
                     }
                 }
+                Ok(output)
             }
-            Ok(output)
-        } else {
-            Err(AppError::GeoSearchFailed)
+            Err(err) => Err(AppError::GeoSearchFailed(err.to_string())),
         }
     }
 
@@ -501,7 +523,11 @@ impl RedisConnectionPool {
                     Ok(vec![])
                 }
             }
-            _ => Err(AppError::GeoPosFailed),
+            Err(err) => Err(AppError::GeoPosFailed(err.to_string())),
+            Ok(case) => Err(AppError::GeoPosFailed(format!(
+                "Case not handled : {:?}",
+                case
+            ))),
         }
     }
 
@@ -514,11 +540,11 @@ impl RedisConnectionPool {
     ) -> Result<(), AppError> {
         let output: Result<(), _> = self.pool.zremrangebyrank(key, start, stop).await;
 
-        if output.is_err() {
-            return Err(AppError::ZremrangeByRankFailed);
+        if let Err(err) = output {
+            Err(AppError::ZremrangeByRankFailed(err.to_string()))
+        } else {
+            Ok(())
         }
-
-        Ok(())
     }
 
     //ZADD
@@ -534,28 +560,21 @@ impl RedisConnectionPool {
         let output: Result<(), _> = self
             .pool
             .zadd(key, options, ordering, changed, incr, values)
-            .await
-            .into_report()
-            .change_context(AppError::ZAddFailed);
+            .await;
 
-        if output.is_err() {
-            return Err(AppError::ZAddFailed);
+        if let Err(err) = output {
+            Err(AppError::ZAddFailed(err.to_string()))
+        } else {
+            Ok(())
         }
-
-        Ok(())
     }
 
     //ZCARD
     pub async fn zcard(&self, key: &str) -> Result<u64, AppError> {
-        let output: Result<u64, _> = self
-            .pool
-            .zcard(key)
-            .await
-            .into_report()
-            .change_context(AppError::ZCardFailed);
+        let output: Result<u64, _> = self.pool.zcard(key).await;
 
         if output.is_err() {
-            return Err(AppError::ZCardFailed);
+            return Err(AppError::ZCardFailed("Case not handled".to_string()));
         }
 
         Ok(output.unwrap())
@@ -576,9 +595,7 @@ impl RedisConnectionPool {
         let output: Result<RedisValue, _> = self
             .pool
             .zrange(key, min, max, sort, rev, limit, withscores)
-            .await
-            .into_report()
-            .change_context(AppError::ZRangeFailed);
+            .await;
 
         match output {
             Ok(RedisValue::Array(val)) => {
@@ -592,7 +609,11 @@ impl RedisConnectionPool {
                 Ok(members)
             }
             Ok(RedisValue::String(member)) => Ok(vec![member.to_string()]),
-            _ => Err(AppError::ZRangeFailed),
+            Err(err) => Err(AppError::ZRangeFailed(err.to_string())),
+            Ok(case) => Err(AppError::ZRangeFailed(format!(
+                "Case not handled : {:?}",
+                case
+            ))),
         }
     }
 }
