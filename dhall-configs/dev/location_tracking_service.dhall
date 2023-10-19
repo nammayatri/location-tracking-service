@@ -61,4 +61,5 @@ in {
     batch_size = 100,
     bucket_size = 30,
     nearby_bucket_threshold = 4,
+    blacklist_merchants = ["favorit0-0000-0000-0000-00000favorit"],
 }

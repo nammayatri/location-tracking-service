@@ -47,6 +47,7 @@ pub struct AppConfig {
     pub bucket_size: u64,
     pub nearby_bucket_threshold: u64,
     pub driver_location_accuracy_buffer: f64,
+    pub blacklist_merchants: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -77,6 +78,7 @@ pub struct AppState {
     pub drainer_size: usize,
     pub new_ride_drainer_delay: u64,
     pub polygon: Vec<MultiPolygonBody>,
+    pub blacklist_polygon: Vec<MultiPolygonBody>,
     pub auth_url: Url,
     pub auth_api_key: String,
     pub bulk_location_callback_url: Url,
@@ -92,6 +94,7 @@ pub struct AppState {
     pub bucket_size: u64,
     pub nearby_bucket_threshold: u64,
     pub driver_location_accuracy_buffer: f64,
+    pub blacklist_merchants: Vec<String>,
 }
 
 impl AppState {
@@ -186,6 +189,11 @@ impl AppState {
         let geo_config_path = var("GEO_CONFIG").unwrap_or_else(|_| "./geo_config".to_string());
         let polygons = read_geo_polygon(&geo_config_path).expect("Failed to read geoJSON");
 
+        let blacklist_geo_config_path =
+            var("BLACKLIST_GEO_CONFIG").unwrap_or_else(|_| "./blacklist_geo_config".to_string());
+        let blacklist_polygons = read_geo_polygon(&blacklist_geo_config_path)
+            .expect("Failed to read specialzone geoJSON");
+
         let producer: Option<FutureProducer>;
 
         let result: Result<FutureProducer, KafkaError> = ClientConfig::new()
@@ -217,6 +225,7 @@ impl AppState {
             new_ride_drainer_delay: app_config.new_ride_drainer_delay,
             sender,
             polygon: polygons,
+            blacklist_polygon: blacklist_polygons,
             auth_url: Url::parse(app_config.auth_url.as_str()).expect("Failed to parse auth_url."),
             auth_api_key: app_config.auth_api_key,
             bulk_location_callback_url: Url::parse(app_config.bulk_location_callback_url.as_str())
@@ -233,6 +242,7 @@ impl AppState {
             bucket_size: app_config.bucket_size,
             nearby_bucket_threshold: app_config.nearby_bucket_threshold,
             driver_location_accuracy_buffer: app_config.driver_location_accuracy_buffer,
+            blacklist_merchants: app_config.blacklist_merchants,
         }
     }
 }
