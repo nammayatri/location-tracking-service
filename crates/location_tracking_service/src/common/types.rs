@@ -129,3 +129,8 @@ pub struct DriverLastKnownLocation {
     pub timestamp: TimeStamp,
     pub merchant_id: MerchantId,
 }
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct DriverAllDetails {
+    pub driver_last_known_location: DriverLastKnownLocation,
+}

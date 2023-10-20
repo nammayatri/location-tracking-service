@@ -183,8 +183,9 @@ pub async fn get_driver_location(
         .await?;
 
     if let Some(val) = last_location_update {
-        Ok(serde_json::from_str::<DriverLastKnownLocation>(&val)
-            .map_err(|err| AppError::DeserializationError(err.to_string()))?)
+        Ok(serde_json::from_str::<DriverAllDetails>(&val)
+            .map_err(|err| AppError::DeserializationError(err.to_string()))?
+            .driver_last_known_location)
     } else {
         Err(AppError::DriverLastKnownLocationNotFound)
     }
@@ -207,8 +208,10 @@ pub async fn set_driver_last_location_update(
         merchant_id: merchant_id.to_owned(),
     };
 
-    let value = serde_json::to_string(&last_known_location)
-        .map_err(|err| AppError::DeserializationError(err.to_string()))?;
+    let value = serde_json::to_string(&DriverAllDetails {
+        driver_last_known_location: last_known_location.to_owned(),
+    })
+    .map_err(|err| AppError::DeserializationError(err.to_string()))?;
 
     persistent_redis_pool
         .set_key(
@@ -341,12 +344,12 @@ pub async fn get_all_driver_last_locations(
         .map(|driver_all_details| {
             if let Some(driver_all_details) = driver_all_details {
                 let driver_all_details =
-                    serde_json::from_str::<DriverLastKnownLocation>(driver_all_details)
+                    serde_json::from_str::<DriverAllDetails>(driver_all_details)
                         .map_err(|err| AppError::DeserializationError(err.to_string()));
                 match driver_all_details {
-                    Ok(driver_all_details) => Some(driver_all_details),
+                    Ok(driver_all_details) => Some(driver_all_details.driver_last_known_location),
                     Err(err) => {
-                        error!("DriverLastKnownLocation DeserializationError : {}", err);
+                        error!("DriverAllDetails DeserializationError : {}", err);
                         None
                     }
                 }
