@@ -258,11 +258,6 @@ async fn process_driver_locations(
         false
     };
 
-    warn!(
-        "Driver Id : {:?} : Merchant Id : {:?} : Blacklist Merchant : {:?} : special zone {:?}",
-        &driver_id, &merchant_id, blacklist_merchant, special_zone
-    );
-
     if !special_zone {
         let _ = &data
             .sender
@@ -282,6 +277,11 @@ async fn process_driver_locations(
                 driver_id.to_owned(),
             ))
             .await;
+    } else {
+        warn!(
+            "Skipping GEOADD for special zone ({:?}) Driver Id : {:?}, Merchant Id : {:?}",
+            latest_driver_location.pt, driver_id, merchant_id
+        );
     }
 
     let locations = if let Some(RideStatus::INPROGRESS) = driver_ride_status.as_ref() {
