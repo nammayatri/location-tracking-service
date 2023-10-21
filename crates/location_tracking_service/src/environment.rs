@@ -94,7 +94,7 @@ pub struct AppState {
     pub bucket_size: u64,
     pub nearby_bucket_threshold: u64,
     pub driver_location_accuracy_buffer: f64,
-    pub blacklist_merchants: Vec<String>,
+    pub blacklist_merchants: Vec<MerchantId>,
 }
 
 impl AppState {
@@ -217,6 +217,12 @@ impl AppState {
             }
         }
 
+        let blacklist_merchants = app_config
+            .blacklist_merchants
+            .into_iter()
+            .map(MerchantId)
+            .collect::<Vec<MerchantId>>();
+
         AppState {
             non_persistent_redis,
             persistent_redis,
@@ -242,7 +248,7 @@ impl AppState {
             bucket_size: app_config.bucket_size,
             nearby_bucket_threshold: app_config.nearby_bucket_threshold,
             driver_location_accuracy_buffer: app_config.driver_location_accuracy_buffer,
-            blacklist_merchants: app_config.blacklist_merchants,
+            blacklist_merchants,
         }
     }
 }
