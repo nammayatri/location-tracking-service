@@ -258,11 +258,6 @@ async fn process_driver_locations(
         false
     };
 
-    warn!(
-        "Driver Id : {:?} : Merchant Id : {:?} : Blacklist Merchant : {:?} : special zone {:?}",
-        &driver_id, &merchant_id, blacklist_merchant, special_zone
-    );
-
     if !special_zone {
         let _ = &data
             .sender
