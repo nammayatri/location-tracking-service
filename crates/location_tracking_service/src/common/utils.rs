@@ -39,25 +39,38 @@ pub fn get_city(
     Ok(CityName(city))
 }
 
-pub fn get_special_zone(lat: &Latitude, lon: &Longitude, polygon: &Vec<MultiPolygonBody>) -> bool {
-    let mut intersection = false;
+pub fn is_blacklist_for_special_zone(
+    merchant_id: &MerchantId,
+    blacklist_merchants: &[MerchantId],
+    lat: &Latitude,
+    lon: &Longitude,
+    polygon: &Vec<MultiPolygonBody>,
+) -> bool {
+    let blacklist_merchant = blacklist_merchants.contains(merchant_id);
 
-    let Latitude(lat) = *lat;
-    let Longitude(lon) = *lon;
+    if blacklist_merchant {
+        let mut intersection = false;
 
-    for multi_polygon_body in polygon {
-        intersection = multi_polygon_body
-            .multipolygon
-            .intersects(&point!(x: lon, y: lat));
-        if intersection {
-            break;
+        let Latitude(lat) = *lat;
+        let Longitude(lon) = *lon;
+
+        for multi_polygon_body in polygon {
+            intersection = multi_polygon_body
+                .multipolygon
+                .intersects(&point!(x: lon, y: lat));
+            if intersection {
+                break;
+            }
         }
-    }
 
-    if !intersection {
-        return false;
+        if !intersection {
+            return false;
+        }
+
+        true
+    } else {
+        false
     }
-    true
 }
 
 pub fn get_current_bucket(location_expiry_in_seconds: &u64) -> u64 {
