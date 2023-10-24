@@ -1479,6 +1479,7 @@ name = "location_tracking_service"
 version = "0.1.0"
 dependencies = [
  "actix",
+ "actix-http",
  "actix-web",
  "chrono",
  "enum-iterator",

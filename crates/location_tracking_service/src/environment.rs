@@ -48,6 +48,8 @@ pub struct AppConfig {
     pub nearby_bucket_threshold: u64,
     pub driver_location_accuracy_buffer: f64,
     pub blacklist_merchants: Vec<String>,
+    pub log_unprocessible_req_body: bool,
+    pub max_allowed_req_size: usize,
 }
 
 #[derive(Debug, Deserialize, Clone)]

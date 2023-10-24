@@ -6,11 +6,14 @@
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
+use std::rc::Rc;
+
 use actix::fut::{ready, Ready};
+use actix_http::h1;
 use actix_web::{
     body::{BoxBody, MessageBody},
-    dev::{forward_ready, Service, ServiceRequest, ServiceResponse, Transform},
-    Error,
+    dev::{self, forward_ready, Service, ServiceRequest, ServiceResponse, Transform},
+    web, Error,
 };
 use futures::future::LocalBoxFuture;
 use shared::{
@@ -117,4 +120,70 @@ where
             Ok(response)
         })
     }
+}
+
+pub struct LogIncomingRequestBody;
+
+impl<S: 'static> Transform<S, ServiceRequest> for LogIncomingRequestBody
+where
+    S: Service<ServiceRequest, Response = ServiceResponse<BoxBody>, Error = Error>,
+    S::Future: 'static,
+{
+    type Response = ServiceResponse<BoxBody>;
+    type Error = Error;
+    type InitError = ();
+    type Transform = LogIncomingRequestBodyMiddleware<S>;
+    type Future = Ready<Result<Self::Transform, Self::InitError>>;
+
+    fn new_transform(&self, service: S) -> Self::Future {
+        ready(Ok(LogIncomingRequestBodyMiddleware {
+            service: Rc::new(service),
+        }))
+    }
+}
+
+pub struct LogIncomingRequestBodyMiddleware<S> {
+    service: Rc<S>,
+}
+
+impl<S> Service<ServiceRequest> for LogIncomingRequestBodyMiddleware<S>
+where
+    S: Service<ServiceRequest, Response = ServiceResponse<BoxBody>, Error = Error> + 'static,
+    S::Future: 'static,
+{
+    type Response = ServiceResponse<BoxBody>;
+    type Error = Error;
+    type Future = LocalBoxFuture<'static, Result<Self::Response, Self::Error>>;
+
+    forward_ready!(service);
+
+    fn call(&self, mut req: ServiceRequest) -> Self::Future {
+        let svc = self.service.clone();
+
+        Box::pin(async move {
+            let body = req.extract::<web::Bytes>().await.unwrap();
+
+            let body_clone = body.clone();
+
+            // re-insert body back into request to be used by handlers
+            req.set_payload(bytes_to_payload(body));
+
+            let response = svc.call(req).await?;
+
+            if let Some(err_resp) = response.response().error() {
+                let err_resp = err_resp.to_string();
+                if err_resp == "UNPROCESSIBLE_REQUEST" {
+                    warn!("Raw Request Body: {body_clone:?}");
+                }
+            }
+
+            Ok(response)
+        })
+    }
+}
+
+fn bytes_to_payload(buf: web::Bytes) -> dev::Payload {
+    let (_, mut pl) = h1::Payload::create(true);
+    pl.unread_data(buf);
+    dev::Payload::from(pl)
 }
