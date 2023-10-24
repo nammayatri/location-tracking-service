@@ -18,12 +18,15 @@ use actix_web::{
 use futures::future::LocalBoxFuture;
 use shared::{
     incoming_api,
+    tools::error::AppError,
     utils::{logger::*, prometheus::INCOMING_API},
 };
 use tokio::time::Instant;
 use tracing::Span;
 use tracing_actix_web::{DefaultRootSpanBuilder, RootSpanBuilder};
 use uuid::Uuid;
+
+use crate::environment::AppState;
 
 pub struct DomainRootSpanBuilder;
 
@@ -78,44 +81,20 @@ where
 
     fn call(&self, req: ServiceRequest) -> Self::Future {
         let start_time = Instant::now();
-        info!(tag = "[INCOMING REQUEST]", request_method = %req.method(), request_path = %req.path());
+
+        let req_path = get_path(&req);
+        let req_method = get_method(&req);
 
         let fut = self.service.call(req);
-
         Box::pin(async move {
             let response = fut.await?;
 
-            let mut path = response.request().path().to_string();
-            response
-                .request()
-                .match_info()
-                .iter()
-                .for_each(|(path_name, path_val)| {
-                    path = path.replace(path_val, format!(":{path_name}").as_str());
-                });
-
-            let resp_status = response.status();
-
-            if let Some(err_resp) = response.response().error() {
-                let err_resp = err_resp.to_string();
-                info!(tag = "[INCOMING API]", request_method = %response.request().method(), request_path = %response.request().path(), response_status = %response.status(), resp_code = %err_resp, latency = format!("{:?}ms", start_time.elapsed().as_millis()));
-                incoming_api!(
-                    response.request().method().as_str(),
-                    &path,
-                    resp_status.as_str(),
-                    err_resp.as_str(),
-                    start_time
-                );
-            } else {
-                info!(tag = "[INCOMING API]", request_method = %response.request().method(), request_path = %response.request().path(), response_status = %response.status(), resp_code = "SUCCESS", latency = format!("{:?}ms", start_time.elapsed().as_millis()));
-                incoming_api!(
-                    response.request().method().as_str(),
-                    &path,
-                    resp_status.as_str(),
-                    "SUCCESS",
-                    start_time
-                );
-            }
+            calculate_metrics_from_svc_resp(
+                req_path.as_str(),
+                req_method.as_str(),
+                &response,
+                start_time,
+            );
 
             Ok(response)
         })
@@ -158,26 +137,54 @@ where
     forward_ready!(service);
 
     fn call(&self, mut req: ServiceRequest) -> Self::Future {
+        let start_time = Instant::now();
+
         let svc = self.service.clone();
 
         Box::pin(async move {
-            let body = req.extract::<web::Bytes>().await.unwrap();
+            let body = req.extract::<web::Bytes>().await;
 
-            let body_clone = body.clone();
+            match body {
+                Ok(body) => {
+                    let body_clone = body.clone();
 
-            // re-insert body back into request to be used by handlers
-            req.set_payload(bytes_to_payload(body));
+                    // re-insert body back into request to be used by handlers
+                    req.set_payload(bytes_to_payload(body));
 
-            let response = svc.call(req).await?;
+                    let response = svc.call(req).await?;
 
-            if let Some(err_resp) = response.response().error() {
-                let err_resp = err_resp.to_string();
-                if err_resp == "UNPROCESSIBLE_REQUEST" {
-                    warn!("Raw Request Body: {body_clone:?}");
+                    if let Some(err_resp) = response.response().error() {
+                        let err_resp = err_resp.to_string();
+                        if err_resp == "UNPROCESSIBLE_REQUEST" {
+                            warn!("Raw Request Body: {body_clone:?}");
+                        }
+                    }
+
+                    Ok(response)
+                }
+                Err(err) => {
+                    if let Some(max_allowed_req_size) = req
+                        .app_data::<AppState>()
+                        .map(|data| data.max_allowed_req_size)
+                    {
+                        warn!("Size of payload is greater than the allowed limit of ({max_allowed_req_size} Bytes)");
+                    }
+
+                    let req_path = get_path(&req);
+                    let req_method = get_method(&req);
+
+                    calculate_metrics(
+                        req_path.as_str(),
+                        req_method.as_str(),
+                        "422",
+                        "UNPROCESSIBLE_REQUEST",
+                        start_time,
+                    );
+                    Err(actix_web::Error::from(AppError::UnprocessibleRequest(
+                        err.to_string(),
+                    )))
                 }
             }
-
-            Ok(response)
         })
     }
 }
@@ -186,4 +193,52 @@ fn bytes_to_payload(buf: web::Bytes) -> dev::Payload {
     let (_, mut pl) = h1::Payload::create(true);
     pl.unread_data(buf);
     dev::Payload::from(pl)
+}
+
+fn get_path(request: &ServiceRequest) -> String {
+    let mut path = request.path().to_string();
+    request
+        .match_info()
+        .iter()
+        .for_each(|(path_name, path_val)| {
+            path = path.replace(path_val, format!(":{path_name}").as_str());
+        });
+    path
+}
+
+fn get_method(request: &ServiceRequest) -> String {
+    request.method().to_string()
+}
+
+fn calculate_metrics_from_svc_resp(
+    req_path: &str,
+    req_method: &str,
+    response: &ServiceResponse,
+    start_time: Instant,
+) {
+    let resp_status = response.status();
+
+    let resp_code = response
+        .response()
+        .error()
+        .map(|err_resp| err_resp.to_string())
+        .unwrap_or_else(|| "SUCCESS".to_string());
+
+    calculate_metrics(
+        req_path,
+        req_method,
+        resp_status.as_str(),
+        &resp_code,
+        start_time,
+    );
+}
+
+fn calculate_metrics(
+    path: &str,
+    req_method: &str,
+    resp_status: &str,
+    resp_code: &str,
+    start_time: Instant,
+) {
+    incoming_api!(req_method, path, resp_status, resp_code, start_time);
 }

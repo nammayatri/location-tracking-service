@@ -97,6 +97,7 @@ pub struct AppState {
     pub nearby_bucket_threshold: u64,
     pub driver_location_accuracy_buffer: f64,
     pub blacklist_merchants: Vec<MerchantId>,
+    pub max_allowed_req_size: usize,
 }
 
 impl AppState {
@@ -250,6 +251,7 @@ impl AppState {
             bucket_size: app_config.bucket_size,
             nearby_bucket_threshold: app_config.nearby_bucket_threshold,
             driver_location_accuracy_buffer: app_config.driver_location_accuracy_buffer,
+            max_allowed_req_size: app_config.max_allowed_req_size,
             blacklist_merchants,
         }
     }

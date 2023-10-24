@@ -114,6 +114,7 @@ async fn start_server() -> std::io::Result<()> {
                     .limit(max_allowed_req_size)
                     .error_handler(|err, _| AppError::UnprocessibleRequest(err.to_string()).into()),
             )
+            .app_data(web::PayloadConfig::default().limit(max_allowed_req_size))
             .wrap(IncomingRequestMetrics)
             .wrap(Condition::new(
                 log_unprocessible_req_body,
