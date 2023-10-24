@@ -199,6 +199,7 @@ fn bytes_to_payload(buf: web::Bytes) -> dev::Payload {
 fn get_path(request: &ServiceRequest) -> String {
     let mut path = request.path().to_string();
     request
+        .request()
         .match_info()
         .iter()
         .for_each(|(path_name, path_val)| {
