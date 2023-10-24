@@ -14,7 +14,7 @@ use actix_web::{
     body::{BoxBody, MessageBody},
     dev::{self, forward_ready, Service, ServiceRequest, ServiceResponse, Transform},
     web::{self, Data},
-    Error,
+    Error, HttpRequest,
 };
 use futures::future::LocalBoxFuture;
 use shared::{
@@ -83,12 +83,12 @@ where
     fn call(&self, req: ServiceRequest) -> Self::Future {
         let start_time = Instant::now();
 
-        let req_path = get_path(&req);
-        let req_method = get_method(&req);
-
         let fut = self.service.call(req);
         Box::pin(async move {
             let response = fut.await?;
+
+            let req_path = get_path(response.request());
+            let req_method = get_method(response.request());
 
             calculate_metrics_from_svc_resp(
                 req_path.as_str(),
@@ -171,8 +171,8 @@ where
                         warn!("Size of payload is greater than the allowed limit of ({max_allowed_req_size} Bytes)");
                     }
 
-                    let req_path = get_path(&req);
-                    let req_method = get_method(&req);
+                    let req_path = get_path(req.request());
+                    let req_method = get_method(req.request());
 
                     calculate_metrics(
                         req_path.as_str(),
@@ -196,10 +196,9 @@ fn bytes_to_payload(buf: web::Bytes) -> dev::Payload {
     dev::Payload::from(pl)
 }
 
-fn get_path(request: &ServiceRequest) -> String {
+fn get_path(request: &HttpRequest) -> String {
     let mut path = request.path().to_string();
     request
-        .request()
         .match_info()
         .iter()
         .for_each(|(path_name, path_val)| {
@@ -208,7 +207,7 @@ fn get_path(request: &ServiceRequest) -> String {
     path
 }
 
-fn get_method(request: &ServiceRequest) -> String {
+fn get_method(request: &HttpRequest) -> String {
     request.method().to_string()
 }
 
