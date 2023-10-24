@@ -13,7 +13,8 @@ use actix_http::h1;
 use actix_web::{
     body::{BoxBody, MessageBody},
     dev::{self, forward_ready, Service, ServiceRequest, ServiceResponse, Transform},
-    web, Error,
+    web::{self, Data},
+    Error,
 };
 use futures::future::LocalBoxFuture;
 use shared::{
@@ -164,7 +165,7 @@ where
                 }
                 Err(err) => {
                     if let Some(max_allowed_req_size) = req
-                        .app_data::<AppState>()
+                        .app_data::<Data<AppState>>()
                         .map(|data| data.max_allowed_req_size)
                     {
                         warn!("Size of payload is greater than the allowed limit of ({max_allowed_req_size} Bytes)");
