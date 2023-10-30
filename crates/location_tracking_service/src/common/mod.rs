@@ -6,6 +6,7 @@
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 pub mod geo_polygon;
+pub mod geojson_rtree;
 pub mod kafka;
 pub mod sliding_window_rate_limiter;
 pub mod types;

@@ -1046,7 +1046,7 @@ dependencies = [
  "log",
  "num-traits",
  "robust",
- "rstar",
+ "rstar 0.10.0",
 ]
 
 [[package]]
@@ -1057,7 +1057,7 @@ checksum = "9705398c5c7b26132e74513f4ee7c1d7dafd786004991b375c172be2be0eecaa"
 dependencies = [
  "approx",
  "num-traits",
- "rstar",
+ "rstar 0.10.0",
  "serde",
 ]
 
@@ -1489,11 +1489,13 @@ dependencies = [
  "geojson",
  "log",
  "macros",
+ "num-traits",
  "once_cell",
  "pprof",
  "rand",
  "rdkafka",
  "reqwest",
+ "rstar 0.11.0",
  "rustc-hash",
  "serde",
  "serde_dhall",
@@ -1671,9 +1673,9 @@ dependencies = [
 
 [[package]]
 name = "num-traits"
-version = "0.2.16"
+version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f30b0abd723be7e2ffca1272140fac1a2f084c77ec3e123c192b66af1ee9e6c2"
+checksum = "39e3200413f237f41ab11ad6d161bc7239c84dcb631773ccd7de3dfe4b5c267c"
 dependencies = [
  "autocfg",
  "libm",
@@ -2219,6 +2221,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "rstar"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "73111312eb7a2287d229f06c00ff35b51ddee180f017ab6dec1f69d62ac098d6"
+dependencies = [
+ "heapless",
+ "num-traits",
+ "smallvec",
+]
+
+[[package]]
 name = "rustc-demangle"
 version = "0.1.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2594,7 +2607,11 @@ name = "tests"
 version = "0.1.0"
 dependencies = [
  "futures",
+ "geojson",
  "location_tracking_service",
+ "rand",
+ "rstar 0.11.0",
+ "serde_json",
  "shared",
  "tokio",
 ]
