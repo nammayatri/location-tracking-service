@@ -5,7 +5,9 @@
     or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more details. You should have received a copy of
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
+use crate::common::types::MultiPolygonBody;
 use geo::{coord, Coord, LineString, MultiPolygon, Polygon};
+use geojson::FeatureCollection;
 use geojson::{Geometry, PolygonType, Position, Value};
 use serde_json::from_str;
 use std::fs;
@@ -13,8 +15,6 @@ use std::fs::File;
 use std::io;
 use std::io::Read;
 use std::io::Result;
-
-use crate::common::types::MultiPolygonBody;
 
 pub fn read_geo_polygon(config_path: &str) -> Result<Vec<MultiPolygonBody>> {
     // Read files in the directory
@@ -55,6 +55,31 @@ fn parse_geojson_multi_polygon(region: &str, geojson_str: &str) -> Result<MultiP
             "GeoJSON is not a valid MultiPolygon.",
         )),
     }
+}
+
+pub fn parse_geojson_multi_polygon_from_collection(
+    geojson_str: &str,
+) -> Result<Vec<MultiPolygonBody>> {
+    let geom: FeatureCollection = from_str(geojson_str)?;
+
+    let mut polygons = vec![];
+    for feature in geom.features {
+        if let Some(Geometry {
+            value: Value::Polygon(polygon),
+            ..
+        }) = feature.geometry
+        {
+            polygons.push(MultiPolygonBody {
+                region: serde_json::to_string(
+                    feature.properties.as_ref().unwrap().get("NAME").unwrap(),
+                )
+                .unwrap(),
+                multipolygon: to_polygon(polygon).into(),
+            })
+        }
+    }
+
+    Ok(polygons)
 }
 
 pub fn create_multipolygon_body(region: &str, polygons: Vec<PolygonType>) -> MultiPolygonBody {

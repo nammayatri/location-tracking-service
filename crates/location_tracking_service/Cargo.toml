@@ -37,6 +37,8 @@ rustc-hash = "1.1.0"
 shared = { version = "0.1.0", path = "../shared" }
 macros = { version = "0.1.0", path = "../macros" }
 actix-http = "3.4.0"
+rstar = "0.11.0"
+num-traits = "0.2.17"
 
 [dev-dependencies]
 pprof = { version = "0.12", features = ["flamegraph"] }
