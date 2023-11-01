@@ -41,6 +41,7 @@ pub async fn kafka_stream_updates(
                 lat: loc.pt.lat,
                 lon: loc.pt.lon,
             },
+            speed: loc.v.unwrap_or(SpeedInMeterPerSecond(0.0)),
             acc: loc.acc.unwrap_or(Accuracy(0.0)),
             ride_status: ride_status.to_owned(),
             da: true,

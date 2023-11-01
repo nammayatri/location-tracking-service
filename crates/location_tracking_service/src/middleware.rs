@@ -6,10 +6,10 @@
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-use std::rc::Rc;
+use std::{rc::Rc, time::Duration};
 
 use actix::fut::{ready, Ready};
-use actix_http::h1;
+use actix_http::{h1, header::CONTENT_LENGTH, StatusCode};
 use actix_web::{
     body::{BoxBody, MessageBody},
     dev::{self, forward_ready, Service, ServiceRequest, ServiceResponse, Transform},
@@ -22,24 +22,90 @@ use shared::{
     tools::error::AppError,
     utils::{logger::*, prometheus::INCOMING_API},
 };
-use tokio::time::Instant;
+use tokio::time::{timeout, Instant};
 use tracing::Span;
 use tracing_actix_web::{DefaultRootSpanBuilder, RootSpanBuilder};
 use uuid::Uuid;
 
 use crate::environment::AppState;
 
+pub struct RequestTimeout;
+
+impl<S: 'static> Transform<S, ServiceRequest> for RequestTimeout
+where
+    S: Service<ServiceRequest, Response = ServiceResponse<BoxBody>, Error = Error>,
+    S::Future: 'static,
+{
+    type Response = ServiceResponse<BoxBody>;
+    type Error = Error;
+    type InitError = ();
+    type Transform = RequestTimeoutMiddleware<S>;
+    type Future = Ready<Result<Self::Transform, Self::InitError>>;
+
+    fn new_transform(&self, service: S) -> Self::Future {
+        ready(Ok(RequestTimeoutMiddleware { service }))
+    }
+}
+
+pub struct RequestTimeoutMiddleware<S> {
+    service: S,
+}
+
+impl<S> Service<ServiceRequest> for RequestTimeoutMiddleware<S>
+where
+    S: Service<ServiceRequest, Response = ServiceResponse<BoxBody>, Error = Error> + 'static,
+    S::Future: 'static,
+{
+    type Response = ServiceResponse<BoxBody>;
+    type Error = Error;
+    type Future = LocalBoxFuture<'static, Result<Self::Response, Self::Error>>;
+
+    forward_ready!(service);
+
+    fn call(&self, req: ServiceRequest) -> Self::Future {
+        if let Some(request_timeout) = req
+            .app_data::<Data<AppState>>()
+            .map(|data| data.request_timeout)
+        {
+            let timeout_duration = Duration::from_millis(request_timeout);
+            let fut = self.service.call(req);
+            Box::pin(async move {
+                match timeout(timeout_duration, fut).await {
+                    Ok(res) => Ok(res?),
+                    Err(_) => Err(actix_web::Error::from(AppError::RequestTimeout)),
+                }
+            })
+        } else {
+            let fut = self.service.call(req);
+            Box::pin(fut)
+        }
+    }
+}
+
 pub struct DomainRootSpanBuilder;
 
 impl RootSpanBuilder for DomainRootSpanBuilder {
     fn on_request_start(request: &ServiceRequest) -> Span {
-        let request_id = request.headers().get("x-request-id");
-        let request_id = match request_id {
-            Some(request_id) => request_id.to_str().map(|str| str.to_string()),
-            None => Ok(Uuid::new_v4().to_string()),
-        }
-        .unwrap_or(Uuid::new_v4().to_string());
-        tracing_actix_web::root_span!(request, request_id)
+        let request_id = request
+            .headers()
+            .get("x-request-id")
+            .and_then(|request_id| request_id.to_str().ok())
+            .map(|str| str.to_string())
+            .unwrap_or(Uuid::new_v4().to_string());
+
+        let merchant_id = request
+            .headers()
+            .get("mid")
+            .and_then(|merchant_id| merchant_id.to_str().ok())
+            .map(|str| str.to_string());
+
+        let token = request
+            .headers()
+            .get("token")
+            .and_then(|token| token.to_str().ok())
+            .map(|str| str.to_string());
+
+        tracing_actix_web::root_span!(request, request_id, merchant_id, token)
     }
 
     fn on_request_end<B: MessageBody>(span: Span, outcome: &Result<ServiceResponse<B>, Error>) {
@@ -83,21 +149,37 @@ where
     fn call(&self, req: ServiceRequest) -> Self::Future {
         let start_time = Instant::now();
 
+        let req_headers = get_headers(req.request());
+        let req_path = get_path(req.request());
+        let req_method = get_method(req.request());
+
         let fut = self.service.call(req);
         Box::pin(async move {
-            let response = fut.await?;
-
-            let req_path = get_path(response.request());
-            let req_method = get_method(response.request());
-
-            calculate_metrics_from_svc_resp(
-                req_path.as_str(),
-                req_method.as_str(),
-                &response,
-                start_time,
-            );
-
-            Ok(response)
+            match fut.await {
+                Ok(response) => {
+                    calculate_metrics(
+                        response.response().error(),
+                        response.status(),
+                        get_headers(response.request()),
+                        get_method(response.request()),
+                        get_path(response.request()),
+                        start_time,
+                    );
+                    Ok(response)
+                }
+                Err(err) => {
+                    let err_resp_status = err.error_response().status();
+                    calculate_metrics(
+                        Some(&err),
+                        err_resp_status,
+                        req_headers,
+                        req_method,
+                        req_path,
+                        start_time,
+                    );
+                    Err(err)
+                }
+            }
         })
     }
 }
@@ -138,53 +220,29 @@ where
     forward_ready!(service);
 
     fn call(&self, mut req: ServiceRequest) -> Self::Future {
-        let start_time = Instant::now();
-
         let svc = self.service.clone();
-
         Box::pin(async move {
-            let body = req.extract::<web::Bytes>().await;
+            if req
+                .app_data::<Data<AppState>>()
+                .map_or(false, |data| data.log_unprocessible_req_body)
+            {
+                let body = req.extract::<web::Bytes>().await?;
+                let body_clone = body.clone();
 
-            match body {
-                Ok(body) => {
-                    let body_clone = body.clone();
+                req.set_payload(bytes_to_payload(body));
 
-                    // re-insert body back into request to be used by handlers
-                    req.set_payload(bytes_to_payload(body));
-
-                    let response = svc.call(req).await?;
-
-                    if let Some(err_resp) = response.response().error() {
-                        let err_resp = err_resp.to_string();
-                        if err_resp == "UNPROCESSIBLE_REQUEST" {
-                            warn!("Raw Request Body: {body_clone:?}");
-                        }
-                    }
-
-                    Ok(response)
+                let response = svc.call(req).await?;
+                if response
+                    .response()
+                    .error()
+                    .map_or(false, |err| err.to_string() == "UNPROCESSIBLE_REQUEST")
+                {
+                    warn!("Raw Request Body: {:?}", body_clone);
                 }
-                Err(err) => {
-                    if let Some(max_allowed_req_size) = req
-                        .app_data::<Data<AppState>>()
-                        .map(|data| data.max_allowed_req_size)
-                    {
-                        warn!("Size of payload is greater than the allowed limit of ({max_allowed_req_size} Bytes)");
-                    }
 
-                    let req_path = get_path(req.request());
-                    let req_method = get_method(req.request());
-
-                    calculate_metrics(
-                        req_path.as_str(),
-                        req_method.as_str(),
-                        "422",
-                        "UNPROCESSIBLE_REQUEST",
-                        start_time,
-                    );
-                    Err(actix_web::Error::from(AppError::UnprocessibleRequest(
-                        err.to_string(),
-                    )))
-                }
+                Ok(response)
+            } else {
+                Ok(svc.call(req).await?)
             }
         })
     }
@@ -211,35 +269,93 @@ fn get_method(request: &HttpRequest) -> String {
     request.method().to_string()
 }
 
-fn calculate_metrics_from_svc_resp(
-    req_path: &str,
-    req_method: &str,
-    response: &ServiceResponse,
-    start_time: Instant,
-) {
-    let resp_status = response.status();
-
-    let resp_code = response
-        .response()
-        .error()
-        .map(|err_resp| err_resp.to_string())
-        .unwrap_or_else(|| "SUCCESS".to_string());
-
-    calculate_metrics(
-        req_path,
-        req_method,
-        resp_status.as_str(),
-        &resp_code,
-        start_time,
-    );
+fn get_headers(request: &HttpRequest) -> String {
+    format!("{:?}", request.headers())
 }
 
 fn calculate_metrics(
-    path: &str,
-    req_method: &str,
-    resp_status: &str,
-    resp_code: &str,
-    start_time: Instant,
+    err_resp: Option<&Error>,
+    resp_status: StatusCode,
+    req_headers: String,
+    req_method: String,
+    req_path: String,
+    time: Instant,
 ) {
-    incoming_api!(req_method, path, resp_status, resp_code, start_time);
+    if let Some(err_resp) = err_resp {
+        let err_resp_code = err_resp.to_string();
+        error!(tag = "[INCOMING API - ERROR]", request_method = %req_method, request_path = %req_path, request_headers = req_headers, response_code = err_resp_code, response_status = resp_status.to_string(), latency = format!("{:?}ms", time.elapsed().as_millis()));
+        incoming_api!(
+            req_method.as_str(),
+            req_path.as_str(),
+            resp_status.to_string().as_str(),
+            err_resp_code.as_str(),
+            time
+        );
+    } else {
+        info!(tag = "[INCOMING API]", request_method = %req_method, request_path = %req_path, request_headers = req_headers, latency = format!("{:?}ms", time.elapsed().as_millis()));
+        incoming_api!(
+            req_method.as_str(),
+            req_path.as_str(),
+            resp_status.to_string().as_str(),
+            "SUCCESS",
+            time
+        );
+    }
+}
+
+pub struct CheckContentLength;
+
+impl<S> Transform<S, ServiceRequest> for CheckContentLength
+where
+    S: Service<ServiceRequest, Response = ServiceResponse<BoxBody>, Error = Error>,
+    S::Future: 'static,
+{
+    type Response = ServiceResponse<BoxBody>;
+    type Error = Error;
+    type InitError = ();
+    type Transform = CheckContentLengthMiddleware<S>;
+    type Future = Ready<Result<Self::Transform, Self::InitError>>;
+
+    fn new_transform(&self, service: S) -> Self::Future {
+        ready(Ok(CheckContentLengthMiddleware { service }))
+    }
+}
+
+pub struct CheckContentLengthMiddleware<S> {
+    service: S,
+}
+
+impl<S> Service<ServiceRequest> for CheckContentLengthMiddleware<S>
+where
+    S: Service<ServiceRequest, Response = ServiceResponse<BoxBody>, Error = Error>,
+    S::Future: 'static,
+{
+    type Response = ServiceResponse<BoxBody>;
+    type Error = Error;
+    type Future = LocalBoxFuture<'static, Result<Self::Response, Self::Error>>;
+
+    forward_ready!(service);
+
+    fn call(&self, req: ServiceRequest) -> Self::Future {
+        let (content_length, limit) = req
+            .headers()
+            .get(CONTENT_LENGTH)
+            .and_then(|content_length| content_length.to_str().ok()?.parse::<usize>().ok())
+            .map_or((usize::MAX, usize::MAX), |content_length| {
+                req.app_data::<Data<AppState>>()
+                    .map(|data| (content_length, data.max_allowed_req_size))
+                    .unwrap_or((usize::MAX, usize::MAX))
+            });
+        let fut = self.service.call(req);
+        Box::pin(async move {
+            if content_length <= limit {
+                Ok(fut.await?)
+            } else {
+                Err(actix_web::Error::from(AppError::LargePayloadSize(
+                    content_length,
+                    limit,
+                )))
+            }
+        })
+    }
 }

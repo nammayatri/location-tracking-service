@@ -5,7 +5,7 @@
     or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more details. You should have received a copy of
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-use actix_web::{middleware::Condition, web, App, HttpServer};
+use actix_web::{web, App, HttpServer};
 use location_tracking_service::{
     common::types::*,
     domain::api,
@@ -48,7 +48,6 @@ async fn start_server() -> std::io::Result<()> {
 
     let port = app_config.port;
     let workers = app_config.workers;
-    let log_unprocessible_req_body = app_config.log_unprocessible_req_body;
     let max_allowed_req_size = app_config.max_allowed_req_size;
 
     #[allow(clippy::type_complexity)]
@@ -115,11 +114,10 @@ async fn start_server() -> std::io::Result<()> {
                     .error_handler(|err, _| AppError::UnprocessibleRequest(err.to_string()).into()),
             )
             .app_data(web::PayloadConfig::default().limit(max_allowed_req_size))
+            .wrap(LogIncomingRequestBody)
+            .wrap(RequestTimeout)
+            .wrap(CheckContentLength)
             .wrap(IncomingRequestMetrics)
-            .wrap(Condition::new(
-                log_unprocessible_req_body,
-                LogIncomingRequestBody,
-            ))
             .wrap(TracingLogger::<DomainRootSpanBuilder>::new())
             .wrap(prometheus_metrics())
             .configure(api::handler)

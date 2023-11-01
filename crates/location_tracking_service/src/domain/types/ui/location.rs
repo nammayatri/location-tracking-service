@@ -13,6 +13,7 @@ pub struct UpdateDriverLocationRequest {
     pub pt: Point,
     pub ts: TimeStamp,
     pub acc: Option<Accuracy>,
+    pub v: Option<SpeedInMeterPerSecond>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

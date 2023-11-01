@@ -62,6 +62,7 @@ in {
     bucket_size = 30,
     nearby_bucket_threshold = 4,
     blacklist_merchants = ["favorit0-0000-0000-0000-00000favorit"],
-    log_unprocessible_req_body = True,
+    request_timeout = 9000,
+    log_unprocessible_req_body = False,
     max_allowed_req_size = 512000, -- 500 KB
 }

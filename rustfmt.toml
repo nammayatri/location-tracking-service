@@ -1,0 +1,5 @@
+# Set the maximum width of each line
+# max_width = 1000  # you can set this to a higher value to avoid wrapping
+
+# Control the formatting of chains (method/field access)
+# chain_width = 1000  # setting this to a higher value can also prevent wrapping

@@ -25,6 +25,7 @@ pub struct LocationUpdate {
     pub st: TimeStamp,
     pub pt: Point,
     pub acc: Accuracy,
+    pub speed: SpeedInMeterPerSecond,
     pub ride_status: DriverRideStatus,
     pub da: bool,
     pub mode: DriverMode,

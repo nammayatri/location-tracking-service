@@ -28,15 +28,18 @@ pub enum AppError {
     DriverLastKnownLocationNotFound,
     DriverLastLocationTimestampNotFound,
     UnprocessibleRequest(String),
+    LargePayloadSize(usize, usize),
     InvalidRideStatus(String, String),
     ExternalAPICallError(String),
     SerializationError(String),
     DeserializationError(String),
-    DriverAppAuthFailed(String, String),
     Unserviceable(f64, f64),
     HitsLimitExceeded(String),
     DriverBulkLocationUpdateFailed(String),
     InvalidConfiguration(String),
+    RequestTimeout,
+    DriverAppUnauthorized,
+    DriverAppAuthFailed,
 
     // Redis Errors
     RedisConnectionError,
@@ -86,8 +89,8 @@ impl AppError {
             AppError::SerializationError(err) => err.to_string(),
             AppError::DeserializationError(err) => err.to_string(),
             AppError::HitsLimitExceeded(err) => err.to_string(),
-            AppError::DriverAppAuthFailed(token, err) => {
-                format!("Invalid Token - {token} : {err}")
+            AppError::LargePayloadSize(length, limit) => {
+                format!("Content length ({length} Bytes) greater than allowed maximum limit : ({limit} Bytes)")
             }
             AppError::DriverBulkLocationUpdateFailed(err) => {
                 format!("Driver Bulk Location Update Failed : {err}")
@@ -137,11 +140,14 @@ impl AppError {
             AppError::ExternalAPICallError(_) => "EXTERNAL_API_CALL_ERROR",
             AppError::SerializationError(_) => "SERIALIZATION_ERROR",
             AppError::DeserializationError(_) => "DESERIALIZATION_ERROR",
-            AppError::DriverAppAuthFailed(_, _) => "INVALID_TOKEN",
+            AppError::DriverAppUnauthorized => "INVALID_TOKEN",
+            AppError::DriverAppAuthFailed => "INVALID_REQUEST",
             AppError::Unserviceable(_, _) => "LOCATION_NOT_SERVICEABLE",
+            AppError::LargePayloadSize(_, _) => "LARGE_PAYLOAD_SIZE",
             AppError::HitsLimitExceeded(_) => "HITS_LIMIT_EXCEED",
             AppError::DriverBulkLocationUpdateFailed(_) => "DOBPP_BULK_LOCATION_UPDATE_FAILED",
             AppError::InvalidConfiguration(_) => "INVALID_REDIS_CONFIGURATION",
+            AppError::RequestTimeout => "REQUEST_TIMEOUT",
             AppError::SetFailed(_) => "SET_FAILED",
             AppError::SetExFailed(_) => "SET_EX_FAILED",
             AppError::SetExpiryFailed(_) => "SET_EXPIRY_FAILED",
@@ -191,11 +197,14 @@ impl ResponseError for AppError {
             AppError::ExternalAPICallError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::SerializationError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::DeserializationError(_) => StatusCode::INTERNAL_SERVER_ERROR,
-            AppError::DriverAppAuthFailed(_, _) => StatusCode::UNAUTHORIZED,
+            AppError::DriverAppUnauthorized => StatusCode::UNAUTHORIZED,
+            AppError::DriverAppAuthFailed => StatusCode::BAD_REQUEST,
             AppError::Unserviceable(_, _) => StatusCode::BAD_REQUEST,
             AppError::HitsLimitExceeded(_) => StatusCode::TOO_MANY_REQUESTS,
+            AppError::LargePayloadSize(_, _) => StatusCode::PAYLOAD_TOO_LARGE,
             AppError::DriverBulkLocationUpdateFailed(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::InvalidConfiguration(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            AppError::RequestTimeout => StatusCode::REQUEST_TIMEOUT,
             AppError::SetFailed(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::SetExFailed(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::SetExpiryFailed(_) => StatusCode::INTERNAL_SERVER_ERROR,

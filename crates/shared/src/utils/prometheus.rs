@@ -73,7 +73,9 @@ macro_rules! call_external_api {
 #[macro_export]
 macro_rules! queue_drainer_latency {
     ($type:expr, $start:expr) => {
-        let duration = $start.elapsed().as_secs_f64();
+        let duration = Utc::now().signed_duration_since($start);
+        let duration =
+            duration.num_seconds() as f64 + (duration.num_milliseconds() % 1000) as f64 / 1000.0;
         QUEUE_DRAINER_LATENCY
             .with_label_values(&[$type])
             .observe(duration);

@@ -48,6 +48,7 @@ pub struct AppConfig {
     pub nearby_bucket_threshold: u64,
     pub driver_location_accuracy_buffer: f64,
     pub blacklist_merchants: Vec<String>,
+    pub request_timeout: u64,
     pub log_unprocessible_req_body: bool,
     pub max_allowed_req_size: usize,
 }
@@ -98,6 +99,8 @@ pub struct AppState {
     pub driver_location_accuracy_buffer: f64,
     pub blacklist_merchants: Vec<MerchantId>,
     pub max_allowed_req_size: usize,
+    pub log_unprocessible_req_body: bool,
+    pub request_timeout: u64,
 }
 
 impl AppState {
@@ -252,6 +255,8 @@ impl AppState {
             nearby_bucket_threshold: app_config.nearby_bucket_threshold,
             driver_location_accuracy_buffer: app_config.driver_location_accuracy_buffer,
             max_allowed_req_size: app_config.max_allowed_req_size,
+            log_unprocessible_req_body: app_config.log_unprocessible_req_body,
+            request_timeout: app_config.request_timeout,
             blacklist_merchants,
         }
     }

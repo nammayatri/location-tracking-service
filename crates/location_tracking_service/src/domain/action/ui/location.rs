@@ -29,21 +29,15 @@ async fn get_driver_id_from_authentication(
     Token(token): Token,
     MerchantId(merchant_id): &MerchantId,
 ) -> Result<DriverId, AppError> {
-    let response = authenticate_dobpp(auth_url, token.as_str(), auth_api_key, merchant_id).await;
-
-    match response {
-        Ok(response) => {
-            set_driver_id(
-                persistent_redis,
-                auth_token_expiry,
-                &Token(token),
-                &response.driver_id,
-            )
-            .await?;
-            Ok(response.driver_id)
-        }
-        Err(err) => Err(AppError::DriverAppAuthFailed(token, err.message())),
-    }
+    let response = authenticate_dobpp(auth_url, token.as_str(), auth_api_key, merchant_id).await?;
+    set_driver_id(
+        persistent_redis,
+        auth_token_expiry,
+        &Token(token),
+        &response.driver_id,
+    )
+    .await?;
+    Ok(response.driver_id)
 }
 
 fn get_filtered_driver_locations(

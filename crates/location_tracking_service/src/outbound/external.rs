@@ -7,8 +7,12 @@
 */
 use super::types::*;
 use crate::common::types::*;
+use actix_http::StatusCode;
 use reqwest::{Method, Url};
-use shared::{tools::error::AppError, utils::callapi::call_api};
+use shared::{
+    tools::error::AppError,
+    utils::callapi::{call_api, call_api_unwrapping_error},
+};
 
 pub async fn authenticate_dobpp(
     auth_url: &Url,
@@ -16,7 +20,7 @@ pub async fn authenticate_dobpp(
     auth_api_key: &str,
     merchant_id: &str,
 ) -> Result<AuthResponseData, AppError> {
-    call_api::<AuthResponseData, String>(
+    call_api_unwrapping_error::<AuthResponseData, String>(
         Method::GET,
         auth_url,
         vec![
@@ -26,6 +30,15 @@ pub async fn authenticate_dobpp(
             ("merchant-id", merchant_id),
         ],
         None,
+        Box::new(|resp| {
+            if resp.status() == StatusCode::BAD_REQUEST {
+                AppError::DriverAppAuthFailed
+            } else if resp.status() == StatusCode::UNAUTHORIZED {
+                AppError::DriverAppUnauthorized
+            } else {
+                AppError::DriverAppAuthFailed
+            }
+        }),
     )
     .await
 }

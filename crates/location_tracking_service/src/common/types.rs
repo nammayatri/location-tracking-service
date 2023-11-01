@@ -28,6 +28,8 @@ pub struct TimeStamp(pub DateTime<Utc>);
 pub struct Radius(pub f64);
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq, PartialOrd, Copy)]
 pub struct Accuracy(pub f64);
+#[derive(Deserialize, Serialize, Clone, Debug, PartialEq, PartialOrd, Copy)]
+pub struct SpeedInMeterPerSecond(pub f64);
 #[derive(Deserialize, Serialize, Clone, Debug, Eq, PartialEq)]
 pub struct Token(pub String);
 
