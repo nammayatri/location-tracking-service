@@ -14,6 +14,20 @@ use shared::{
     utils::callapi::{call_api, call_api_unwrapping_error},
 };
 
+/// Authenticates a driver using the `dobpp` method.
+///
+/// This function communicates with an external authentication service
+/// to verify the driver's identity and authorization.
+///
+/// # Parameters
+/// - `auth_url`: The endpoint URL for the authentication service.
+/// - `token`: The authentication token for the driver.
+/// - `auth_api_key`: The API key for the authentication service.
+/// - `merchant_id`: The identifier for the merchant.
+///
+/// # Returns
+/// - `Ok(AuthResponseData)`: Authentication was successful.
+/// - `Err(AppError)`: An error occurred during authentication.
 pub async fn authenticate_dobpp(
     auth_url: &Url,
     token: &str,
@@ -43,6 +57,20 @@ pub async fn authenticate_dobpp(
     .await
 }
 
+/// Sends a bulk location update to the `dobpp` endpoint.
+///
+/// This function communicates with an external service to update the
+/// location data for a given driver during a ride.
+///
+/// # Parameters
+/// - `bulk_location_callback_url`: The endpoint URL for location updates.
+/// - `ride_id`: The unique identifier for the ongoing ride.
+/// - `driver_id`: The unique identifier for the driver.
+/// - `on_ride_driver_locations`: A list of location points indicating the driver's route.
+///
+/// # Returns
+/// - `Ok(APISuccess)`: The location update was successful.
+/// - `Err(AppError)`: An error occurred during the bulk location update.
 pub async fn bulk_location_update_dobpp(
     bulk_location_callback_url: &Url,
     ride_id: RideId,

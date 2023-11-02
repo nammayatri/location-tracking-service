@@ -28,7 +28,10 @@ async fn health_check(data: Data<AppState>) -> Result<Json<ResponseData>, AppErr
         )
         .await;
 
-    let health_check_resp = data.persistent_redis.get_key(&health_check_key()).await?;
+    let health_check_resp = data
+        .persistent_redis
+        .get_key::<String>(&health_check_key())
+        .await?;
 
     if health_check_resp.is_none() {
         return Err(AppError::InternalError(

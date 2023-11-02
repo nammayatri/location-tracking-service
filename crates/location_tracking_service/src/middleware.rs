@@ -29,6 +29,11 @@ use uuid::Uuid;
 
 use crate::environment::AppState;
 
+/// Processes a service request, applying a timeout if specified in the application data.
+///
+/// This function applies the request timeout found in the application data, waiting for
+/// the completion of the service call or the expiration of the timeout, whichever comes
+/// first. If the timeout expires, a `RequestTimeout` error is returned.
 pub struct RequestTimeout;
 
 impl<S: 'static> Transform<S, ServiceRequest> for RequestTimeout
@@ -82,6 +87,11 @@ where
     }
 }
 
+/// Responsible for building and managing root spans in the domain.
+///
+/// `DomainRootSpanBuilder` creates root spans that encapsulate the lifecycle of a request within
+/// the domain. It extracts essential information such as request_id, merchant_id, and token from
+/// the headers of incoming requests to enrich the spans.
 pub struct DomainRootSpanBuilder;
 
 impl RootSpanBuilder for DomainRootSpanBuilder {
@@ -113,6 +123,11 @@ impl RootSpanBuilder for DomainRootSpanBuilder {
     }
 }
 
+/// Responsible for collecting metrics from incoming requests and their responses.
+///
+/// `IncomingRequestMetrics` acts as a middleware, capturing essential information and
+/// metrics from incoming service requests and the corresponding responses or errors.
+/// The collected metrics can include headers, paths, methods, and the duration of request handling.
 pub struct IncomingRequestMetrics;
 
 impl<S> Transform<S, ServiceRequest> for IncomingRequestMetrics
@@ -184,6 +199,11 @@ where
     }
 }
 
+/// Middleware for logging the body of incoming requests under specific conditions.
+///
+/// `LogIncomingRequestBody` acts as a middleware designed to capture and log the body
+/// of incoming service requests if certain criteria are met. Specifically, it focuses on
+/// requests that are associated with an "Unprocessible Request" error response.
 pub struct LogIncomingRequestBody;
 
 impl<S: 'static> Transform<S, ServiceRequest> for LogIncomingRequestBody
@@ -248,12 +268,31 @@ where
     }
 }
 
+/// Convert bytes into a payload.
+///
+/// Takes in web::Bytes and converts them into a developer payload which can be used
+/// as an HTTP message body payload.
+///
+/// # Arguments
+/// * `buf` - The bytes to convert into a payload.
+///
+/// # Returns
+/// * `dev::Payload` - The resulting payload.
 fn bytes_to_payload(buf: web::Bytes) -> dev::Payload {
     let (_, mut pl) = h1::Payload::create(true);
     pl.unread_data(buf);
     dev::Payload::from(pl)
 }
 
+/// Get the path from the HTTP request.
+///
+/// Retrieves the path from the incoming request and replaces any matched info with placeholders.
+///
+/// # Arguments
+/// * `request` - The incoming HTTP request.
+///
+/// # Returns
+/// * `String` - The path string with placeholders for matched info.
 fn get_path(request: &HttpRequest) -> String {
     let mut path = request.path().to_string();
     request
@@ -265,14 +304,44 @@ fn get_path(request: &HttpRequest) -> String {
     path
 }
 
+/// Get the method from the HTTP request.
+///
+/// Retrieves the HTTP method (e.g., GET, POST) from the incoming request.
+///
+/// # Arguments
+/// * `request` - The incoming HTTP request.
+///
+/// # Returns
+/// * `String` - The HTTP method as a string.
 fn get_method(request: &HttpRequest) -> String {
     request.method().to_string()
 }
 
+/// Get the headers from the HTTP request.
+///
+/// Retrieves and formats the headers from the incoming HTTP request.
+///
+/// # Arguments
+/// * `request` - The incoming HTTP request.
+///
+/// # Returns
+/// * `String` - A formatted string representation of the headers.
 fn get_headers(request: &HttpRequest) -> String {
     format!("{:?}", request.headers())
 }
 
+/// Calculate and log metrics from HTTP requests and responses.
+///
+/// This function calculates metrics such as latency and logs information including
+/// error responses, HTTP methods, paths, and headers.
+///
+/// # Arguments
+/// * `err_resp` - Optional reference to an error response.
+/// * `resp_status` - The status code of the response.
+/// * `req_headers` - A string representation of the request headers.
+/// * `req_method` - The HTTP method of the request as a string.
+/// * `req_path` - The path of the request as a string.
+/// * `time` - The instant at which the request was received.
 fn calculate_metrics(
     err_resp: Option<&Error>,
     resp_status: StatusCode,
@@ -303,6 +372,11 @@ fn calculate_metrics(
     }
 }
 
+/// Middleware to check the content length of incoming requests.
+///
+/// `CheckContentLengthMiddleware` is a middleware that examines the content length
+/// of incoming service requests and compares it against a predefined limit.
+/// If the content length exceeds the limit, an error response is generated.
 pub struct CheckContentLength;
 
 impl<S> Transform<S, ServiceRequest> for CheckContentLength

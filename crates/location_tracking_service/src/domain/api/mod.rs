@@ -19,6 +19,5 @@ pub fn handler(config: &mut ServiceConfig) {
         .service(internal::ride::ride_start)
         .service(internal::ride::ride_end)
         .service(internal::ride::ride_details)
-        .service(internal::driver::driver_details)
         .service(internal::location::get_drivers_location);
 }
