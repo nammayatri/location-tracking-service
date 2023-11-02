@@ -50,6 +50,18 @@ pub static QUEUE_DRAINER_LATENCY: once_cell::sync::Lazy<HistogramVec> =
         .expect("Failed to register queue drainer latency metrics")
     });
 
+/// Macro that observes the duration of incoming API requests and logs metrics related to the request.
+///
+/// This macro captures key parameters of an incoming request like method, endpoint, status, code, and the time taken to process the request.
+/// It then updates the `INCOMING_API` histogram with these metrics.
+///
+/// # Arguments
+///
+/// * `$method` - The HTTP method of the request (e.g., GET, POST).
+/// * `$endpoint` - The endpoint or route of the request.
+/// * `$status` - The HTTP status code of the response.
+/// * `$code` - A specific code detailing more about the response, if available.
+/// * `$start` - The time when the request was received. This is used to calculate the request duration.
 #[macro_export]
 macro_rules! incoming_api {
     ($method:expr, $endpoint:expr, $status:expr, $code:expr, $start:expr) => {
@@ -61,6 +73,18 @@ macro_rules! incoming_api {
     };
 }
 
+/// Macro that observes the duration of external API calls and logs metrics related to the external request.
+///
+/// This macro captures details of the external request like method, host, path, status, and the time taken for the external call.
+/// It then updates the `CALL_EXTERNAL_API` histogram with these metrics.
+///
+/// # Arguments
+///
+/// * `$method` - The HTTP method of the external request.
+/// * `$host` - The host or domain of the external service.
+/// * `$path` - The path or endpoint of the external service.
+/// * `$status` - The HTTP status code of the response from the external service.
+/// * `$start` - The time when the external request was initiated.
 #[macro_export]
 macro_rules! call_external_api {
     ($method:expr, $host:expr, $path:expr, $status:expr, $start:expr) => {
@@ -71,6 +95,14 @@ macro_rules! call_external_api {
     };
 }
 
+/// Macro that observes the latency of a queue drainer process.
+///
+/// This macro measures the time taken for a queue drainer to process its items and updates the `QUEUE_DRAINER_LATENCY` histogram.
+///
+/// # Arguments
+///
+/// * `$type` - Type or category of the queue drainer.
+/// * `$start` - The time when the queue drainer started processing.
 #[macro_export]
 macro_rules! queue_drainer_latency {
     ($type:expr, $start:expr) => {
@@ -83,6 +115,31 @@ macro_rules! queue_drainer_latency {
     };
 }
 
+/// Initializes and returns a `PrometheusMetrics` instance configured for the application.
+///
+/// This function sets up Prometheus metrics for various application processes, including incoming and external API requests, queue counters, and queue drainer latencies.
+/// It also provides an endpoint (`/metrics`) for Prometheus to scrape these metrics.
+///
+/// # Examples
+///
+/// ```norun
+/// fn main() {
+///     HttpServer::new(move || {
+///         App::new()
+///             .wrap(prometheus_metrics()) // Using the prometheus_metrics function
+///     })
+///     .bind("127.0.0.1:8080").unwrap()
+///     .run();
+/// }
+/// ```
+///
+/// # Returns
+///
+/// * `PrometheusMetrics` - A configured instance that collects and exposes the metrics.
+///
+/// # Panics
+///
+/// * If there's a failure initializing metrics, registering metrics to the Prometheus registry, or any other unexpected error during the setup.
 pub fn prometheus_metrics() -> PrometheusMetrics {
     let prometheus = PrometheusMetricsBuilder::new("api")
         .endpoint("/metrics")

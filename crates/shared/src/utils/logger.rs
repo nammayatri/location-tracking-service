@@ -44,6 +44,34 @@ pub struct LoggerConfig {
     pub log_to_file: bool,
 }
 
+/// Sets up the application-wide logging/tracing using the provided configuration.
+///
+/// This function initializes the logging system for the application, directing logs to either the console, a file, or both based on the provided configuration.
+/// It uses `tracing` for structured logging and `BunyanFormattingLayer` for formatting log messages.
+///
+/// # Arguments
+///
+/// * `logger_cfg` - Configuration for the logger, determining the logging level, and whether logs should be saved to a file.
+///
+/// # Returns
+///
+/// * `WorkerGuard` - A guard that ensures logs are flushed. Should be kept alive for the duration of the application's runtime to ensure that logs are flushed properly when the application shuts down.
+///
+/// # Panics
+///
+/// * If there's a failure initializing the logger or setting the global default subscriber.
+///
+/// # Example
+///
+/// ```rust
+/// let logger_config = LoggerConfig {
+///     level: Level::INFO,
+///     log_to_file: true,
+/// };
+/// let _guard = setup_tracing(logger_config);
+/// ```
+///
+/// Note: Ensure you keep `_guard` in scope to guarantee log flushing. If `_guard` is dropped, logs might not be flushed correctly on program termination.
 pub fn setup_tracing(logger_cfg: LoggerConfig) -> WorkerGuard {
     LogTracer::init().expect("Failed to setup logger");
 

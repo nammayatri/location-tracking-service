@@ -12,7 +12,7 @@ use strum::IntoEnumIterator;
 use crate::{
     common::{
         types::*,
-        utils::{get_city, get_current_bucket},
+        utils::{get_bucket_from_timestamp, get_city},
     },
     domain::types::internal::location::*,
     environment::AppState,
@@ -87,7 +87,7 @@ pub async fn get_nearby_drivers(
 ) -> Result<NearbyDriverResponse, AppError> {
     let city = get_city(&lat, &lon, &data.polygon)?;
 
-    let current_bucket = get_current_bucket(&data.bucket_size);
+    let current_bucket = get_bucket_from_timestamp(&data.bucket_size, TimeStamp(Utc::now()));
 
     match vehicle_type {
         None => {

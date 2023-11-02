@@ -9,9 +9,10 @@
 
 use crate::redis::types::*;
 use crate::tools::error::AppError;
+use crate::utils::logger::*;
 use fred::{
     interfaces::{GeoInterface, HashesInterface, KeysInterface, SortedSetsInterface},
-    prelude::{ListInterface, RedisError},
+    prelude::ListInterface,
     types::{
         Expiration, FromRedis, GeoPosition, GeoRadiusInfo, GeoUnit, GeoValue, Limit,
         MultipleGeoValues, MultipleKeys, Ordering, RedisKey, RedisMap, RedisValue, SetOptions,
@@ -19,34 +20,83 @@ use fred::{
     },
 };
 use rustc_hash::FxHashMap;
-use std::fmt::Debug;
+use serde::{de::DeserializeOwned, Serialize};
+use std::{fmt::Debug, ops::Deref};
 
 impl RedisConnectionPool {
-    // set key
+    /// Asynchronously sets a key-value pair in a Redis datastore with an expiry time.
+    ///
+    /// This function allows for setting a key with a specified value and an expiration time in Redis.
+    /// It leverages the `fred` crate to interact with the Redis datastore. The function is generic
+    /// over the value type, allowing different types that can be converted into a `RedisValue`.
+    ///
+    /// # Type Parameters
+    /// * `V` - The type of the value to be set in the datastore. The type must implement the `TryInto<RedisValue>` trait.
+    ///
+    /// # Arguments
+    /// * `key` - A reference to the string representing the key to be set in the datastore.
+    /// * `value` - The value to be associated with the key. It is generic and can be any type that implements `TryInto<RedisValue>`.
+    /// * `expiry` - The expiration time of the key-value pair, specified in seconds.
+    ///
+    /// # Returns
+    /// * `Result<(), AppError>` - Returns an `Ok(())` if the key-value pair is successfully set,
+    ///   or an `Err(AppError::SetFailed)` containing an error message if the operation fails.
+    ///
+    /// # Errors
+    /// This function will return an error:
+    /// * If there is a failure in setting the value associated with the key in Redis.
+    /// * If the value type `V` fails to convert into `RedisValue`.
     pub async fn set_key<V>(&self, key: &str, value: V, expiry: u32) -> Result<(), AppError>
     where
-        V: TryInto<RedisValue> + Debug + Send + Sync,
-        V::Error: Into<fred::error::RedisError> + Send + Sync,
+        V: Serialize + Send + Sync,
     {
-        let output: Result<(), _> = self
-            .pool
-            .set(key, value, Some(Expiration::EX(expiry.into())), None, false)
-            .await;
+        let serialized_value = serde_json::to_string(&value)
+            .map_err(|err| AppError::SerializationError(err.to_string()))?;
 
-        if let Err(err) = output {
-            Err(AppError::SetFailed(err.to_string()))
-        } else {
-            Ok(())
-        }
+        let redis_value: RedisValue = serialized_value.into();
+
+        self.pool
+            .set(
+                key,
+                redis_value,
+                Some(Expiration::EX(expiry.into())),
+                None,
+                false,
+            )
+            .await
+            .map_err(|err| AppError::SetFailed(err.to_string()))
     }
 
-    // setnx key with expiry
+    /// Asynchronously sets a key-value pair in a Redis datastore with an expiry time, only if the key does not already exist.
+    ///
+    /// This function aims to perform a conditional set operation (SETNX) followed by setting an expiration time on the key.
+    /// It uses a pipeline to combine the `SETNX` and `EXPIRE` commands for atomic execution. The function is generic
+    /// over the value type, allowing different types that can be converted into a `RedisValue`.
+    ///
+    /// # Type Parameters
+    /// * `V` - The type of the value to be set in the datastore. The type must implement the `TryInto<RedisValue>` trait.
+    ///
+    /// # Arguments
+    /// * `key` - A reference to the string representing the key to be set in the datastore.
+    /// * `value` - The value to be associated with the key. It is generic and can be any type that implements `TryInto<RedisValue>`.
+    /// * `expiry` - The expiration time of the key-value pair, specified in seconds.
+    ///
+    /// # Returns
+    /// * `Result<bool, AppError>` - Returns an `Ok(true)` if the key-value pair is successfully set and the expiration time is applied.
+    ///   Returns an `Ok(false)` if the key-value pair is already existing and hence not set.
+    ///   Returns an `Err(AppError::SetExFailed)` containing an error message if the operation fails.
+    ///
+    /// # Errors
+    /// This function will return an error:
+    /// * If there is a failure in setting the value associated with the key or applying the expiration time in Redis.
+    /// * If the value type `V` fails to convert into `RedisValue`.
+    /// * If an unexpected case is encountered during the operation.
     pub async fn setnx_with_expiry<V>(
         &self,
         key: &str,
         value: V,
         expiry: i64,
-    ) -> Result<(), AppError>
+    ) -> Result<bool, AppError>
     where
         V: TryInto<RedisValue> + Debug + Send + Sync,
         V::Error: Into<fred::error::RedisError> + Send + Sync,
@@ -56,18 +106,37 @@ impl RedisConnectionPool {
         let _ = pipeline.msetnx::<RedisValue, _>((key, value)).await;
         let _ = pipeline.expire::<(), &str>(key, expiry).await;
 
-        let output: Result<Vec<RedisValue>, RedisError> = pipeline.all().await;
+        let output: Vec<RedisValue> = pipeline
+            .all()
+            .await
+            .map_err(|err| AppError::SetExFailed(err.to_string()))?;
 
-        match output.as_deref() {
-            Ok([RedisValue::Integer(1), ..]) => Ok(()),
-            Err(err) => Err(AppError::SetExFailed(err.to_string())),
-            Ok(case) => Err(AppError::SetExFailed(format!(
-                "Case not handled : {:?}",
+        match output.deref() {
+            [RedisValue::Integer(1), ..] => Ok(true),
+            [RedisValue::Integer(0), ..] => Ok(false),
+            case => Err(AppError::SetExFailed(format!(
+                "Unexpected RedisValue encountered : {:?}",
                 case
             ))),
         }
     }
 
+    /// Asynchronously sets an expiration time for a given key in a Redis datastore.
+    ///
+    /// This function applies an expiration time to a specified key, causing the key to be
+    /// automatically deleted after the given number of seconds. If the key is not present in the datastore,
+    /// the function will still complete successfully, having no effect.
+    ///
+    /// # Arguments
+    /// * `key` - A reference to a string representing the key to which the expiration time will be applied.
+    /// * `seconds` - The expiration time in seconds. The key will be removed after this duration.
+    ///
+    /// # Returns
+    /// * `Result<(), AppError>` - Returns an `Ok(())` if the expiration time is successfully set.
+    ///   Returns an `Err(AppError::SetExpiryFailed)` containing an error message if the operation fails.
+    ///
+    /// # Errors
+    /// This function will return an error if there is a failure in applying the expiration time to the key in Redis.
     pub async fn set_expiry(&self, key: &str, seconds: i64) -> Result<(), AppError> {
         let output: Result<(), _> = self.pool.expire(key, seconds).await;
 
@@ -78,55 +147,158 @@ impl RedisConnectionPool {
         }
     }
 
-    // get key
-    pub async fn get_key(&self, key: &str) -> Result<Option<String>, AppError> {
-        let output: Result<RedisValue, _> = self.pool.get(key).await;
+    /// Asynchronously retrieves the value associated with a specified key in a Redis datastore.
+    ///
+    /// This function attempts to fetch the value of a specified key from a Redis datastore.
+    /// It handles different cases based on the returned RedisValue. If a string is returned,
+    /// it's converted and wrapped into an Option. If a null value is returned, an Option::None is returned.
+    /// Errors and unexpected values result in a custom `AppError`.
+    ///
+    /// # Arguments
+    /// * `key` - A reference to a string representing the key whose value is to be fetched.
+    ///
+    /// # Returns
+    /// * `Result<Option<T>, AppError>` - Returns an `Ok(Some(T))` containing the deserialized
+    ///   representation of the value associated with the key, an `Ok(None)` if the key is not present,
+    ///   or an `Err(AppError::GetFailed)` with an error message if the operation fails.
+    ///
+    /// # Errors
+    /// This function will return an error if there is a failure in retrieving the value associated with the key from Redis.
+    pub async fn get_key<T>(&self, key: &str) -> Result<Option<T>, AppError>
+    where
+        T: DeserializeOwned,
+    {
+        let output: RedisValue = self
+            .pool
+            .get(key)
+            .await
+            .map_err(|err| AppError::GetFailed(err.to_string()))?;
 
         match output {
-            Ok(RedisValue::String(val)) => Ok(Some(val.to_string())),
-            Ok(RedisValue::Null) => Ok(None),
-            Err(err) => Err(AppError::GetFailed(err.to_string())),
-            Ok(case) => Err(AppError::GetFailed(format!(
-                "Case not handled : {:?}",
+            RedisValue::String(val) => serde_json::from_str(&val)
+                .map(Some)
+                .map_err(|err| AppError::DeserializationError(err.to_string())),
+            RedisValue::Null => Ok(None),
+            case => Err(AppError::GetFailed(format!(
+                "Unexpected RedisValue encountered : {:?}",
                 case
             ))),
         }
     }
 
-    // mget key
-    pub async fn mget_keys(&self, keys: Vec<String>) -> Result<Vec<Option<String>>, AppError> {
+    /// Asynchronously retrieves the values associated with multiple keys in a Redis datastore.
+    ///
+    /// This function attempts to fetch the values of multiple keys from a Redis datastore simultaneously.
+    /// An array of keys is passed as an argument, and a vector of `Option<String>` is returned,
+    /// where each element represents the value of the corresponding key in the input vector.
+    ///
+    /// If the retrieved RedisValue is an array, it gets converted to a vector of `Option<String>`.
+    /// If it's a single string or null value, a vector containing a single `Option<String>` is returned.
+    /// Errors and unexpected values result in a custom `AppError`.
+    ///
+    /// # Arguments
+    /// * `keys` - A vector of strings where each string represents a key in the Redis datastore.
+    ///
+    /// # Returns
+    /// * `Result<Vec<Option<String>>, AppError>` - Returns an `Ok(Vec<Option<String>>)` containing
+    ///   the string representations of the values associated with each key, or an
+    ///   `Err(AppError::MGetFailed)` with an error message if the operation fails.
+    ///
+    /// # Errors
+    /// This function will return an error if there is a failure in retrieving the values associated with the keys from Redis.
+    pub async fn mget_keys<T>(&self, keys: Vec<String>) -> Result<Vec<Option<T>>, AppError>
+    where
+        T: DeserializeOwned,
+    {
         if keys.is_empty() {
-            return Ok(vec![None]);
+            return Ok(vec![]);
         }
 
         let keys: Vec<RedisKey> = keys.into_iter().map(RedisKey::from).collect();
 
-        let output: Result<RedisValue, _> = self.pool.mget(MultipleKeys::from(keys)).await;
+        let output: RedisValue = self
+            .pool
+            .mget(MultipleKeys::from(keys))
+            .await
+            .map_err(|err| AppError::MGetFailed(err.to_string()))?;
 
         match output {
-            Ok(RedisValue::Array(val)) => Ok(val.into_iter().map(|v| v.into_string()).collect()),
-            Ok(RedisValue::String(val)) => Ok(vec![Some(val.to_string())]),
-            Ok(RedisValue::Null) => Ok(vec![None]),
-            Err(err) => Err(AppError::MGetFailed(err.to_string())),
-            Ok(case) => Err(AppError::MGetFailed(format!(
-                "Case not handled : {:?}",
+            RedisValue::Array(val) => {
+                let results = val
+                    .into_iter()
+                    .map(|v| match v {
+                        RedisValue::String(s) => serde_json::from_str::<T>(&s)
+                            .map(Some)
+                            .map_err(|err| AppError::DeserializationError(err.to_string())),
+                        RedisValue::Null => Ok(None),
+                        case => Err(AppError::MGetFailed(format!(
+                            "Unexpected RedisValue encountered : {:?}",
+                            case
+                        ))),
+                    })
+                    .collect::<Result<Vec<Option<T>>, AppError>>()?;
+                Ok(results)
+            }
+            RedisValue::String(val) => serde_json::from_str::<T>(&val)
+                .map(|val| Some(val))
+                .map_err(|err| AppError::DeserializationError(err.to_string()))
+                .map(|res| vec![res]),
+            RedisValue::Null => Ok(vec![None]),
+            case => Err(AppError::MGetFailed(format!(
+                "Unexpected RedisValue encountered : {:?}",
                 case
             ))),
         }
     }
 
-    // delete key
+    /// Deletes a key in the Redis store.
+    ///
+    /// Given a key, this asynchronous function will attempt to delete it from the Redis store.
+    /// In case of success, it will return an empty `Result`. In case of failure, it will return
+    /// an `AppError::DeleteFailed` variant containing a description of the error.
+    ///
+    /// # Parameters
+    /// - `key: &str` - The key to be deleted from the Redis store.
+    ///
+    /// # Returns
+    /// - `Result<(), AppError>` - An empty `Result` in case of success or an `AppError::DeleteFailed` in case of failure.
+    ///
+    /// # Examples
+    /// ```
+    /// let result = your_redis_instance.delete_key("your_key").await;
+    /// match result {
+    ///     Ok(_) => println!("Key deleted successfully!"),
+    ///     Err(e) => println!("An error occurred: {:?}", e),
+    /// }
+    /// ```
     pub async fn delete_key(&self, key: &str) -> Result<(), AppError> {
-        let output: Result<(), _> = self.pool.del(key).await;
-
-        if let Err(err) = output {
-            Err(AppError::DeleteFailed(err.to_string()))
-        } else {
-            Ok(())
-        }
+        self.pool
+            .del(key)
+            .await
+            .map_err(|err| AppError::DeleteFailed(err.to_string()))
     }
 
-    // delete multiple keys
+    /// Deletes multiple keys in the Redis store as a part of a single pipeline.
+    ///
+    /// This asynchronous function receives a vector of keys and attempts to delete them all
+    /// from the Redis store in a single pipeline operation. It returns an empty `Result` if all keys
+    /// are successfully deleted, or an `AppError::DeleteFailed` containing a description of the error if any failure occurs.
+    ///
+    /// # Parameters
+    /// - `keys: Vec<&str>` - A vector containing the keys to be deleted from the Redis store.
+    ///
+    /// # Returns
+    /// - `Result<(), AppError>` - An empty `Result` on successful deletion of all keys, or an `AppError::DeleteFailed` on failure.
+    ///
+    /// # Examples
+    /// ```
+    /// let keys_to_delete = vec!["key1", "key2", "key3"];
+    /// let result = your_redis_instance.delete_keys(keys_to_delete).await;
+    /// match result {
+    ///     Ok(_) => println!("Keys deleted successfully!"),
+    ///     Err(e) => println!("An error occurred: {:?}", e),
+    /// }
+    /// ```
     pub async fn delete_keys(&self, keys: Vec<&str>) -> Result<(), AppError> {
         let pipeline = self.pool.pipeline();
 
@@ -134,16 +306,43 @@ impl RedisConnectionPool {
             let _ = pipeline.del::<RedisValue, &str>(key).await;
         }
 
-        let output: Result<Vec<RedisValue>, RedisError> = pipeline.all().await;
+        pipeline
+            .all()
+            .await
+            .map_err(|err| AppError::DeleteFailed(err.to_string()))?;
 
-        if let Err(err) = output {
-            Err(AppError::DeleteFailed(err.to_string()))
-        } else {
-            Ok(())
-        }
+        Ok(())
     }
 
-    //HSET
+    /// Sets multiple fields in a hash in the Redis store and applies an expiry time to the hash.
+    ///
+    /// This asynchronous function receives a key representing a hash, a value representing field-value
+    /// pairs to be set within the hash, and an expiry time. It attempts to set the specified fields
+    /// in the hash and apply an expiry time to the entire hash.
+    /// Returns a `Result` indicating the success or failure of the operation.
+    ///
+    /// # Type Parameters
+    /// - `V` - The type representing the field-value pairs to be set within the hash.
+    ///   Must be convertible into a `RedisMap` and implements `Debug`, `Send`, and `Sync`.
+    ///
+    /// # Parameters
+    /// - `key: &str` - The key representing the hash in the Redis store.
+    /// - `values: V` - The values representing the field-value pairs to be set within the hash.
+    /// - `expiry: i64` - The expiry time to be applied to the hash, in seconds.
+    ///
+    /// # Returns
+    /// - `Result<(), AppError>` - A `Result` indicating the success (`Ok`) or failure (`Err`) of the operation.
+    ///   Returns an `AppError::SetHashFieldFailed` containing a description of the error if any failure occurs.
+    ///
+    /// # Examples
+    /// ```
+    /// let values = vec![("field1", "value1"), ("field2", "value2")];
+    /// let result = your_redis_instance.set_hash_fields("your_hash", values, 3600).await;
+    /// match result {
+    ///     Ok(_) => println!("Hash fields set successfully!"),
+    ///     Err(e) => println!("An error occurred: {:?}", e),
+    /// }
+    /// ```
     pub async fn set_hash_fields<V>(
         &self,
         key: &str,
@@ -154,54 +353,138 @@ impl RedisConnectionPool {
         V: TryInto<RedisMap> + Debug + Send + Sync,
         V::Error: Into<fred::error::RedisError> + Send + Sync,
     {
-        let output: Result<(), _> = self.pool.hset(key, values).await;
+        self.pool
+            .hset(key, values)
+            .await
+            .map_err(|err| AppError::SetHashFieldFailed(err.to_string()))?;
 
-        // setting expiry for the key
-        if let Err(err) = output {
-            Err(AppError::SetHashFieldFailed(err.to_string()))
-        } else {
-            self.set_expiry(key, expiry).await?;
-            Ok(())
-        }
+        self.set_expiry(key, expiry).await?;
+        Ok(())
     }
 
-    //HGET
+    /// Retrieves a field value from a hash in the Redis store.
+    ///
+    /// This asynchronous function receives a key representing a hash and a field within that hash,
+    /// and attempts to retrieve the value associated with the field.
+    /// It returns a `Result` containing the value of the specified type if the retrieval is successful,
+    /// or an `AppError::GetHashFieldFailed` containing a description of the error if any failure occurs.
+    ///
+    /// # Type Parameters
+    /// - `V` - The type that the retrieved value will be converted into.
+    ///   Must implement the `FromRedis` trait, and be `Unpin`, `Send`, and `'static`.
+    ///
+    /// # Parameters
+    /// - `key: &str` - The key representing the hash in the Redis store.
+    /// - `field: &str` - The field within the hash whose value should be retrieved.
+    ///
+    /// # Returns
+    /// - `Result<V, AppError>` - A `Result` containing the retrieved value of type `V` on success,
+    ///   or an `AppError::GetHashFieldFailed` on failure.
+    ///
+    /// # Examples
+    /// ```
+    /// let result = your_redis_instance.get_hash_field::<String>("your_hash", "your_field").await;
+    /// match result {
+    ///     Ok(value) => println!("Retrieved value: {:?}", value),
+    ///     Err(e) => println!("An error occurred: {:?}", e),
+    /// }
+    /// ```
     pub async fn get_hash_field<V>(&self, key: &str, field: &str) -> Result<V, AppError>
     where
         V: FromRedis + Unpin + Send + 'static,
     {
-        let output: Result<V, _> = self.pool.hget(key, field).await;
-
-        if output.is_err() {
-            return Err(AppError::GetHashFieldFailed("Case not handled".to_string()));
-        }
-
-        Ok(output.unwrap())
+        self.pool
+            .hget(key, field)
+            .await
+            .map_err(|err| AppError::GetHashFieldFailed(err.to_string()))
     }
 
-    //RPUSH
+    /// Appends one or multiple values to the end of a list in the Redis store.
+    ///
+    /// This asynchronous function receives a key representing a list and a vector of values to be appended to the list.
+    /// It attempts to append the values to the end of the list and returns the length of the list after the push operation.
+    /// If the vector of values is empty, it will return the current length of the list without modifying it.
+    ///
+    /// # Type Parameters
+    /// - `V` - The type of the values to be appended to the list. Must be convertible into a `RedisValue` and implements `Debug`, `Send`, `Sync`, and `Clone`.
+    ///
+    /// # Parameters
+    /// - `key: &str` - The key representing the list in the Redis store.
+    /// - `values: Vec<V>` - A vector of values to be appended to the end of the list.
+    ///
+    /// # Returns
+    /// - `Result<i64, AppError>` - A `Result` containing the length of the list after the push operation (`Ok`)
+    ///   or an error (`Err`) with a description if any failure occurs.
+    ///
+    /// # Examples
+    /// ```
+    /// let values_to_push = vec!["value1", "value2"];
+    /// let result = your_redis_instance.rpush("your_list", values_to_push).await;
+    /// match result {
+    ///     Ok(length) => println!("New length of the list: {}", length),
+    ///     Err(e) => println!("An error occurred: {:?}", e),
+    /// }
+    /// ```
     pub async fn rpush<V>(&self, key: &str, values: Vec<V>) -> Result<i64, AppError>
     where
-        V: TryInto<RedisValue> + Debug + Send + Sync + Clone,
-        V::Error: Into<fred::error::RedisError> + Send + Sync,
+        V: Serialize + Debug + Send + Sync + Clone,
     {
         if values.is_empty() {
             return self.llen(key).await;
         }
 
-        let output = self.pool.rpush(key, values).await;
+        let serialized_value = values
+            .iter()
+            .map(|value| {
+                serde_json::to_string(value)
+                    .map(Into::into)
+                    .map_err(|err| AppError::SerializationError(err.to_string()))
+            })
+            .collect::<Result<Vec<RedisValue>, AppError>>()?;
+
+        let output = self
+            .pool
+            .rpush(key, serialized_value)
+            .await
+            .map_err(|err| AppError::RPushFailed(err.to_string()))?;
 
         match output {
-            Ok(RedisValue::Integer(length)) => Ok(length),
-            Err(err) => Err(AppError::RPushFailed(err.to_string())),
-            Ok(case) => Err(AppError::RPushFailed(format!(
-                "Case not handled : {:?}",
+            RedisValue::Integer(length) => Ok(length),
+            case => Err(AppError::RPushFailed(format!(
+                "Unexpected RedisValue encountered : {:?}",
                 case
             ))),
         }
     }
 
-    //RPUSH with expiry
+    /// Appends one or multiple values to the end of a list in the Redis store and sets an expiry time for the key.
+    ///
+    /// This asynchronous function takes a key representing a list, a vector of values, and an expiry time in seconds.
+    /// It atomically appends the values to the list and sets the expiry time for the key using a Redis pipeline.
+    /// The function returns the length of the list after the push operation.
+    ///
+    /// # Type Parameters
+    /// - `V` - The type of the values to be appended to the list. Must be convertible into a `RedisValue` and implements `Debug`, `Send`, `Sync`, and `Clone`.
+    ///
+    /// # Parameters
+    /// - `key: &str` - The key representing the list in the Redis store.
+    /// - `values: Vec<V>` - A vector of values to be appended to the end of the list.
+    /// - `expiry: u32` - The expiry time in seconds to be set for the key.
+    ///
+    /// # Returns
+    /// - `Result<i64, AppError>` - A `Result` containing the length of the list after the push operation (`Ok`),
+    ///   or an error (`Err`) with a description if any failure occurs.
+    ///
+    /// # Examples
+    /// ```
+    /// let values_to_push = vec!["value1", "value2"];
+    /// let expiry_seconds = 300;
+    /// let result = your_redis_instance.rpush_with_expiry("your_list", values_to_push, expiry_seconds).await;
+    /// match result {
+    ///     Ok(length) => println!("New length of the list: {}", length),
+    ///     Err(e) => println!("An error occurred: {:?}", e),
+    /// }
+    /// ```
     pub async fn rpush_with_expiry<V>(
         &self,
         key: &str,
@@ -209,8 +492,7 @@ impl RedisConnectionPool {
         expiry: u32,
     ) -> Result<i64, AppError>
     where
-        V: TryInto<RedisValue> + Debug + Send + Sync + Clone,
-        V::Error: Into<fred::error::RedisError> + Send + Sync,
+        V: Serialize + Debug + Send + Sync + Clone,
     {
         if values.is_empty() {
             return self.llen(key).await;
@@ -218,76 +500,191 @@ impl RedisConnectionPool {
 
         let pipeline = self.pool.pipeline();
 
+        let serialized_value = values
+            .iter()
+            .map(|value| {
+                serde_json::to_string(value)
+                    .map(Into::into)
+                    .map_err(|err| AppError::SerializationError(err.to_string()))
+            })
+            .collect::<Result<Vec<RedisValue>, AppError>>()?;
+
         let _ = pipeline
-            .rpush::<RedisValue, &str, Vec<V>>(key, values)
+            .rpush::<RedisValue, &str, Vec<RedisValue>>(key, serialized_value)
             .await;
         let _ = pipeline.expire::<(), &str>(key, expiry.into()).await;
 
-        let output: Result<Vec<RedisValue>, RedisError> = pipeline.all().await;
+        let output: Vec<RedisValue> = pipeline
+            .all()
+            .await
+            .map_err(|err| AppError::RPushFailed(err.to_string()))?;
 
-        match output.as_deref() {
-            Ok([RedisValue::Integer(length), ..]) => Ok(length.to_owned()),
-            Err(err) => Err(AppError::RPushFailed(err.to_string())),
-            Ok(case) => Err(AppError::RPushFailed(format!(
-                "Case not handled : {:?}",
+        match output.deref() {
+            [RedisValue::Integer(length), ..] => Ok(length.to_owned()),
+            case => Err(AppError::RPushFailed(format!(
+                "Unexpected RedisValue encountered : {:?}",
                 case
             ))),
         }
     }
 
-    //RPOP
-    pub async fn rpop(&self, key: &str, count: Option<usize>) -> Result<Vec<String>, AppError> {
-        let output = self.pool.rpop(key, count).await;
+    /// Pops one or multiple values from the end of a list in the Redis store.
+    ///
+    /// This asynchronous function removes and returns the last element(s) of the list stored at the specified key.
+    /// The number of elements to be popped can be optionally specified. If no count is specified, one element is popped.
+    /// It returns a vector of strings representing the popped values.
+    ///
+    /// # Parameters
+    /// - `key: &str` - The key representing the list in the Redis store.
+    /// - `count: Option<usize>` - An optional count specifying the number of elements to be popped from the end of the list.
+    ///
+    /// # Returns
+    /// - `Result<Vec<String>, AppError>` - A `Result` containing a vector of strings representing the popped values (`Ok`),
+    ///   or an error (`Err`) with a description if any failure occurs.
+    ///
+    /// # Examples
+    /// ```
+    /// let result = your_redis_instance.rpop("your_list", Some(2)).await;
+    /// match result {
+    ///     Ok(values) => println!("Popped values: {:?}", values),
+    ///     Err(e) => println!("An error occurred: {:?}", e),
+    /// }
+    /// ```
+    pub async fn rpop<T>(&self, key: &str, count: Option<usize>) -> Result<Vec<T>, AppError>
+    where
+        T: DeserializeOwned,
+    {
+        let output = self
+            .pool
+            .rpop(key, count)
+            .await
+            .map_err(|err| AppError::RPopFailed(err.to_string()))?;
 
         match output {
-            Ok(RedisValue::Array(val)) => {
-                let mut values = Vec::new();
-                for value in val {
-                    if let RedisValue::String(y) = value {
-                        values.push(String::from_utf8(y.into_inner().to_vec()).unwrap())
-                    }
-                }
-                Ok(values)
+            RedisValue::Array(val) => {
+                let results = val
+                    .into_iter()
+                    .map(|v| match v {
+                        RedisValue::String(s) => serde_json::from_str::<T>(&s)
+                            .map_err(|err| AppError::DeserializationError(err.to_string())),
+                        case => Err(AppError::RPopFailed(format!(
+                            "Unexpected RedisValue encountered : {:?}",
+                            case
+                        ))),
+                    })
+                    .collect::<Result<Vec<T>, AppError>>()?;
+                Ok(results)
             }
-            Ok(RedisValue::String(value)) => Ok(vec![value.to_string()]),
-            Err(err) => Err(AppError::RPopFailed(err.to_string())),
-            Ok(case) => Err(AppError::RPopFailed(format!(
-                "Case not handled : {:?}",
+            RedisValue::String(val) => serde_json::from_str::<T>(&val)
+                .map(|val| vec![val])
+                .map_err(|err| AppError::DeserializationError(err.to_string())),
+            case => Err(AppError::RPopFailed(format!(
+                "Unexpected RedisValue encountered : {:?}",
                 case
             ))),
         }
     }
 
-    //LPOP
-    pub async fn lpop(&self, key: &str, count: Option<usize>) -> Result<Vec<String>, AppError> {
-        let output = self.pool.lpop(key, count).await;
+    /// Removes and returns one or multiple elements from the start of a list in the Redis store.
+    ///
+    /// This asynchronous function pops the first element(s) of the list stored at the specified key.
+    /// The count of elements to pop can be optionally provided. If no count is specified, a single element is popped.
+    /// It returns a vector of strings representing the popped values if they exist.
+    ///
+    /// # Parameters
+    /// - `key: &str` - The key associated with the list in Redis from which elements will be popped.
+    /// - `count: Option<usize>` - An optional argument specifying the number of elements to pop from the start of the list.
+    ///
+    /// # Returns
+    /// - `Result<Vec<String>, AppError>` - A `Result` containing either:
+    ///     - `Ok(Vec<String>)` - A vector of strings representing the popped values if successful.
+    ///     - `Err(AppError)` - An `AppError` if the operation fails, containing a description of the error.
+    ///
+    /// # Examples
+    /// ```rust
+    /// async fn pop_elements(redis_instance: &YourRedisType, list_key: &str) {
+    ///     let popped_elements = redis_instance.lpop(list_key, Some(3)).await;
+    ///     match popped_elements {
+    ///         Ok(values) => println!("Popped elements: {:?}", values),
+    ///         Err(e) => println!("An error occurred while popping: {:?}", e),
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// Note: This function will return an empty vector if the list is empty or the key does not exist.
+    pub async fn lpop<T>(&self, key: &str, count: Option<usize>) -> Result<Vec<T>, AppError>
+    where
+        T: DeserializeOwned,
+    {
+        let output = self
+            .pool
+            .lpop(key, count)
+            .await
+            .map_err(|err| AppError::LPopFailed(err.to_string()))?;
 
         match output {
-            Ok(RedisValue::Array(val)) => {
-                let mut values = Vec::new();
-                for value in val {
-                    if let RedisValue::String(y) = value {
-                        values.push(String::from_utf8(y.into_inner().to_vec()).unwrap())
-                    }
-                }
-                Ok(values)
+            RedisValue::Array(val) => {
+                let results = val
+                    .into_iter()
+                    .map(|v| match v {
+                        RedisValue::String(s) => serde_json::from_str::<T>(&s)
+                            .map_err(|err| AppError::DeserializationError(err.to_string())),
+                        case => Err(AppError::LPopFailed(format!(
+                            "Unexpected RedisValue encountered : {:?}",
+                            case
+                        ))),
+                    })
+                    .collect::<Result<Vec<T>, AppError>>()?;
+                Ok(results)
             }
-            Ok(RedisValue::String(value)) => Ok(vec![value.to_string()]),
-            Ok(RedisValue::Null) => Ok(vec![]),
-            Err(err) => Err(AppError::LPopFailed(err.to_string())),
-            Ok(case) => Err(AppError::LPopFailed(format!(
-                "Case not handled : {:?}",
+            RedisValue::String(val) => serde_json::from_str::<T>(&val)
+                .map(|val| vec![val])
+                .map_err(|err| AppError::DeserializationError(err.to_string())),
+            RedisValue::Null => Ok(vec![]),
+            case => Err(AppError::LPopFailed(format!(
+                "Unexpected RedisValue encountered : {:?}",
                 case
             ))),
         }
     }
 
-    //LRANGE
+    /// Retrieves a range of elements from a list in the Redis store.
+    ///
+    /// This asynchronous function returns a specified range of elements from the list stored at the provided key.
+    /// The range is specified by the zero-based indexes `min` and `max`. If `max` is -1, the range will include all
+    /// elements from `min` to the end of the list.
+    ///
+    /// # Parameters
+    /// - `key: &str` - The key associated with the list in Redis from which elements will be retrieved.
+    /// - `min: i64` - The zero-based index indicating the start of the range.
+    /// - `max: i64` - The zero-based index indicating the end of the range. If set to -1, it will fetch till the end of the list.
+    ///
+    /// # Returns
+    /// - `Result<Vec<String>, AppError>` - A `Result` containing either:
+    ///     - `Ok(Vec<String>)` - A vector of strings representing the list elements within the specified range.
+    ///     - `Err(AppError)` - An `AppError` if the operation fails, containing a description of the error.
+    ///
+    /// # Examples
+    /// ```rust
+    /// async fn get_list_range(redis_instance: &YourRedisType, list_key: &str) {
+    ///     let list_elements = redis_instance.lrange(list_key, 0, -1).await;
+    ///     match list_elements {
+    ///         Ok(elements) => println!("List elements within range: {:?}", elements),
+    ///         Err(e) => println!("An error occurred while fetching the range: {:?}", e),
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// Note: This function will return an empty vector if the specified range does not contain any elements.
     pub async fn lrange(&self, key: &str, min: i64, max: i64) -> Result<Vec<String>, AppError> {
-        let output = self.pool.lrange(key, min, max).await;
+        let output = self
+            .pool
+            .lrange(key, min, max)
+            .await
+            .map_err(|err| AppError::LRangeFailed(err.to_string()))?;
 
         match output {
-            Ok(RedisValue::Array(val)) => {
+            RedisValue::Array(val) => {
                 let mut values = Vec::new();
                 for value in val {
                     if let RedisValue::String(y) = value {
@@ -296,29 +693,89 @@ impl RedisConnectionPool {
                 }
                 Ok(values)
             }
-            Err(err) => Err(AppError::LRangeFailed(err.to_string())),
-            Ok(case) => Err(AppError::LRangeFailed(format!(
-                "Case not handled : {:?}",
+            case => Err(AppError::LRangeFailed(format!(
+                "Unexpected RedisValue encountered : {:?}",
                 case
             ))),
         }
     }
 
-    //LLEN
+    /// Returns the length of the list stored at `key`.
+    ///
+    /// This asynchronous function gets the number of elements in the Redis list stored at the given `key`.
+    ///
+    /// # Parameters
+    /// - `key: &str` - The key for the list whose length you want to retrieve.
+    ///
+    /// # Returns
+    /// - `Result<i64, AppError>` - A `Result` containing either:
+    ///     - `Ok(i64)` - The length of the list as an `i64`.
+    ///     - `Err(AppError)` - An `AppError` if the operation fails, with a description of the error.
+    ///
+    /// # Examples
+    /// ```rust
+    /// async fn get_list_length(redis_instance: &YourRedisType, list_key: &str) {
+    ///     let length = redis_instance.llen(list_key).await;
+    ///     match length {
+    ///         Ok(len) => println!("Length of the list: {}", len),
+    ///         Err(e) => println!("An error occurred: {}", e),
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// Note: This function will return 0 if the list does not exist.
     pub async fn llen(&self, key: &str) -> Result<i64, AppError> {
-        let output = self.pool.llen(key).await;
+        let output = self
+            .pool
+            .llen(key)
+            .await
+            .map_err(|err| AppError::LLenFailed(err.to_string()))?;
 
         match output {
-            Ok(RedisValue::Integer(length)) => Ok(length),
-            Err(err) => Err(AppError::LLenFailed(err.to_string())),
-            Ok(case) => Err(AppError::LLenFailed(format!(
-                "Case not handled : {:?}",
+            RedisValue::Integer(length) => Ok(length),
+            case => Err(AppError::LLenFailed(format!(
+                "Unexpected RedisValue encountered : {:?}",
                 case
             ))),
         }
     }
 
-    //GEOADD
+    /// Adds the specified geospatial items (longitude, latitude, name) to the specified key.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - A string slice that holds the name of the key to which geospatial items are added.
+    /// * `values` - The geospatial items to add. This is a generic type that can be converted into
+    ///              `MultipleGeoValues`, which represent multiple geospatial items.
+    /// * `options` - Optional `SetOptions` to specify additional command options like `NX` or `XX`.
+    /// * `changed` - A boolean indicating whether to return the number of elements that were
+    ///               actually added to the set, not including all the elements already there.
+    ///
+    /// # Returns
+    ///
+    /// If successful, the function returns `Ok(())`, indicating that the geospatial items were added.
+    /// If an error occurs, it returns an `Err(AppError)` variant indicating the type of error.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # async fn run() -> Result<(), AppError> {
+    /// # let redis_client = RedisClient::new(); // assuming a RedisClient struct that implements the method
+    /// let key = "locations";
+    /// let geospatial_data = vec![
+    ///     GeoValue::new(13.361389, 38.115556, "Bangalore"),
+    ///     GeoValue::new(15.087269, 37.502669, "Kolkata"),
+    /// ];
+    ///
+    /// redis_client.geo_add(key, geospatial_data, None, false).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// This function will return an `Err` variant of `AppError` with `GeoAddFailed` containing
+    /// an error message if the Redis operation fails.
     pub async fn geo_add<V>(
         &self,
         key: &str,
@@ -329,16 +786,32 @@ impl RedisConnectionPool {
     where
         V: Into<MultipleGeoValues> + Send + Debug,
     {
-        let output: Result<(), _> = self.pool.geoadd(key, options, changed, values).await;
-
-        if let Err(err) = output {
-            Err(AppError::GeoAddFailed(err.to_string()))
-        } else {
-            Ok(())
-        }
+        self.pool
+            .geoadd(key, options, changed, values)
+            .await
+            .map_err(|err| AppError::GeoAddFailed(err.to_string()))
     }
 
-    //GEOADD with expiry
+    /// Adds geospatial items to the specified key with an expiry time.
+    ///
+    /// This function adds the specified geospatial items (longitude, latitude, name) to the specified
+    /// key and sets an expiry time for the key.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - A string slice that holds the name of the key to which geospatial items are added.
+    /// * `values` - The geospatial items to add. This is a generic type that can be converted into
+    ///              `MultipleGeoValues`, which represent multiple geospatial items.
+    /// * `options` - Optional `SetOptions` to specify additional command options like `NX` or `XX`.
+    /// * `changed` - A boolean indicating whether to return the number of elements that were
+    ///               actually added to the set, not including all the elements already there.
+    /// * `expiry` - The expiry time in seconds after which the key will be deleted.
+    ///
+    /// # Returns
+    ///
+    /// If successful, the function returns `Ok(())`, indicating that the geospatial items were added
+    /// to the key and the expiry was set. If an error occurs, it returns an `Err(AppError)` variant
+    /// indicating the type of error.
     pub async fn geo_add_with_expiry<V>(
         &self,
         key: &str,
@@ -357,16 +830,45 @@ impl RedisConnectionPool {
             .await;
         let _ = pipeline.expire::<(), &str>(key, expiry as i64).await;
 
-        let output: Result<Vec<RedisValue>, RedisError> = pipeline.all().await;
-
-        if let Err(err) = output {
-            Err(AppError::GeoAddFailed(err.to_string()))
-        } else {
-            Ok(())
-        }
+        pipeline
+            .all()
+            .await
+            .map_err(|err| AppError::GeoAddFailed(err.to_string()))
     }
 
-    //MGEOADD with expiry
+    /// Adds multiple geospatial items with an expiry to various keys in a transactional way.
+    ///
+    /// For each key in the provided map, this function adds the specified geospatial items
+    /// (longitude, latitude, name) and sets an expiry time for that key. The operations for all
+    /// keys are batched in a Redis pipeline to ensure that they are executed atomically.
+    ///
+    /// # Arguments
+    ///
+    /// * `mval` - A reference to a `FxHashMap` where the key is a `String` representing the Redis key,
+    ///            and the value is a `Vec<GeoValue>` representing geospatial items to be added.
+    /// * `options` - Optional `SetOptions` to specify additional command options like `NX` or `XX`.
+    /// * `changed` - A boolean indicating whether to return the number of elements that were
+    ///               actually added to the set, not including all the elements already there.
+    /// * `expiry` - The expiry time in seconds after which each key will be deleted.
+    ///
+    /// # Returns
+    ///
+    /// If successful, the function returns `Ok(())`, indicating that the geospatial items were added
+    /// to their respective keys and the expiry was set for each. If an error occurs, it returns an
+    /// `Err(AppError)` variant indicating the type of error.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an `Err` variant of `AppError` with `GeoAddFailed` containing
+    /// an error message if the Redis operation fails for any of the keys.
+    ///
+    /// # Panics
+    ///
+    /// This function can panic if the underlying Redis driver encounters a critical error
+    /// (e.g., connection loss). The use of a pipeline helps mitigate this by ensuring
+    /// atomicity of the batch operation, but network issues can still lead to panics.
+    /// Proper error handling is implemented to try to return an error variant instead
+    /// of panicking.
     pub async fn mgeo_add_with_expiry(
         &self,
         mval: &FxHashMap<String, Vec<GeoValue>>,
@@ -388,75 +890,109 @@ impl RedisConnectionPool {
             let _ = pipeline.expire::<(), &str>(key, expiry).await;
         }
 
-        let output: Result<Vec<RedisValue>, RedisError> = pipeline.all().await;
-
-        if let Err(err) = output {
-            Err(AppError::GeoAddFailed(err.to_string()))
-        } else {
-            Ok(())
-        }
+        pipeline
+            .all()
+            .await
+            .map_err(|err| AppError::GeoAddFailed(err.to_string()))
     }
 
-    //GEOSEARCH
+    /// Performs a search on a geospatial index to find items within a specified area.
+    ///
+    /// This function allows for various types of searches such as radius queries and bounding box queries.
+    /// It can return additional information like the distance from the center point, coordinates, and
+    /// the geohash of found items.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The key of the geospatial index to search.
+    /// * `from_member` - An optional `RedisValue` representing the member from which to start the search.
+    /// * `from_lonlat` - An optional `GeoPosition` (longitude and latitude) representing the point from which
+    ///                   to start the search.
+    /// * `by_radius` - An optional tuple specifying the radius and unit (meters, kilometers, miles, feet) for radius searches.
+    /// * `by_box` - An optional tuple specifying the width, height, and unit for bounding box searches.
+    /// * `ord` - An optional `SortOrder` to sort the results by distance.
+    /// * `count` - An optional tuple specifying the count and whether to return the exact or potential number of items.
+    /// * `withcoord` - A boolean indicating whether to include coordinates in the results.
+    /// * `withdist` - A boolean indicating whether to include distances in the results.
+    /// * `withhash` - A boolean indicating whether to include geohashes in the results.
+    ///
+    /// # Returns
+    ///
+    /// If successful, the function returns `Ok(Vec<GeoRadiusInfo>)`, where `GeoRadiusInfo` contains information
+    /// about each item found in the search. On failure, it returns an `Err(AppError)` variant indicating the type of error.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an `Err` variant of `AppError` with `GeoSearchFailed` containing
+    /// an error message if the Redis operation fails.
+    ///
+    /// # Panics
+    ///
+    /// This function should not panic under normal circumstances. However, unexpected issues with the
+    /// Redis connection or internal errors from the Redis library may cause a panic. It is recommended
+    /// to use a panic handler or similar safety net in production environments.
     #[allow(clippy::too_many_arguments)]
     pub async fn geo_search(
         &self,
         key: &str,
-        from_member: Option<RedisValue>,
-        from_lonlat: Option<GeoPosition>,
-        by_radius: Option<(f64, GeoUnit)>,
-        by_box: Option<(f64, f64, GeoUnit)>,
-        ord: Option<SortOrder>,
-        count: Option<(u64, fred::types::Any)>,
-        withcoord: bool,
-        withdist: bool,
-        withhash: bool,
+        from_lonlat: GeoPosition,
+        by_radius: (f64, GeoUnit),
+        ord: SortOrder,
     ) -> Result<Vec<GeoRadiusInfo>, AppError> {
-        let output: Result<Vec<GeoRadiusInfo>, _> = self
-            .pool
+        self.pool
             .geosearch(
                 key,
-                from_member,
-                from_lonlat,
-                by_radius,
-                by_box,
-                ord,
-                count,
-                withcoord,
-                withdist,
-                withhash,
+                None,
+                Some(from_lonlat.to_owned()),
+                Some(by_radius.to_owned()),
+                None,
+                Some(ord.to_owned()),
+                None,
+                true,
+                false,
+                false,
             )
-            .await;
-
-        match output {
-            Ok(output) => Ok(output),
-            Err(err) => Err(AppError::GeoSearchFailed(err.to_string())),
-        }
+            .await
+            .map_err(|err| AppError::GeoSearchFailed(err.to_string()))
     }
 
+    /// Performs a geographical search on multiple Redis keys to find members within a specified area.
+    ///
+    /// # Arguments
+    /// * `keys` - A vector of Redis key strings under which geo-spatial data is stored.
+    /// * `from_member` - An optional Redis value specifying the name of a member around which to center the search.
+    /// * `from_lonlat` - An optional `GeoPosition` specifying the longitude and latitude around which to center the search.
+    /// * `by_radius` - An optional tuple specifying the radius and unit for the search area (e.g., (100.0, GeoUnit::Meters)).
+    /// * `by_box` - An optional tuple specifying the width, height, and unit for the search area box.
+    /// * `ord` - An optional `SortOrder` determining if the results should be sorted and how.
+    /// * `count` - An optional tuple specifying the number of results to return and whether or not to consider it as "any" type.
+    ///
+    /// # Returns
+    /// A `Result` wrapping a vector of `GeoRadiusInfo` which holds information about each found member,
+    /// or an `AppError` if an error occurs during the search.
+    ///
+    /// # Errors
+    /// Returns `AppError::GeoSearchFailed` if the Redis search fails or if an unexpected value is encountered.
     #[allow(clippy::too_many_arguments)]
     pub async fn mgeo_search(
         &self,
         keys: Vec<String>,
-        from_member: Option<RedisValue>,
-        from_lonlat: Option<GeoPosition>,
-        by_radius: Option<(f64, GeoUnit)>,
-        by_box: Option<(f64, f64, GeoUnit)>,
-        ord: Option<SortOrder>,
-        count: Option<(u64, fred::types::Any)>,
-    ) -> Result<Vec<GeoRadiusInfo>, AppError> {
+        from_lonlat: GeoPosition,
+        by_radius: (f64, GeoUnit),
+        ord: SortOrder,
+    ) -> Result<Vec<Option<(String, Point)>>, AppError> {
         let pipeline = self.pool.pipeline();
 
         for key in keys {
             let _ = pipeline
                 .geosearch(
                     key,
-                    from_member.to_owned(),
-                    from_lonlat.to_owned(),
-                    by_radius.to_owned(),
-                    by_box.to_owned(),
-                    ord.to_owned(),
-                    count,
+                    None,
+                    Some(from_lonlat.to_owned()),
+                    Some(by_radius.to_owned()),
+                    None,
+                    Some(ord.to_owned()),
+                    None,
                     true,
                     false,
                     false,
@@ -464,41 +1000,46 @@ impl RedisConnectionPool {
                 .await;
         }
 
-        let output: Result<Vec<Vec<RedisValue>>, RedisError> = pipeline.all().await;
-
-        match output {
-            Ok(geovals) => {
-                let mut output = Vec::new();
-
-                for geoval in geovals {
-                    if let [member, RedisValue::Array(position)] = &geoval[..] {
-                        if let [RedisValue::Double(longitude), RedisValue::Double(latitude)] =
-                            position[..]
-                        {
-                            output.push(GeoRadiusInfo {
-                                member: member.to_owned(),
-                                position: Some(GeoPosition {
-                                    longitude,
-                                    latitude,
-                                }),
-                                distance: None,
-                                hash: None,
-                            })
-                        }
+        let geovals: Vec<Option<(String, Point)>> = pipeline
+            .all::<Vec<Vec<RedisValue>>>()
+            .await
+            .map_err(|err| AppError::GeoSearchFailed(err.to_string()))?
+            .into_iter()
+            .map(|geoval| {
+                if let [RedisValue::String(member), RedisValue::Array(position)] = &geoval[..] {
+                    if let [RedisValue::Double(longitude), RedisValue::Double(latitude)] =
+                        position[..]
+                    {
+                        Some((
+                            member.to_string(),
+                            Point {
+                                lon: longitude,
+                                lat: latitude,
+                            },
+                        ))
+                    } else {
+                        error!("Unexpected RedisValue encountered");
+                        None
                     }
+                } else {
+                    error!("Unexpected RedisValue encountered");
+                    None
                 }
-                Ok(output)
-            }
-            Err(err) => Err(AppError::GeoSearchFailed(err.to_string())),
-        }
+            })
+            .collect();
+
+        Ok(geovals)
     }
 
-    //GEOPOS
     pub async fn geopos(&self, key: &str, members: Vec<String>) -> Result<Vec<Point>, AppError> {
-        let output: Result<RedisValue, _> = self.pool.geopos(key, members).await;
+        let output = self
+            .pool
+            .geopos(key, members)
+            .await
+            .map_err(|err| AppError::GeoPosFailed(err.to_string()))?;
 
         match output {
-            Ok(RedisValue::Array(points)) => {
+            RedisValue::Array(points) => {
                 if !points.is_empty() {
                     if points[0].is_array() {
                         let mut resp = Vec::new();
@@ -524,31 +1065,72 @@ impl RedisConnectionPool {
                     Ok(vec![])
                 }
             }
-            Err(err) => Err(AppError::GeoPosFailed(err.to_string())),
-            Ok(case) => Err(AppError::GeoPosFailed(format!(
-                "Case not handled : {:?}",
+            case => Err(AppError::GeoPosFailed(format!(
+                "Unexpected RedisValue encountered : {:?}",
                 case
             ))),
         }
     }
 
-    //ZREMRANGEBYRANK
+    /// Asynchronously removes all members in a sorted set within the specified ranks.
+    ///
+    /// This function interfaces with a Redis sorted set to remove members based on their rank in the set.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The key of the Redis sorted set.
+    /// * `start` - The starting rank (index) from which to remove members.
+    /// * `stop` - The stopping rank (index) up to which members will be removed.
+    ///
+    /// # Returns
+    ///
+    /// * `()`: An empty tuple indicating successful completion.
+    /// * `AppError`: An error variant indicating a problem interfacing with Redis.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// // Omitted setup and initialization code
+    ///
+    /// let _ = zremrange_by_rank("sample_key", 0, 2).await?;
+    /// ```
     pub async fn zremrange_by_rank(
         &self,
         key: &str,
         start: i64,
         stop: i64,
     ) -> Result<(), AppError> {
-        let output: Result<(), _> = self.pool.zremrangebyrank(key, start, stop).await;
-
-        if let Err(err) = output {
-            Err(AppError::ZremrangeByRankFailed(err.to_string()))
-        } else {
-            Ok(())
-        }
+        self.pool
+            .zremrangebyrank(key, start, stop)
+            .await
+            .map_err(|err| AppError::ZremrangeByRankFailed(err.to_string()))
     }
 
-    //ZADD
+    /// Asynchronously adds one or multiple members to a sorted set, or updates its score if it already exists.
+    ///
+    /// This function interfaces with a Redis sorted set to add or update members.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The key of the Redis sorted set.
+    /// * `options` - An optional set of [`SetOptions`](https://docs.rs/redis/0.21.0/redis/enum.SetOptions.html) to specify additional behaviors.
+    /// * `ordering` - Specifies the ordering for inserting the new values. Possible values are: None (the default), Some(Ordering::Greater), or Some(Ordering::Less).
+    /// * `changed` - Indicates whether the ZADD operation should only add new elements and not update scores of elements that are already present.
+    /// * `incr` - Indicates whether the operation should increment the score of an element if it's already present in the set.
+    /// * `values` - A vector of tuples where each tuple contains a score and a member.
+    ///
+    /// # Returns
+    ///
+    /// * `()`: An empty tuple indicating successful completion.
+    /// * `AppError`: An error variant indicating a problem interfacing with Redis.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// // Omitted setup and initialization code
+    ///
+    /// let _ = zadd("sample_key", None, None, false, false, vec![(1.0, "member1"), (2.0, "member2")]).await?;
+    /// ```
     pub async fn zadd(
         &self,
         key: &str,
@@ -558,32 +1140,71 @@ impl RedisConnectionPool {
         incr: bool,
         values: Vec<(f64, &str)>,
     ) -> Result<(), AppError> {
-        let output: Result<(), _> = self
-            .pool
+        self.pool
             .zadd(key, options, ordering, changed, incr, values)
-            .await;
-
-        if let Err(err) = output {
-            Err(AppError::ZAddFailed(err.to_string()))
-        } else {
-            Ok(())
-        }
+            .await
+            .map_err(|err| AppError::ZAddFailed(err.to_string()))
     }
 
-    //ZCARD
+    /// Asynchronously retrieves the number of elements in a sorted set stored at the specified key.
+    ///
+    /// This function interfaces with a Redis sorted set to get the cardinality (number of members) of the set.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The key of the Redis sorted set.
+    ///
+    /// # Returns
+    ///
+    /// * `u64`: The cardinality of the sorted set.
+    /// * `AppError`: An error variant indicating a problem interfacing with Redis.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// // Omitted setup and initialization code
+    ///
+    /// let count = zcard("sample_key").await?;
+    /// println!("Number of members in sorted set: {}", count);
+    /// ```
     pub async fn zcard(&self, key: &str) -> Result<u64, AppError> {
-        let output: Result<u64, _> = self.pool.zcard(key).await;
-
-        if output.is_err() {
-            return Err(AppError::ZCardFailed("Case not handled".to_string()));
-        }
-
-        Ok(output.unwrap())
+        self.pool
+            .zcard(key)
+            .await
+            .map_err(|err| AppError::ZCardFailed(err.to_string()))
     }
 
-    //ZRANGE
+    /// Asynchronously retrieves a range of elements from a sorted set stored at the specified key.
+    ///
+    /// This function interfaces with a Redis sorted set to get a range of elements, optionally with their scores,
+    /// in a specified range. The range is defined by a minimum and maximum score.
+    /// Additionally, it provides options to sort the results, reverse them, limit the number of results, and include the scores.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The key of the Redis sorted set.
+    /// * `min` - The minimum score for the range.
+    /// * `max` - The maximum score for the range.
+    /// * `sort` - Optional sort order for the results.
+    /// * `rev` - Whether to reverse the result set.
+    /// * `limit` - Optional limit to restrict the number of results.
+    /// * `withscores` - Whether to include scores in the result.
+    ///
+    /// # Returns
+    ///
+    /// * `Vec<String>`: A vector containing the members from the sorted set that match the given criteria.
+    /// * `AppError`: An error variant indicating either a problem interfacing with Redis or unexpected data format.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// // Omitted setup and initialization code
+    ///
+    /// let members = zrange("sample_key", 10, 20, None, false, Some(Limit(5)), false).await?;
+    /// println!("{:?}", members);
+    /// ```
     #[allow(clippy::too_many_arguments)]
-    pub async fn zrange(
+    pub async fn zrange<T>(
         &self,
         key: &str,
         min: i64,
@@ -592,27 +1213,36 @@ impl RedisConnectionPool {
         rev: bool,
         limit: Option<Limit>,
         withscores: bool,
-    ) -> Result<Vec<String>, AppError> {
-        let output: Result<RedisValue, _> = self
+    ) -> Result<Vec<T>, AppError>
+    where
+        T: DeserializeOwned,
+    {
+        let output = self
             .pool
             .zrange(key, min, max, sort, rev, limit, withscores)
-            .await;
+            .await
+            .map_err(|err| AppError::ZRangeFailed(err.to_string()))?;
 
         match output {
-            Ok(RedisValue::Array(val)) => {
-                let mut members = Vec::new();
-                for member in val {
-                    if let RedisValue::String(y) = member {
-                        members.push(String::from_utf8(y.into_inner().to_vec()).unwrap())
-                    }
-                }
-                members.sort();
-                Ok(members)
+            RedisValue::Array(val) => {
+                let results = val
+                    .into_iter()
+                    .map(|v| match v {
+                        RedisValue::String(s) => serde_json::from_str::<T>(&s)
+                            .map_err(|err| AppError::DeserializationError(err.to_string())),
+                        case => Err(AppError::ZRangeFailed(format!(
+                            "Unexpected RedisValue encountered : {:?}",
+                            case
+                        ))),
+                    })
+                    .collect::<Result<Vec<T>, AppError>>()?;
+                Ok(results)
             }
-            Ok(RedisValue::String(member)) => Ok(vec![member.to_string()]),
-            Err(err) => Err(AppError::ZRangeFailed(err.to_string())),
-            Ok(case) => Err(AppError::ZRangeFailed(format!(
-                "Case not handled : {:?}",
+            RedisValue::String(val) => serde_json::from_str::<T>(&val)
+                .map(|val| vec![val])
+                .map_err(|err| AppError::DeserializationError(err.to_string())),
+            case => Err(AppError::ZRangeFailed(format!(
+                "Unexpected RedisValue encountered : {:?}",
                 case
             ))),
         }

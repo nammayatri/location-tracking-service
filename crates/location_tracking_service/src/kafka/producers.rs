@@ -14,6 +14,25 @@ use chrono::Utc;
 use log::error;
 use rdkafka::producer::FutureProducer;
 
+/// Streams location updates for drivers to a Kafka topic.
+///
+/// This function iterates over a list of location updates and pushes
+/// each one to a specified Kafka topic. The function also derives
+/// the `ride_status` based on the provided `RideStatus`.
+///
+/// # Parameters
+/// - `producer`: An optional Kafka producer to send messages to Kafka.
+/// - `topic`: The Kafka topic to which the location updates will be published.
+/// - `locations`: A list of location updates for a driver.
+/// - `merchant_id`: The unique identifier for the merchant.
+/// - `ride_id`: An optional unique identifier for the ongoing ride.
+/// - `ride_status`: The current status of the ride (e.g., NEW, INPROGRESS).
+/// - `driver_mode`: The mode in which the driver is currently operating.
+/// - `DriverId(key)`: The unique identifier for the driver.
+///
+/// # Note
+/// If an error occurs while pushing a message to Kafka, the function logs
+/// the error but continues processing the remaining location updates.
 #[allow(clippy::too_many_arguments)]
 pub async fn kafka_stream_updates(
     producer: &Option<FutureProducer>,
@@ -48,7 +67,7 @@ pub async fn kafka_stream_updates(
             mode: driver_mode.to_owned(),
         };
         if let Err(err) = push_to_kafka(producer, topic, key.as_str(), message).await {
-            error!("Error occured in push_to_kafka => {}", err)
+            error!("Error occured in push_to_kafka => {}", err.message())
         }
     }
 }

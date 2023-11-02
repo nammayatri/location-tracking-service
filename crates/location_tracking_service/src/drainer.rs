@@ -28,6 +28,30 @@ use std::{sync::Arc, time::Duration};
 use tokio::sync::mpsc;
 use tokio::time::interval;
 
+/// Asynchronously drains driver locations to a Redis server.
+///
+/// This utility function is primarily intended to be used within `run_drainer`
+/// to handle the logic of taking the queued driver locations and pushing them
+/// to a Redis server. If there's any error during the push operation to Redis,
+/// an error log is emitted.
+///
+/// # Arguments
+///
+/// * `driver_locations` - A reference to a hashmap containing driver locations.
+/// * `bucket_expiry` - The expiration time for a bucket.
+/// * `non_persistent_redis` - A reference to the Redis connection pool.
+///
+/// # Example
+///
+/// This function is typically used within the context of `run_drainer`:
+///
+/// ```ignore
+/// async fn run_drainer(...) {
+///     ...
+///     drain_driver_locations(&driver_locations, bucket_expiry, &non_persistent_redis).await;
+///     ...
+/// }
+/// ```
 async fn drain_driver_locations(
     driver_locations: &FxHashMap<String, Vec<GeoValue>>,
     bucket_expiry: i64,
@@ -45,6 +69,18 @@ async fn drain_driver_locations(
     }
 }
 
+/// Cleans up the drainer after data has been processed or flushed.
+///
+/// This function is responsible for resetting counters, clearing driver locations,
+/// and updating the start time for the next batch of data.
+///
+/// # Arguments
+///
+/// * `drainer_size` - A mutable reference to the current size of the drainer.
+/// * `driver_locations` - A mutable reference to the map storing driver locations.
+/// * `start_time` - A mutable reference to the start time of the current data batch.
+/// * `tag` - A string representing the type of ride (`"OFF_RIDE"` or `"NEW_RIDE"`).
+///
 fn cleanup_drainer(
     drainer_size: &mut usize,
     driver_locations: &mut FxHashMap<String, Vec<GeoValue>>,
@@ -62,6 +98,22 @@ fn cleanup_drainer(
     *driver_locations = FxHashMap::default();
 }
 
+/// Asynchronously runs a drainer.
+///
+/// This function listens to incoming driver location data and periodically drains it
+/// to a Redis data store.
+///
+/// # Arguments
+///
+/// * `rx` - A receiver for incoming driver location data.
+/// * `graceful_termination_requested` - An atomic flag indicating if termination is requested.
+/// * `drainer_capacity` - Maximum capacity before forcefully draining data.
+/// * `drainer_delay` - Time interval for periodic draining.
+/// * `new_ride_drainer_delay` - Time interval for draining new ride data.
+/// * `bucket_size` - The size of each time bucket.
+/// * `near_by_bucket_threshold` - A threshold for nearby buckets.
+/// * `non_persistent_redis` - Redis connection pool for non-persistent storage.
+///
 #[allow(clippy::too_many_arguments)]
 pub async fn run_drainer(
     mut rx: mpsc::Receiver<(Dimensions, Latitude, Longitude, TimeStamp, DriverId)>,

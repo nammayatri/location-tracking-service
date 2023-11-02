@@ -18,6 +18,19 @@ use std::io::Result;
 
 use crate::common::types::MultiPolygonBody;
 
+/// Reads geo polygons from files in a specified directory.
+///
+/// Reads all the files in the provided directory and attempts to parse them
+/// as GeoJSON MultiPolygons.
+///
+/// # Parameters
+/// - `config_path`: The path to the directory containing the GeoJSON files.
+///
+/// # Returns
+/// A vector of `MultiPolygonBody` structures if successful.
+///
+/// # Panics
+/// If directory does not exist, then the function panics.
 pub fn read_geo_polygon(config_path: &str) -> Result<Vec<MultiPolygonBody>> {
     // Read files in the directory
     let geometries = fs::read_dir(config_path).expect("Failed to read config path");
@@ -47,6 +60,17 @@ pub fn read_geo_polygon(config_path: &str) -> Result<Vec<MultiPolygonBody>> {
     Ok(regions)
 }
 
+/// Parses a GeoJSON string to extract the MultiPolygon geometry.
+///
+/// Attempts to deserialize a GeoJSON string and extracts its MultiPolygon geometry
+/// if available.
+///
+/// # Parameters
+/// - `region`: The name of the region corresponding to the GeoJSON.
+/// - `geojson_str`: The GeoJSON string to be parsed.
+///
+/// # Returns
+/// A `MultiPolygonBody` structure if successful, or an error otherwise.
 fn parse_geojson_multi_polygon(region: &str, geojson_str: &str) -> Result<MultiPolygonBody> {
     let geom: Geometry = from_str(geojson_str)?;
 
@@ -59,6 +83,14 @@ fn parse_geojson_multi_polygon(region: &str, geojson_str: &str) -> Result<MultiP
     }
 }
 
+/// Creates a `MultiPolygonBody` structure from a given region name and polygons.
+///
+/// # Parameters
+/// - `region`: The name of the region.
+/// - `polygons`: A vector of polygons.
+///
+/// # Returns
+/// A `MultiPolygonBody` structure.
 pub fn create_multipolygon_body(region: &str, polygons: Vec<PolygonType>) -> MultiPolygonBody {
     MultiPolygonBody {
         region: region.to_string(),
@@ -66,6 +98,13 @@ pub fn create_multipolygon_body(region: &str, polygons: Vec<PolygonType>) -> Mul
     }
 }
 
+/// Converts a vector of `PolygonType` to a `MultiPolygon`.
+///
+/// # Parameters
+/// - `polygons`: A vector of `PolygonType`.
+///
+/// # Returns
+/// A `MultiPolygon<f64>` structure.
 pub fn to_multipolygon(polygons: Vec<PolygonType>) -> MultiPolygon<f64> {
     MultiPolygon::new(
         polygons
@@ -75,6 +114,13 @@ pub fn to_multipolygon(polygons: Vec<PolygonType>) -> MultiPolygon<f64> {
     )
 }
 
+/// Converts a vector of vector of `Position` to a `Polygon`.
+///
+/// # Parameters
+/// - `polygon`: A vector of vector of `Position`.
+///
+/// # Returns
+/// A `Polygon<f64>` structure.
 fn to_polygon(polygon: Vec<Vec<Position>>) -> Polygon<f64> {
     Polygon::new(
         polygon
@@ -88,6 +134,13 @@ fn to_polygon(polygon: Vec<Vec<Position>>) -> Polygon<f64> {
     )
 }
 
+/// Converts a vector of `Position` to a `LineString`.
+///
+/// # Parameters
+/// - `line_string`: A vector of `Position`.
+///
+/// # Returns
+/// A `LineString<f64>` structure.
 fn to_line_string(line_string: Vec<Position>) -> LineString<f64> {
     LineString::new(
         line_string
@@ -97,6 +150,13 @@ fn to_line_string(line_string: Vec<Position>) -> LineString<f64> {
     )
 }
 
+/// Converts a `Position` to a `Coord`.
+///
+/// # Parameters
+/// - `position`: A `Position` structure.
+///
+/// # Returns
+/// A `Coord<f64>` structure.
 fn to_coord(position: Position) -> Coord<f64> {
     coord! {x: position[0], y: position[1] }
 }

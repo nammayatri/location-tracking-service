@@ -104,7 +104,11 @@ pub async fn update_driver_location(
     let last_known_location = get_driver_location(&data.persistent_redis, &driver_id).await;
 
     let last_known_location = match last_known_location {
-        Ok(last_known_location) => Some(last_known_location),
+        Ok(Some(last_known_location)) => Some(last_known_location),
+        Ok(None) => {
+            warn!("Driver last_known_location not found.");
+            None
+        }
         Err(err) => {
             warn!("Driver last_known_location not found. {}", err.message());
             None
@@ -195,16 +199,14 @@ async fn process_driver_locations(
     ) = args;
 
     let driver_ride_details =
-        get_ride_details(&data.persistent_redis, &driver_id, &merchant_id).await;
+        get_ride_details(&data.persistent_redis, &driver_id, &merchant_id).await?;
 
     let driver_ride_id = driver_ride_details
         .as_ref()
-        .ok()
         .map(|ride_details| ride_details.ride_id.to_owned());
 
     let driver_ride_status = driver_ride_details
         .as_ref()
-        .ok()
         .map(|ride_details| ride_details.ride_status.to_owned());
 
     let TimeStamp(latest_driver_location_ts) = latest_driver_location.ts;
@@ -320,23 +322,23 @@ async fn process_driver_locations(
             .await?;
             on_ride_driver_locations.extend(geo_entries);
 
-            let _ = bulk_location_update_dobpp(
+            bulk_location_update_dobpp(
                 &data.bulk_location_callback_url,
                 ride_id.to_owned(),
                 driver_id.to_owned(),
                 on_ride_driver_locations,
             )
             .await
-            .map_err(|err| AppError::DriverBulkLocationUpdateFailed(err.message()));
+            .map_err(|err| AppError::DriverBulkLocationUpdateFailed(err.message()))?;
         } else {
-            let _ = push_on_ride_driver_locations(
+            push_on_ride_driver_locations(
                 &data.persistent_redis,
                 &driver_id,
                 &merchant_id,
-                &geo_entries,
+                geo_entries,
                 &data.redis_expiry,
             )
-            .await;
+            .await?;
         }
     }
 
@@ -367,10 +369,16 @@ pub async fn track_driver_location(
         .await
         .map_err(|_| {
             AppError::InvalidRideStatus(unwrapped_ride_id.to_owned(), "COMPLETED".to_string())
-        })?;
+        })?
+        .ok_or(AppError::InvalidRideStatus(
+            unwrapped_ride_id.to_owned(),
+            "COMPLETED".to_string(),
+        ))?;
 
     let driver_last_known_location_details =
-        get_driver_location(&data.persistent_redis, &driver_details.driver_id).await?;
+        get_driver_location(&data.persistent_redis, &driver_details.driver_id)
+            .await?
+            .ok_or(AppError::DriverLastKnownLocationNotFound)?;
 
     Ok(DriverLocationResponse {
         curr_point: driver_last_known_location_details.location,

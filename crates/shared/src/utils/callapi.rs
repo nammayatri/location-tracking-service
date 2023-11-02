@@ -17,6 +17,41 @@ use reqwest::{Client, Method, Response, Url};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
+/// Sends an asynchronous API request to the specified URL.
+///
+/// This function constructs and sends an HTTP request using the given method, URL, headers, and body.
+/// It handles both successful and failed responses, and returns deserialized data in case of success or an `AppError` in case of failure.
+///
+/// # Arguments
+///
+/// * `method` - The HTTP method (e.g., GET, POST) for the request.
+/// * `url` - A reference to the target URL for the request.
+/// * `headers` - A vector containing tuples of header key-value pairs.
+/// * `body` - An optional request body. If provided, it will be serialized to JSON.
+///
+/// # Returns
+///
+/// * `Ok(T)` if the request succeeds and the response can be deserialized into type `T`.
+/// * `Err(AppError)` if there's an error with the request, or if the response status indicates an error.
+///
+/// # Type Parameters
+///
+/// * `T`: The expected return type that the response should be deserialized into. Must implement `DeserializeOwned`.
+/// * `U`: The type of the request body. Should be serializable into JSON. Must implement `Serialize` and `Debug`.
+///
+/// # Example
+///
+/// ```rust
+/// let method = Method::GET;
+/// let url = Url::parse("https://api.example.com/data").unwrap();
+/// let headers = vec![("Authorization", "Bearer TOKEN123")];
+///
+/// let response: Result<MyResponseType, AppError> = call_api(method, &url, headers, None).await;
+/// match response {
+///     Ok(data) => println!("Received data: {:?}", data),
+///     Err(err) => eprintln!("API error: {}", err),
+/// }
+/// ```
 pub async fn call_api<T, U>(
     method: Method,
     url: &Url,
@@ -62,15 +97,24 @@ where
         url.port().unwrap_or(80)
     );
 
+    let status = match resp.as_ref() {
+        Ok(resp) => resp.status().to_string(),
+        Err(err) => err
+            .status()
+            .map(|status| status.to_string())
+            .unwrap_or("UNKNOWN".to_string()),
+    };
+
+    call_external_api!(
+        method.as_str(),
+        url_str.as_str(),
+        url.path(),
+        status.as_str(),
+        start_time
+    );
+
     match resp {
         Ok(resp) => {
-            call_external_api!(
-                method.as_str(),
-                url_str.as_str(),
-                url.path(),
-                resp.status().as_str(),
-                start_time
-            );
             if resp.status().is_success() {
                 info!(tag = "[OUTGOING API]", request_method = %method, request_body = format!("{:?}", body), request_url = %url_str, request_headers = format!("{:?}", header_map), response = format!("{:?}", resp), latency = format!("{:?}ms", start_time.elapsed().as_millis()));
                 Ok(resp
@@ -89,6 +133,48 @@ where
     }
 }
 
+/// Makes an asynchronous API call, handling errors through a custom error handler.
+///
+/// This function sends a request to the provided URL using the specified HTTP method, headers, and body.
+/// If the request fails, or if the response indicates an error status, it uses the provided error handler
+/// to convert the response into an `AppError`.
+///
+/// # Arguments
+///
+/// * `method` - The HTTP method to use for the request.
+/// * `url` - A reference to the target URL.
+/// * `headers` - A vector of header key-value pairs to include in the request.
+/// * `body` - An optional request body. If provided, it will be serialized to JSON.
+/// * `error_handler` - A boxed function that takes a `Response` and returns an `AppError`.
+///                     This is used to convert non-successful responses into appropriate errors.
+///
+/// # Returns
+///
+/// * `Ok(T)` if the API call succeeds and the response can be deserialized into type `T`.
+/// * `Err(AppError)` if there's any error during the API call, serialization, deserialization,
+///                   or if the response status indicates an error.
+///
+/// # Type Parameters
+///
+/// * `T`: The type to deserialize the response into. Must implement `DeserializeOwned`.
+/// * `U`: The type of the request body. Must implement `Serialize` and `Debug`.
+///
+/// # Example
+///
+/// ```rust
+/// let method = Method::GET;
+/// let url = Url::parse("https://api.example.com/data").unwrap();
+/// let headers = vec![("Authorization", "Bearer TOKEN123")];
+///
+/// async fn error_handler(resp: Response) -> AppError {
+///     // Convert the response into an appropriate error here...
+/// }
+///
+/// match call_api_unwrapping_error::<MyResponseType, _>(method, &url, headers, None, Box::new(error_handler)).await {
+///     Ok(data) => println!("Received data: {:?}", data),
+///     Err(err) => eprintln!("API call error: {}", err),
+/// }
+/// ```
 pub async fn call_api_unwrapping_error<T, U>(
     method: Method,
     url: &Url,
@@ -135,15 +221,24 @@ where
         url.port().unwrap_or(80)
     );
 
+    let status = match resp.as_ref() {
+        Ok(resp) => resp.status().to_string(),
+        Err(err) => err
+            .status()
+            .map(|status| status.to_string())
+            .unwrap_or("UNKNOWN".to_string()),
+    };
+
+    call_external_api!(
+        method.as_str(),
+        url_str.as_str(),
+        url.path(),
+        status.as_str(),
+        start_time
+    );
+
     match resp {
         Ok(resp) => {
-            call_external_api!(
-                method.as_str(),
-                url_str.as_str(),
-                url.path(),
-                resp.status().as_str(),
-                start_time
-            );
             if resp.status().is_success() {
                 info!(tag = "[OUTGOING API]", request_method = %method, request_body = format!("{:?}", body), request_url = %url_str, request_headers = format!("{:?}", header_map), response = format!("{:?}", resp), latency = format!("{:?}ms", start_time.elapsed().as_millis()));
                 Ok(resp

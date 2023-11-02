@@ -7,17 +7,35 @@
 */
 use crate::common::types::*;
 
+/// Constructs a Redis key for associating a driver ID with an authentication token.
 ///
-/// This key is used to store driverId against Auth token
-/// We store this key in, Persistent Redis
+/// The resulting key is intended to be stored in persistent Redis storage.
+///
+/// # Arguments
+///
+/// * `token` - The authentication token.
+///
+/// # Returns
+///
+/// A string formatted Redis key.
 ///
 pub fn set_driver_id_key(Token(token): &Token) -> String {
     format!("lts:dl:driver_id:{token}")
 }
 
+/// Constructs a Redis key for controlling the API hit limits for a driver.
 ///
-/// This key is used to control API hit limits for driverId
-/// We store this key in, Persistent Redis
+/// The resulting key is intended to be stored in persistent Redis storage.
+///
+/// # Arguments
+///
+/// * `driver_id` - The unique driver ID.
+/// * `city` - The name of the city.
+/// * `merchant_id` - The merchant ID.
+///
+/// # Returns
+///
+/// A string formatted Redis key.
 ///
 pub fn sliding_rate_limiter_key(
     DriverId(driver_id): &DriverId,
@@ -27,9 +45,19 @@ pub fn sliding_rate_limiter_key(
     format!("lts:ratelimit:{merchant_id}:{driver_id}:{city}")
 }
 
+/// Constructs a Redis key to set an atomic lock for a driver's location update.
 ///
-/// This key is used to set Atomic lock for driverId
-/// We store this key in, Persistent Redis
+/// The resulting key is intended to be stored in persistent Redis storage.
+///
+/// # Arguments
+///
+/// * `driver_id` - The unique driver ID.
+/// * `merchant_id` - The merchant ID.
+/// * `city` - The name of the city.
+///
+/// # Returns
+///
+/// A string formatted Redis key.
 ///
 pub fn driver_processing_location_update_lock_key(
     DriverId(driver_id): &DriverId,
@@ -39,9 +67,18 @@ pub fn driver_processing_location_update_lock_key(
     format!("lts:dl:processing:{merchant_id}:{driver_id}:{city}")
 }
 
+/// Constructs a Redis key for storing details about an ongoing ride.
 ///
-/// This key is used to store (rideId, rideStatus, city of booking) for driverId
-/// We store this key in, Persistent Redis
+/// The resulting key is intended to be stored in persistent Redis storage.
+///
+/// # Arguments
+///
+/// * `merchant_id` - The merchant ID.
+/// * `driver_id` - The unique driver ID.
+///
+/// # Returns
+///
+/// A string formatted Redis key.
 ///
 pub fn on_ride_details_key(
     MerchantId(merchant_id): &MerchantId,
@@ -50,9 +87,18 @@ pub fn on_ride_details_key(
     format!("lts:on_ride_details:{merchant_id}:{driver_id}")
 }
 
+/// Constructs a Redis key for storing location updates during a ride.
 ///
-/// This key is used to store location updates from RideStart to RideEnd
-/// We store this key in, Persistent Redis
+/// The resulting key is intended to be stored in persistent Redis storage.
+///
+/// # Arguments
+///
+/// * `merchant_id` - The merchant ID.
+/// * `driver_id` - The unique driver ID.
+///
+/// # Returns
+///
+/// A string formatted Redis key.
 ///
 pub fn on_ride_loc_key(
     MerchantId(merchant_id): &MerchantId,
@@ -61,33 +107,62 @@ pub fn on_ride_loc_key(
     format!("lts:dl:on_ride:loc:{merchant_id}:{driver_id}")
 }
 
+/// Constructs a Redis key to retrieve details based on ride ID.
 ///
-/// This key is used to get (driverId, merchantId, city) based on rideId
-/// We store this key in, Persistent Redis
+/// The resulting key is intended to be stored in persistent Redis storage.
+///
+/// # Arguments
+///
+/// * `ride_id` - The unique ride ID.
+///
+/// # Returns
+///
+/// A string formatted Redis key.
 ///
 pub fn on_ride_driver_details_key(RideId(ride_id): &RideId) -> String {
     format!("lts:on_ride_driver_details:{ride_id}")
 }
 
+/// Constructs a Redis key for storing ride status and city details for a driver.
 ///
-/// This key is used to store ride status and city of booking for driverId
-/// We store this key in, Persistent Redis
+/// The resulting key is intended to be stored in persistent Redis storage.
+///
+/// # Arguments
+///
+/// * `driver_id` - The unique driver ID.
+///
+/// # Returns
+///
+/// A string formatted Redis key.
 ///
 pub fn driver_details_key(DriverId(driver_id): &DriverId) -> String {
     format!("lts:driver_details:{driver_id}")
 }
 
+/// Constructs a Redis key specifically for health checks.
 ///
-/// This key is used to only for health check
+/// # Returns
+///
+/// A string representing the Redis key for health checks.
 ///
 pub fn health_check_key() -> String {
     "lts:health_check".to_string()
 }
 
+/// Constructs a Redis key for storing a driver's location updates based on certain criteria.
 ///
-/// This key is used to store driver location updates for (Merchant, City, Vehicle)
-/// The key will be valid until the duration of the bucket
-/// We store this key in, Non Persistent Redis
+/// The resulting key has a duration determined by the bucket and is intended for non-persistent Redis storage.
+///
+/// # Arguments
+///
+/// * `merchant_id` - The merchant ID.
+/// * `city` - The name of the city.
+/// * `vehicle_type` - The type of vehicle.
+/// * `bucket` - The duration for which the key is valid.
+///
+/// # Returns
+///
+/// A string formatted Redis key.
 ///
 pub fn driver_loc_bucket_key(
     MerchantId(merchant_id): &MerchantId,

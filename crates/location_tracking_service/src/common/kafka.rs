@@ -12,8 +12,27 @@ use rdkafka::{
     util::Timeout,
 };
 use serde::Serialize;
-use shared::{tools::error::AppError, utils::logger::*};
+use shared::tools::error::AppError;
 
+/// Pushes a serialized message to a specified Kafka topic.
+///
+/// This function serializes the given message into a JSON string and
+/// sends it to the specified Kafka topic using the provided producer.
+/// It returns an `Ok(())` on successful message push, otherwise returns
+/// an `AppError`.
+///
+/// # Parameters
+/// - `producer`: An optional Kafka producer to send messages to Kafka.
+/// - `topic`: The Kafka topic to which the message will be published.
+/// - `key`: A string key associated with the message for Kafka.
+/// - `message`: The message to be serialized and sent to Kafka.
+///
+/// # Returns
+/// - `Ok(())`: If the message is successfully pushed to Kafka.
+/// - `Err(AppError)`: If there's an error during serialization or Kafka push.
+///
+/// # Type Parameters
+/// - `T`: The type of the message, which must implement the `Serialize` trait.
 pub async fn push_to_kafka<T>(
     producer: &Option<FutureProducer>,
     topic: &str,
@@ -28,17 +47,18 @@ where
 
     match producer {
         Some(producer) => {
-            _ = producer
+            producer
                 .send(
                     FutureRecord::to(topic).key(key).payload(&message),
                     Timeout::After(Duration::from_secs(1)),
                 )
-                .await;
-        }
-        None => {
-            info!(tag = "[Kafka]", "Producer is None, unable to send message");
-        }
-    }
+                .await
+                .map_err(|err| AppError::KafkaPushFailed(err.0.to_string()))?;
 
-    Ok(())
+            Ok(())
+        }
+        None => Err(AppError::KafkaPushFailed(
+            "[Kafka] Producer is None, unable to send message".to_string(),
+        )),
+    }
 }
