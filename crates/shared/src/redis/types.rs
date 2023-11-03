@@ -10,7 +10,7 @@ use std::sync::{atomic, Arc};
 
 use crate::tools::error::AppError;
 use crate::utils::logger;
-use error_stack::{IntoReport, ResultExt};
+use error_stack::IntoReport;
 use fred::interfaces::ClientLike;
 use serde::Deserialize;
 
@@ -122,9 +122,7 @@ impl RedisClient {
         client
             .wait_for_connect()
             .await
-            .into_report()
-            .change_context(AppError::RedisConnectionError)
-            .expect("Failed to connect to Redis");
+            .map_err(|err| AppError::RedisConnectionError(err.to_string()))?;
         Ok(Self { inner: client })
     }
 }
@@ -186,8 +184,7 @@ impl RedisConnectionPool {
         };
         let mut config = fred::types::RedisConfig::from_url(&redis_connection_url)
             .into_report()
-            .change_context(AppError::RedisConnectionError)
-            .expect("Failed to parse Redis connection URL");
+            .map_err(|err| AppError::RedisConnectionError(err.to_string()))?;
 
         if !conf.use_legacy_version {
             config.version = fred::types::RespVersion::RESP3;
@@ -201,15 +198,13 @@ impl RedisConnectionPool {
 
         let pool = fred::pool::RedisPool::new(config, None, Some(reconnect_policy), conf.pool_size)
             .into_report()
-            .change_context(AppError::RedisConnectionError)
-            .expect("Failed to create Redis connection pool");
+            .map_err(|err| AppError::RedisConnectionError(err.to_string()))?;
 
         let join_handles = pool.connect();
         pool.wait_for_connect()
             .await
             .into_report()
-            .change_context(AppError::RedisConnectionError)
-            .expect("Failed to connect to Redis");
+            .map_err(|err| AppError::RedisConnectionError(err.to_string()))?;
 
         Ok((pool, join_handles))
     }

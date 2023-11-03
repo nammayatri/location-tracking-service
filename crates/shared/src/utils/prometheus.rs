@@ -5,6 +5,7 @@
     or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more details. You should have received a copy of
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
+#![allow(clippy::expect_used)]
 
 use actix_web_prom::{PrometheusMetrics, PrometheusMetricsBuilder};
 use prometheus::{opts, register_histogram_vec, register_int_counter, HistogramVec, IntCounter};
@@ -82,7 +83,7 @@ macro_rules! queue_drainer_latency {
     };
 }
 
-pub fn prometheus_metrics() -> PrometheusMetrics {
+pub fn setup_prometheus_metrics() -> PrometheusMetrics {
     let prometheus = PrometheusMetricsBuilder::new("api")
         .endpoint("/metrics")
         .build()

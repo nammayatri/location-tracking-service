@@ -6,8 +6,7 @@
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-use std::time::{SystemTime, UNIX_EPOCH};
-
+use chrono::Utc;
 use shared::{redis::types::RedisConnectionPool, tools::error::AppError};
 
 pub async fn sliding_window_limiter(
@@ -16,10 +15,7 @@ pub async fn sliding_window_limiter(
     frame_hits_lim: usize,
     frame_len: u32,
 ) -> Result<Vec<i64>, AppError> {
-    let curr_time = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("Time went backwards")
-        .as_secs() as i64;
+    let curr_time = Utc::now().timestamp();
 
     let hits = persistent_redis_pool.get_key(key).await?;
 
@@ -37,7 +33,8 @@ pub async fn sliding_window_limiter(
     let _ = persistent_redis_pool
         .set_key(
             key,
-            serde_json::to_string(&filt_hits).expect("Failed to parse filt_hits to string."),
+            serde_json::to_string(&filt_hits)
+                .map_err(|err| AppError::SerializationError(err.to_string()))?,
             frame_len,
         )
         .await;

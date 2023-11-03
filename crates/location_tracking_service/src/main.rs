@@ -14,7 +14,7 @@ use location_tracking_service::{
     middleware::*,
 };
 use shared::utils::logger::*;
-use shared::{tools::error::AppError, utils::prometheus::prometheus_metrics};
+use shared::{tools::error::AppError, utils::prometheus::setup_prometheus_metrics};
 use std::{
     env::var,
     sync::atomic::{AtomicBool, Ordering},
@@ -46,9 +46,19 @@ async fn start_server() -> std::io::Result<()> {
 
     let _guard = setup_tracing(app_config.logger_cfg);
 
+    std::panic::set_hook(Box::new(|panic_info| {
+        let payload = panic_info
+            .payload()
+            .downcast_ref::<&str>()
+            .unwrap_or(&"Unknown panic");
+        error!("Panic Occured : {payload}");
+    }));
+
     let port = app_config.port;
     let workers = app_config.workers;
     let max_allowed_req_size = app_config.max_allowed_req_size;
+
+    let _ = setup_prometheus_metrics();
 
     #[allow(clippy::type_complexity)]
     let (sender, receiver): (
@@ -119,7 +129,6 @@ async fn start_server() -> std::io::Result<()> {
             .wrap(CheckContentLength)
             .wrap(IncomingRequestMetrics)
             .wrap(TracingLogger::<DomainRootSpanBuilder>::new())
-            .wrap(prometheus_metrics())
             .configure(api::handler)
     })
     .workers(workers)

@@ -24,6 +24,7 @@ pub enum AppError {
     // API Errors
     InternalError(String),
     InvalidRequest(String),
+    PanicOccured(String),
     DriverRideDetailsNotFound,
     DriverLastKnownLocationNotFound,
     DriverLastLocationTimestampNotFound,
@@ -42,7 +43,7 @@ pub enum AppError {
     DriverAppAuthFailed,
 
     // Redis Errors
-    RedisConnectionError,
+    RedisConnectionError(String),
     SetFailed(String),
     SetExFailed(String),
     SetExpiryFailed(String),
@@ -98,6 +99,10 @@ impl AppError {
             AppError::Unserviceable(lat, lon) => {
                 format!("Location is unserviceable : (Lat : {lat}, Lon : {lon})")
             }
+            AppError::PanicOccured(reason) => {
+                format!("Panic occured : {reason}")
+            }
+            AppError::RedisConnectionError(err) => format!("Redis Connection Error : {err}"),
             AppError::SetFailed(err) => format!("Redis Error : {err}"),
             AppError::SetExFailed(err) => format!("Redis Error : {err}"),
             AppError::SetExpiryFailed(err) => format!("Redis Error : {err}"),
@@ -122,13 +127,14 @@ impl AppError {
             AppError::ZCardFailed(err) => format!("Redis Error : {err}"),
             AppError::GeoPosFailed(err) => format!("Redis Error : {err}"),
             AppError::ZRangeFailed(err) => format!("Redis Error : {err}"),
-            _ => "".to_string(),
+            _ => "Some Error Occured".to_string(),
         }
     }
 
     fn code(&self) -> String {
         match self {
             AppError::InternalError(_) => "INTERNAL_ERROR",
+            AppError::PanicOccured(_) => "PANIC_OCCURED",
             AppError::InvalidRequest(_) => "INVALID_REQUEST",
             AppError::DriverRideDetailsNotFound => "DRIVER_RIDE_DETAILS_NOT_FOUND",
             AppError::DriverLastKnownLocationNotFound => "DRIVER_LAST_KNOWN_LOCATION_NOT_FOUND",
@@ -163,7 +169,7 @@ impl AppError {
             AppError::LLenFailed(_) => "LLEN_FAILED",
             AppError::NotFound(_) => "NOT_FOUND",
             AppError::InvalidRedisEntryId(_) => "INVALID_REDIS_ENTRY_ID",
-            AppError::RedisConnectionError => "REDIS_CONNECTION_FAILED",
+            AppError::RedisConnectionError(_) => "REDIS_CONNECTION_FAILED",
             AppError::SubscribeError(_) => "SUBSCRIBE_FAILED",
             AppError::PublishError(_) => "PUBLISH_FAILED",
             AppError::GeoAddFailed(_) => "GEOADD_FAILED",
@@ -188,6 +194,7 @@ impl ResponseError for AppError {
     fn status_code(&self) -> StatusCode {
         match self {
             AppError::InternalError(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            AppError::PanicOccured(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::InvalidRequest(_) => StatusCode::BAD_REQUEST,
             AppError::DriverRideDetailsNotFound => StatusCode::BAD_REQUEST,
             AppError::DriverLastKnownLocationNotFound => StatusCode::BAD_REQUEST,
@@ -215,7 +222,7 @@ impl ResponseError for AppError {
             AppError::GetHashFieldFailed(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::NotFound(_) => StatusCode::NOT_FOUND,
             AppError::InvalidRedisEntryId(_) => StatusCode::BAD_REQUEST,
-            AppError::RedisConnectionError => StatusCode::INTERNAL_SERVER_ERROR,
+            AppError::RedisConnectionError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::SubscribeError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::PublishError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::GeoAddFailed(_) => StatusCode::INTERNAL_SERVER_ERROR,

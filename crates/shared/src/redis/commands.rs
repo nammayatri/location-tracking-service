@@ -5,6 +5,7 @@
     or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more details. You should have received a copy of
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
+#![allow(clippy::unwrap_used)]
 
 use crate::redis::types::*;
 use crate::tools::error::AppError;
@@ -502,7 +503,7 @@ impl RedisConnectionPool {
                     if points[0].is_array() {
                         let mut resp = Vec::new();
                         for point in points {
-                            let point = point.as_geo_position().expect("Unable to parse point");
+                            let point = point.as_geo_position().unwrap();
                             if let Some(pos) = point {
                                 resp.push(Point {
                                     lat: pos.latitude,
@@ -513,8 +514,8 @@ impl RedisConnectionPool {
                         Ok(resp)
                     } else if points.len() == 2 && points[0].is_double() && points[1].is_double() {
                         return Ok(vec![Point {
-                            lat: points[1].as_f64().expect("Unable to parse lat"),
-                            lon: points[0].as_f64().expect("Unable to parse lon"),
+                            lat: points[1].as_f64().unwrap(),
+                            lon: points[0].as_f64().unwrap(),
                         }]);
                     } else {
                         return Ok(vec![]);
