@@ -83,7 +83,7 @@ macro_rules! queue_drainer_latency {
     };
 }
 
-pub fn setup_prometheus_metrics() -> PrometheusMetrics {
+pub fn prometheus_metrics() -> PrometheusMetrics {
     let prometheus = PrometheusMetricsBuilder::new("api")
         .endpoint("/metrics")
         .build()
