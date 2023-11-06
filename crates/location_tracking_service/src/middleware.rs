@@ -283,20 +283,20 @@ fn calculate_metrics(
 ) {
     if let Some(err_resp) = err_resp {
         let err_resp_code = err_resp.to_string();
-        error!(tag = "[INCOMING API - ERROR]", request_method = %req_method, request_path = %req_path, request_headers = req_headers, response_code = err_resp_code, response_status = resp_status.to_string(), latency = format!("{:?}ms", time.elapsed().as_millis()));
+        error!(tag = "[INCOMING API - ERROR]", request_method = %req_method, request_path = %req_path, request_headers = req_headers, response_code = err_resp_code, response_status = resp_status.as_str(), latency = format!("{:?}ms", time.elapsed().as_millis()));
         incoming_api!(
             req_method.as_str(),
             req_path.as_str(),
-            resp_status.to_string().as_str(),
+            resp_status.as_str(),
             err_resp_code.as_str(),
             time
         );
     } else {
-        info!(tag = "[INCOMING API]", request_method = %req_method, request_path = %req_path, request_headers = req_headers, latency = format!("{:?}ms", time.elapsed().as_millis()));
+        info!(tag = "[INCOMING API]", request_method = %req_method, request_path = %req_path, request_headers = req_headers, response_status = resp_status.as_str(), latency = format!("{:?}ms", time.elapsed().as_millis()));
         incoming_api!(
             req_method.as_str(),
             req_path.as_str(),
-            resp_status.to_string().as_str(),
+            resp_status.as_str(),
             "SUCCESS",
             time
         );
