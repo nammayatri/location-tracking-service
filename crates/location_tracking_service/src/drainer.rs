@@ -59,7 +59,7 @@ fn cleanup_drainer(
         NEW_RIDE_QUEUE_COUNTER.reset();
     }
     *drainer_size = 0;
-    driver_locations.clear();
+    *driver_locations = FxHashMap::default();
 }
 
 #[allow(clippy::too_many_arguments)]
