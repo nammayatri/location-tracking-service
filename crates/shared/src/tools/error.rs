@@ -42,6 +42,7 @@ pub enum AppError {
     DriverAppUnauthorized,
     DriverAppAuthFailed,
     KafkaPushFailed(String),
+    DrainerPushFailed(String),
 
     // Redis Errors
     RedisConnectionError(String),
@@ -105,6 +106,7 @@ impl AppError {
             }
             AppError::RedisConnectionError(err) => format!("Redis Connection Error : {err}"),
             AppError::KafkaPushFailed(err) => format!("Kafka Push Failed : {err}"),
+            AppError::DrainerPushFailed(err) => format!("Drainer Push Failed : {err}"),
             AppError::SetFailed(err) => format!("Redis Error : {err}"),
             AppError::SetExFailed(err) => format!("Redis Error : {err}"),
             AppError::SetExpiryFailed(err) => format!("Redis Error : {err}"),
@@ -157,6 +159,7 @@ impl AppError {
             AppError::InvalidConfiguration(_) => "INVALID_REDIS_CONFIGURATION",
             AppError::RequestTimeout => "REQUEST_TIMEOUT",
             AppError::KafkaPushFailed(_) => "KAFKA_PUSH_FAILED",
+            AppError::DrainerPushFailed(_) => "DRAINER_PUSH_FAILED",
             AppError::SetFailed(_) => "SET_FAILED",
             AppError::SetExFailed(_) => "SET_EX_FAILED",
             AppError::SetExpiryFailed(_) => "SET_EXPIRY_FAILED",
@@ -214,6 +217,7 @@ impl ResponseError for AppError {
             AppError::LargePayloadSize(_, _) => StatusCode::PAYLOAD_TOO_LARGE,
             AppError::DriverBulkLocationUpdateFailed(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::KafkaPushFailed(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            AppError::DrainerPushFailed(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::InvalidConfiguration(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::RequestTimeout => StatusCode::REQUEST_TIMEOUT,
             AppError::SetFailed(_) => StatusCode::INTERNAL_SERVER_ERROR,

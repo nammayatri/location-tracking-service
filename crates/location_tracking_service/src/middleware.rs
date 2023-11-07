@@ -13,7 +13,7 @@ use actix_http::{h1, header::CONTENT_LENGTH, StatusCode};
 use actix_web::{
     body::{BoxBody, MessageBody},
     dev::{self, forward_ready, Service, ServiceRequest, ServiceResponse, Transform},
-    web::{self, Data},
+    web::{self, Bytes, Data},
     Error, HttpRequest,
 };
 use futures::future::LocalBoxFuture;
@@ -242,25 +242,36 @@ where
     fn call(&self, mut req: ServiceRequest) -> Self::Future {
         let svc = self.service.clone();
         Box::pin(async move {
-            if req
+            let log_unprocessible_req_body = req
                 .app_data::<Data<AppState>>()
-                .map_or(false, |data| data.log_unprocessible_req_body)
-            {
+                .map_or(vec![], |data| data.log_unprocessible_req_body.to_owned());
+
+            if !log_unprocessible_req_body.is_empty() {
                 let body = req.extract::<web::Bytes>().await?;
                 let body_clone = body.clone();
 
                 req.set_payload(bytes_to_payload(body));
 
-                let response = svc.call(req).await?;
-                if response
-                    .response()
-                    .error()
-                    .map_or(false, |err| err.to_string() == "UNPROCESSIBLE_REQUEST")
-                {
-                    warn!("Raw Request Body: {:?}", body_clone);
+                match svc.call(req).await {
+                    Ok(response) => {
+                        if let Some(err_resp) = response.response().error() {
+                            log_request_and_response_body(
+                                log_unprocessible_req_body,
+                                err_resp,
+                                body_clone,
+                            );
+                        }
+                        Ok(response)
+                    }
+                    Err(err_resp) => {
+                        log_request_and_response_body(
+                            log_unprocessible_req_body,
+                            &err_resp,
+                            body_clone,
+                        );
+                        Err(err_resp)
+                    }
                 }
-
-                Ok(response)
             } else {
                 Ok(svc.call(req).await?)
             }
@@ -369,6 +380,18 @@ fn calculate_metrics(
             "SUCCESS",
             time
         );
+    }
+}
+
+/// Logs the request body for the allowed error codes.
+///
+/// # Arguments
+/// * `err_codes` - Allowed error codes for whom the request body is allowed to be logged.
+/// * `err_resp` - reference to an error response.
+/// * `request_body` - Request body represented in byte string.
+fn log_request_and_response_body(err_codes: Vec<String>, err_resp: &Error, request_body: Bytes) {
+    if err_codes.contains(&err_resp.to_string()) {
+        warn!("Raw Request Body: {:?}", request_body);
     }
 }
 

@@ -6,6 +6,8 @@
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
+use std::pin::Pin;
+
 use crate::common::utils::{distance_between_in_meters, get_city, is_blacklist_for_special_zone};
 use crate::common::{sliding_window_rate_limiter::sliding_window_limiter, types::*};
 use crate::domain::types::ui::location::*;
@@ -16,6 +18,8 @@ use crate::redis::{commands::*, keys::*};
 use actix::Arbiter;
 use actix_web::web::Data;
 use chrono::Utc;
+use futures::future::join_all;
+use futures::Future;
 use reqwest::Url;
 use shared::redis::types::RedisConnectionPool;
 use shared::tools::error::AppError;
@@ -26,18 +30,24 @@ async fn get_driver_id_from_authentication(
     auth_url: &Url,
     auth_api_key: &str,
     auth_token_expiry: &u32,
-    Token(token): Token,
+    token: &Token,
     MerchantId(merchant_id): &MerchantId,
 ) -> Result<DriverId, AppError> {
-    let response = authenticate_dobpp(auth_url, token.as_str(), auth_api_key, merchant_id).await?;
-    set_driver_id(
-        persistent_redis,
-        auth_token_expiry,
-        &Token(token),
-        &response.driver_id,
-    )
-    .await?;
-    Ok(response.driver_id)
+    match get_driver_id(persistent_redis, token).await? {
+        Some(driver_id) => Ok(driver_id),
+        None => {
+            let response =
+                authenticate_dobpp(auth_url, token.0.as_str(), auth_api_key, merchant_id).await?;
+            set_driver_id(
+                persistent_redis,
+                auth_token_expiry,
+                token,
+                &response.driver_id,
+            )
+            .await?;
+            Ok(response.driver_id)
+        }
+    }
 }
 
 fn get_filtered_driver_locations(
@@ -72,20 +82,15 @@ pub async fn update_driver_location(
     mut locations: Vec<UpdateDriverLocationRequest>,
     driver_mode: DriverMode,
 ) -> Result<APISuccess, AppError> {
-    let driver_id = match get_driver_id(&data.persistent_redis, &token).await? {
-        Some(driver_id) => driver_id,
-        None => {
-            get_driver_id_from_authentication(
-                &data.persistent_redis,
-                &data.auth_url,
-                &data.auth_api_key,
-                &data.auth_token_expiry,
-                token,
-                &merchant_id,
-            )
-            .await?
-        }
-    };
+    let driver_id = get_driver_id_from_authentication(
+        &data.persistent_redis,
+        &data.auth_url,
+        &data.auth_api_key,
+        &data.auth_token_expiry,
+        &token,
+        &merchant_id,
+    )
+    .await?;
 
     if locations.len() > data.batch_size as usize {
         warn!(
@@ -101,19 +106,7 @@ pub async fn update_driver_location(
         (a_ts).cmp(&b_ts)
     });
 
-    let last_known_location = get_driver_location(&data.persistent_redis, &driver_id).await;
-
-    let last_known_location = match last_known_location {
-        Ok(Some(last_known_location)) => Some(last_known_location),
-        Ok(None) => {
-            warn!("Driver last_known_location not found.");
-            None
-        }
-        Err(err) => {
-            warn!("Driver last_known_location not found. {}", err.message());
-            None
-        }
-    };
+    let last_known_location = get_driver_location(&data.persistent_redis, &driver_id).await?;
 
     let locations: Vec<UpdateDriverLocationRequest> = locations
         .into_iter()
@@ -221,21 +214,21 @@ async fn process_driver_locations(
         TimeStamp(latest_driver_location_ts)
     };
 
-    if let Err(err) = set_driver_last_location_update(
-        &data.persistent_redis,
-        &data.last_location_timstamp_expiry,
-        &driver_id,
-        &merchant_id,
-        &latest_driver_location.pt,
-        &latest_driver_location_ts,
-    )
-    .await
-    {
-        error!(
-            "Error occured in set_driver_last_location_update => {}",
-            err.message()
-        );
-    }
+    let mut all_tasks: Vec<Pin<Box<dyn Future<Output = Result<(), AppError>>>>> = Vec::new();
+
+    let set_driver_last_location_update = async {
+        set_driver_last_location_update(
+            &data.persistent_redis,
+            &data.last_location_timstamp_expiry,
+            &driver_id,
+            &merchant_id,
+            &latest_driver_location.pt,
+            &latest_driver_location_ts,
+        )
+        .await?;
+        Ok(())
+    };
+    all_tasks.push(Box::pin(set_driver_last_location_update));
 
     let is_blacklist_for_special_zone = is_blacklist_for_special_zone(
         &merchant_id,
@@ -246,24 +239,29 @@ async fn process_driver_locations(
     );
 
     if !is_blacklist_for_special_zone {
-        let _ = &data
-            .sender
-            .send((
-                Dimensions {
-                    merchant_id: merchant_id.to_owned(),
-                    city: city.to_owned(),
-                    vehicle_type: vehicle_type.to_owned(),
-                    new_ride: driver_ride_status
-                        .as_ref()
-                        .map(|ride_status| ride_status == &RideStatus::NEW)
-                        .unwrap_or(false),
-                },
-                latest_driver_location.pt.lat,
-                latest_driver_location.pt.lon,
-                latest_driver_location_ts.to_owned(),
-                driver_id.to_owned(),
-            ))
-            .await;
+        let send_driver_location_to_drainer = async {
+            let _ = &data
+                .sender
+                .send((
+                    Dimensions {
+                        merchant_id: merchant_id.to_owned(),
+                        city: city.to_owned(),
+                        vehicle_type: vehicle_type.to_owned(),
+                        new_ride: driver_ride_status
+                            .as_ref()
+                            .map(|ride_status| ride_status == &RideStatus::NEW)
+                            .unwrap_or(false),
+                    },
+                    latest_driver_location.pt.lat,
+                    latest_driver_location.pt.lon,
+                    latest_driver_location_ts.to_owned(),
+                    driver_id.to_owned(),
+                ))
+                .await
+                .map_err(|err| AppError::DrainerPushFailed(err.to_string()))?;
+            Ok(())
+        };
+        all_tasks.push(Box::pin(send_driver_location_to_drainer));
     } else {
         warn!(
             "Skipping GEOADD for special zone ({:?}) Driver Id : {:?}, Merchant Id : {:?}",
@@ -322,25 +320,38 @@ async fn process_driver_locations(
             .await?;
             on_ride_driver_locations.extend(geo_entries);
 
-            bulk_location_update_dobpp(
-                &data.bulk_location_callback_url,
-                ride_id.to_owned(),
-                driver_id.to_owned(),
-                on_ride_driver_locations,
-            )
-            .await
-            .map_err(|err| AppError::DriverBulkLocationUpdateFailed(err.message()))?;
+            let bulk_location_update_dobpp = async {
+                bulk_location_update_dobpp(
+                    &data.bulk_location_callback_url,
+                    ride_id.to_owned(),
+                    driver_id.to_owned(),
+                    on_ride_driver_locations,
+                )
+                .await
+                .map_err(|err| AppError::DriverBulkLocationUpdateFailed(err.message()))?;
+                Ok(())
+            };
+            all_tasks.push(Box::pin(bulk_location_update_dobpp));
         } else {
-            push_on_ride_driver_locations(
-                &data.persistent_redis,
-                &driver_id,
-                &merchant_id,
-                geo_entries,
-                &data.redis_expiry,
-            )
-            .await?;
+            let push_on_ride_driver_locations = async {
+                push_on_ride_driver_locations(
+                    &data.persistent_redis,
+                    &driver_id,
+                    &merchant_id,
+                    geo_entries,
+                    &data.redis_expiry,
+                )
+                .await?;
+                Ok(())
+            };
+            all_tasks.push(Box::pin(push_on_ride_driver_locations));
         }
     }
+
+    join_all(all_tasks)
+        .await
+        .into_iter()
+        .try_for_each(Result::from)?;
 
     Arbiter::current().spawn(async move {
         kafka_stream_updates(
@@ -366,10 +377,7 @@ pub async fn track_driver_location(
     let RideId(unwrapped_ride_id) = ride_id.to_owned();
 
     let driver_details = get_driver_details(&data.persistent_redis, &ride_id)
-        .await
-        .map_err(|_| {
-            AppError::InvalidRideStatus(unwrapped_ride_id.to_owned(), "COMPLETED".to_string())
-        })?
+        .await?
         .ok_or(AppError::InvalidRideStatus(
             unwrapped_ride_id.to_owned(),
             "COMPLETED".to_string(),
@@ -382,8 +390,6 @@ pub async fn track_driver_location(
 
     Ok(DriverLocationResponse {
         curr_point: driver_last_known_location_details.location,
-        total_distance: 0.0, // TODO :: Backward Compatibility : To be removed
-        status: "PreRide".to_string(), // TODO :: Backward Compatibility : To be removed
         last_update: driver_last_known_location_details.timestamp,
     })
 }
