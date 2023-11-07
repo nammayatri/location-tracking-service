@@ -28,10 +28,17 @@ impl RedisConnectionPool {
         V: TryInto<RedisValue> + Debug + Send + Sync,
         V::Error: Into<fred::error::RedisError> + Send + Sync,
     {
-        let output: Result<(), _> = self
-            .pool
-            .set(key, value, Some(Expiration::EX(expiry.into())), None, false)
-            .await;
+        let output: Result<(), _> = if self.migration_pool.is_some() {
+            self.migration_pool
+                .as_ref()
+                .unwrap()
+                .set(key, value, Some(Expiration::EX(expiry.into())), None, false)
+                .await
+        } else {
+            self.pool
+                .set(key, value, Some(Expiration::EX(expiry.into())), None, false)
+                .await
+        };
 
         if let Err(err) = output {
             Err(AppError::SetFailed(err.to_string()))
@@ -80,7 +87,16 @@ impl RedisConnectionPool {
 
     // get key
     pub async fn get_key(&self, key: &str) -> Result<Option<String>, AppError> {
-        let output: Result<RedisValue, _> = self.pool.get(key).await;
+        let output: Result<RedisValue, _> = if self.migration_pool.is_some() {
+            let val = self.migration_pool.as_ref().unwrap().get(key).await;
+            if let Ok(RedisValue::Null) = val {
+                self.pool.get(key).await
+            } else {
+                val
+            }
+        } else {
+            self.pool.get(key).await
+        };
 
         match output {
             Ok(RedisValue::String(val)) => Ok(Some(val.to_string())),
@@ -101,7 +117,21 @@ impl RedisConnectionPool {
 
         let keys: Vec<RedisKey> = keys.into_iter().map(RedisKey::from).collect();
 
-        let output: Result<RedisValue, _> = self.pool.mget(MultipleKeys::from(keys)).await;
+        let output: Result<RedisValue, _> = if self.migration_pool.is_some() {
+            let val = self
+                .migration_pool
+                .as_ref()
+                .unwrap()
+                .mget(MultipleKeys::from(keys.clone()))
+                .await;
+            if let Ok(RedisValue::Null) = val {
+                self.pool.mget(MultipleKeys::from(keys)).await
+            } else {
+                val
+            }
+        } else {
+            self.pool.mget(MultipleKeys::from(keys)).await
+        };
 
         match output {
             Ok(RedisValue::Array(val)) => Ok(val.into_iter().map(|v| v.into_string()).collect()),
@@ -128,7 +158,11 @@ impl RedisConnectionPool {
 
     // delete multiple keys
     pub async fn delete_keys(&self, keys: Vec<&str>) -> Result<(), AppError> {
-        let pipeline = self.pool.pipeline();
+        let pipeline = if self.migration_pool.is_some() {
+            self.migration_pool.as_ref().unwrap().pipeline()
+        } else {
+            self.pool.pipeline()
+        };
 
         for key in keys {
             let _ = pipeline.del::<RedisValue, &str>(key).await;
@@ -216,14 +250,34 @@ impl RedisConnectionPool {
             return self.llen(key).await;
         }
 
-        let pipeline = self.pool.pipeline();
-
-        let _ = pipeline
-            .rpush::<RedisValue, &str, Vec<V>>(key, values)
-            .await;
-        let _ = pipeline.expire::<(), &str>(key, expiry.into()).await;
-
-        let output: Result<Vec<RedisValue>, RedisError> = pipeline.all().await;
+        let output: Result<Vec<RedisValue>, RedisError> = if self.migration_pool.is_some() {
+            let x: Result<i64, RedisError> = self.pool.exists(vec![key]).await;
+            // info!("key {:?} exists xyz {:?}", key, x);
+            if x.unwrap() == 1 {
+                let pipeline = self.pool.pipeline();
+                let _ = pipeline
+                    .rpush::<RedisValue, &str, Vec<V>>(key, values)
+                    .await;
+                let _ = pipeline.expire::<(), &str>(key, expiry.into()).await;
+                pipeline.all().await
+            } else {
+                let migration_pipeline = self.migration_pool.as_ref().unwrap().pipeline();
+                let _ = migration_pipeline
+                    .rpush::<RedisValue, &str, Vec<V>>(key, values)
+                    .await;
+                let _ = migration_pipeline
+                    .expire::<(), &str>(key, expiry.into())
+                    .await;
+                migration_pipeline.all().await
+            }
+        } else {
+            let pipeline = self.pool.pipeline();
+            let _ = pipeline
+                .rpush::<RedisValue, &str, Vec<V>>(key, values)
+                .await;
+            let _ = pipeline.expire::<(), &str>(key, expiry.into()).await;
+            pipeline.all().await
+        };
 
         match output.as_deref() {
             Ok([RedisValue::Integer(length), ..]) => Ok(length.to_owned()),
@@ -260,7 +314,17 @@ impl RedisConnectionPool {
 
     //LPOP
     pub async fn lpop(&self, key: &str, count: Option<usize>) -> Result<Vec<String>, AppError> {
-        let output = self.pool.lpop(key, count).await;
+        let output = if self.migration_pool.is_some() {
+            let x: Result<i64, RedisError> = self.pool.exists(vec![key]).await;
+            // info!("key {:?} exists xyz {:?}", key, x);
+            if x.unwrap() == 1 {
+                self.pool.lpop(key, count).await
+            } else {
+                self.migration_pool.as_ref().unwrap().lpop(key, count).await
+            }
+        } else {
+            self.pool.lpop(key, count).await
+        };
 
         match output {
             Ok(RedisValue::Array(val)) => {
@@ -306,7 +370,16 @@ impl RedisConnectionPool {
 
     //LLEN
     pub async fn llen(&self, key: &str) -> Result<i64, AppError> {
-        let output = self.pool.llen(key).await;
+        let output = if self.migration_pool.is_some() {
+            let x: Result<i64, RedisError> = self.pool.exists(vec![key]).await;
+            if x.unwrap() == 1 {
+                self.pool.llen(key).await
+            } else {
+                self.migration_pool.as_ref().unwrap().llen(key).await
+            }
+        } else {
+            self.pool.llen(key).await
+        };
 
         match output {
             Ok(RedisValue::Integer(length)) => Ok(length),
@@ -374,21 +447,67 @@ impl RedisConnectionPool {
         changed: bool,
         expiry: i64,
     ) -> Result<(), AppError> {
-        let pipeline = self.pool.pipeline();
+        let output: Result<Vec<RedisValue>, RedisError> = if self.migration_pool.is_some() {
+            let pipeline = self.pool.pipeline();
+            let migration_pipeline = self.migration_pool.as_ref().unwrap().pipeline();
+            for (key, values) in mval.iter() {
+                let x: Result<i64, RedisError> = self.pool.exists(vec![key]).await;
+                if x.unwrap() == 1 {
+                    let _ = pipeline
+                        .geoadd::<RedisValue, &str, MultipleGeoValues>(
+                            key,
+                            options.to_owned(),
+                            changed,
+                            MultipleGeoValues::from(values.to_owned()),
+                        )
+                        .await;
+                    let _ = pipeline.expire::<(), &str>(key, expiry).await;
+                } else {
+                    let _ = migration_pipeline
+                        .geoadd::<RedisValue, &str, MultipleGeoValues>(
+                            key,
+                            options.to_owned(),
+                            changed,
+                            MultipleGeoValues::from(values.to_owned()),
+                        )
+                        .await;
+                    let _ = migration_pipeline.expire::<(), &str>(key, expiry).await;
+                }
+            }
+            let output: Result<Vec<RedisValue>, RedisError> = pipeline.all().await;
+            let migration_output: Result<Vec<RedisValue>, RedisError> =
+                migration_pipeline.all().await;
 
-        for (key, values) in mval.iter() {
-            let _ = pipeline
-                .geoadd::<RedisValue, &str, MultipleGeoValues>(
-                    key,
-                    options.to_owned(),
-                    changed,
-                    MultipleGeoValues::from(values.to_owned()),
-                )
-                .await;
-            let _ = pipeline.expire::<(), &str>(key, expiry).await;
-        }
+            if let Err(err) = output {
+                Err(err)
+            } else if let Err(err) = migration_output {
+                Err(err)
+            } else if let Ok(migration_output) = migration_output {
+                if let Ok(mut output) = output {
+                    output.extend(migration_output);
+                    Ok(output)
+                } else {
+                    Ok(migration_output)
+                }
+            } else {
+                output
+            }
+        } else {
+            let pipeline = self.pool.pipeline();
 
-        let output: Result<Vec<RedisValue>, RedisError> = pipeline.all().await;
+            for (key, values) in mval.iter() {
+                let _ = pipeline
+                    .geoadd::<RedisValue, &str, MultipleGeoValues>(
+                        key,
+                        options.to_owned(),
+                        changed,
+                        MultipleGeoValues::from(values.to_owned()),
+                    )
+                    .await;
+                let _ = pipeline.expire::<(), &str>(key, expiry).await;
+            }
+            pipeline.all().await
+        };
 
         if let Err(err) = output {
             Err(AppError::GeoAddFailed(err.to_string()))
@@ -445,26 +564,78 @@ impl RedisConnectionPool {
         ord: Option<SortOrder>,
         count: Option<(u64, fred::types::Any)>,
     ) -> Result<Vec<GeoRadiusInfo>, AppError> {
-        let pipeline = self.pool.pipeline();
+        let output: Result<Vec<Vec<RedisValue>>, RedisError> = if self.migration_pool.is_some() {
+            let pipeline = self.pool.pipeline();
+            let migration_pipeline = self.migration_pool.as_ref().unwrap().pipeline();
 
-        for key in keys {
-            let _ = pipeline
-                .geosearch(
-                    key,
-                    from_member.to_owned(),
-                    from_lonlat.to_owned(),
-                    by_radius.to_owned(),
-                    by_box.to_owned(),
-                    ord.to_owned(),
-                    count,
-                    true,
-                    false,
-                    false,
-                )
-                .await;
-        }
+            for key in keys.clone() {
+                // let x: Result<i64, _>  = self.pool.exists(vec![key.clone()]).await;
 
-        let output: Result<Vec<Vec<RedisValue>>, RedisError> = pipeline.all().await;
+                let _ = pipeline
+                    .geosearch(
+                        key.clone(),
+                        from_member.to_owned(),
+                        from_lonlat.to_owned(),
+                        by_radius.to_owned(),
+                        by_box.to_owned(),
+                        ord.to_owned(),
+                        count,
+                        true,
+                        false,
+                        false,
+                    )
+                    .await;
+                let _ = migration_pipeline
+                    .geosearch(
+                        key,
+                        from_member.to_owned(),
+                        from_lonlat.to_owned(),
+                        by_radius.to_owned(),
+                        by_box.to_owned(),
+                        ord.to_owned(),
+                        count,
+                        true,
+                        false,
+                        false,
+                    )
+                    .await;
+            }
+
+            let output: Result<Vec<Vec<RedisValue>>, RedisError> = pipeline.all().await;
+            let migration_output: Result<Vec<Vec<RedisValue>>, RedisError> =
+                migration_pipeline.all().await;
+
+            if let Ok(migration_output) = migration_output {
+                if let Ok(mut output) = output {
+                    output.extend(migration_output);
+                    Ok(output)
+                } else {
+                    Ok(migration_output)
+                }
+            } else {
+                output
+            }
+        } else {
+            let pipeline = self.pool.pipeline();
+            for key in keys {
+                let _ = pipeline
+                    .geosearch(
+                        key,
+                        from_member.to_owned(),
+                        from_lonlat.to_owned(),
+                        by_radius.to_owned(),
+                        by_box.to_owned(),
+                        ord.to_owned(),
+                        count,
+                        true,
+                        false,
+                        false,
+                    )
+                    .await;
+            }
+            let output: Result<Vec<Vec<RedisValue>>, RedisError> = pipeline.all().await;
+            output
+        };
 
         match output {
             Ok(geovals) => {
