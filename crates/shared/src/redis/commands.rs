@@ -67,6 +67,25 @@ impl RedisConnectionPool {
             .map_err(|err| AppError::SetFailed(err.to_string()))
     }
 
+    pub async fn set_key_as_str(
+        &self,
+        key: &str,
+        value: &str,
+        expiry: u32,
+    ) -> Result<(), AppError> {
+        let redis_value: RedisValue = value.into();
+        self.pool
+            .set(
+                key,
+                redis_value,
+                Some(Expiration::EX(expiry.into())),
+                None,
+                false,
+            )
+            .await
+            .map_err(|err| AppError::SetFailed(err.to_string()))
+    }
+
     /// Asynchronously sets a key-value pair in a Redis datastore with an expiry time, only if the key does not already exist.
     ///
     /// This function aims to perform a conditional set operation (SETNX) followed by setting an expiration time on the key.
@@ -178,6 +197,41 @@ impl RedisConnectionPool {
             RedisValue::String(val) => serde_json::from_str(&val)
                 .map(Some)
                 .map_err(|err| AppError::DeserializationError(err.to_string())),
+            RedisValue::Null => Ok(None),
+            case => Err(AppError::GetFailed(format!(
+                "Unexpected RedisValue encountered : {:?}",
+                case
+            ))),
+        }
+    }
+
+    /// Retrieves a value associated with the given key from Redis as a string.
+    ///
+    /// This function queries Redis for the key and attempts to return the value as a string.
+    /// If the key does not exist or the value is not a string, appropriate errors are returned.
+    ///
+    /// # Arguments
+    /// * `key` - A string slice that holds the key to retrieve the value for.
+    ///
+    /// # Returns
+    /// This function returns a `Result` which is:
+    /// - `Ok(Some(String))` if the key exists and the value is a string.
+    /// - `Ok(None)` if the key does not exist in Redis.
+    /// - `Err(AppError)` if there is a problem retrieving the value or the value is not a string.
+    ///
+    /// # Errors
+    /// This function will return an `AppError::GetFailed` error in the following cases:
+    /// - If the Redis query itself fails for any reason (e.g., connection issues).
+    /// - If the value retrieved is not a string or is another data type not expected.
+    pub async fn get_key_as_str(&self, key: &str) -> Result<Option<String>, AppError> {
+        let output: RedisValue = self
+            .pool
+            .get(key)
+            .await
+            .map_err(|err| AppError::GetFailed(err.to_string()))?;
+
+        match output {
+            RedisValue::String(val) => Ok(Some(val.to_string())),
             RedisValue::Null => Ok(None),
             case => Err(AppError::GetFailed(format!(
                 "Unexpected RedisValue encountered : {:?}",

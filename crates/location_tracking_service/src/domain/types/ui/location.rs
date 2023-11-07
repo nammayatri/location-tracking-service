@@ -20,7 +20,5 @@ pub struct UpdateDriverLocationRequest {
 #[serde(rename_all = "camelCase")]
 pub struct DriverLocationResponse {
     pub curr_point: Point,
-    pub total_distance: f32,
-    pub status: String,
     pub last_update: TimeStamp,
 }

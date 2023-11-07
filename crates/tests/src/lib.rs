@@ -20,7 +20,7 @@ async fn test_set_key() {
             let pool = RedisConnectionPool::new(RedisSettings::default(), None)
                 .await
                 .expect("Failed to create Redis Connection Pool");
-            let result = pool.set_key("helloworld!", "value".to_string(), 3600).await;
+            let result = pool.set_key_as_str("helloworld!", "value", 3600).await;
             result.is_ok()
         })
     })

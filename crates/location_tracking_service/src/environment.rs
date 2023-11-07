@@ -50,7 +50,7 @@ pub struct AppConfig {
     pub driver_location_accuracy_buffer: f64,
     pub blacklist_merchants: Vec<String>,
     pub request_timeout: u64,
-    pub log_unprocessible_req_body: bool,
+    pub log_unprocessible_req_body: Vec<String>,
     pub max_allowed_req_size: usize,
 }
 
@@ -100,7 +100,7 @@ pub struct AppState {
     pub driver_location_accuracy_buffer: f64,
     pub blacklist_merchants: Vec<MerchantId>,
     pub max_allowed_req_size: usize,
-    pub log_unprocessible_req_body: bool,
+    pub log_unprocessible_req_body: Vec<String>,
     pub request_timeout: u64,
 }
 

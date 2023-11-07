@@ -412,7 +412,7 @@ pub async fn set_driver_id(
     DriverId(driver_id): &DriverId,
 ) -> Result<(), AppError> {
     persistent_redis_pool
-        .set_key(&set_driver_id_key(token), driver_id, *auth_token_expiry)
+        .set_key_as_str(&set_driver_id_key(token), driver_id, *auth_token_expiry)
         .await
 }
 
@@ -433,7 +433,7 @@ pub async fn get_driver_id(
     token: &Token,
 ) -> Result<Option<DriverId>, AppError> {
     Ok(persistent_redis_pool
-        .get_key(&set_driver_id_key(token))
+        .get_key_as_str(&set_driver_id_key(token))
         .await?
         .map(DriverId))
 }
@@ -471,10 +471,10 @@ where
         let resp = callback(args).await;
         redis.delete_key(&key).await?;
         info!("Released lock : {}", &key);
-        return resp;
+        resp
+    } else {
+        Err(AppError::HitsLimitExceeded(key))
     }
-
-    Err(AppError::HitsLimitExceeded(key))
 }
 
 /// Retrieve the last known locations for a list of drivers.

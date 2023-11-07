@@ -149,9 +149,9 @@ async fn start_server() -> std::io::Result<()> {
                     .error_handler(|err, _| AppError::UnprocessibleRequest(err.to_string()).into()),
             )
             .app_data(web::PayloadConfig::default().limit(max_allowed_req_size))
-            .wrap(LogIncomingRequestBody)
             .wrap(RequestTimeout)
             .wrap(CheckContentLength)
+            .wrap(LogIncomingRequestBody)
             .wrap(IncomingRequestMetrics)
             .wrap(TracingLogger::<DomainRootSpanBuilder>::new())
             .wrap(prometheus.clone())
