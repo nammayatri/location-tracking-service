@@ -19,17 +19,16 @@ pub enum DriverRideStatus {
 
 #[derive(Serialize)]
 pub struct LocationUpdate {
-    pub r_id: Option<RideId>,
-    pub m_id: MerchantId,
+    pub rid: Option<RideId>,
+    pub mid: MerchantId,
     pub ts: TimeStamp,
     pub st: TimeStamp,
-    pub pt: Point,
     pub lat: Latitude,
     pub lon: Longitude,
     pub acc: Accuracy,
     pub speed: SpeedInMeterPerSecond,
     pub ride_status: DriverRideStatus,
-    pub da: bool,
+    pub active: bool,
     pub on_ride: bool,
     pub mode: DriverMode,
 }
