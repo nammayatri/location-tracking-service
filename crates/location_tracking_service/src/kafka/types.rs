@@ -8,7 +8,7 @@
 use crate::common::types::*;
 use serde::Serialize;
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Clone, PartialEq)]
 pub enum DriverRideStatus {
     #[serde(rename = "ON_RIDE")]
     OnRide,
@@ -24,9 +24,12 @@ pub struct LocationUpdate {
     pub ts: TimeStamp,
     pub st: TimeStamp,
     pub pt: Point,
+    pub lat: Latitude,
+    pub lon: Longitude,
     pub acc: Accuracy,
     pub speed: SpeedInMeterPerSecond,
     pub ride_status: DriverRideStatus,
     pub da: bool,
+    pub on_ride: bool,
     pub mode: DriverMode,
 }
