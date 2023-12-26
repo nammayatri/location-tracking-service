@@ -19,7 +19,6 @@ thiserror = "1.0.39"
 fred = { version = "6.0.0", features = ["metrics", "partial-tracing"] }
 reqwest = {version = "0.11.18", features = ["json"]}
 tokio = "1.28.2"
-actix-web-prom = "0.7.0"
 strum_macros = "0.24.0"
 tracing-bunyan-formatter = "0.3.9"
 tracing-log = "0.1.3"

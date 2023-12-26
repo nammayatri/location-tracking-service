@@ -7,11 +7,12 @@
 */
 use crate::common::{types::*, utils::cat_maybes};
 use crate::redis::keys::*;
+use crate::tools::error::AppError;
 use fred::types::{GeoPosition, GeoUnit, GeoValue, SortOrder};
 use futures::Future;
 use rustc_hash::{FxHashMap, FxHashSet};
-use shared::utils::logger::*;
-use shared::{redis::types::RedisConnectionPool, tools::error::AppError};
+use shared::redis::types::RedisConnectionPool;
+use tracing::info;
 
 /// Sets the ride details (i.e, rideId and rideStatus) to the Redis store.
 ///
@@ -46,7 +47,8 @@ pub async fn set_ride_details(
             ride_details,
             *redis_expiry,
         )
-        .await?;
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))?;
 
     Ok(())
 }
@@ -78,6 +80,7 @@ pub async fn get_ride_details(
     persistent_redis_pool
         .get_key::<RideDetails>(&on_ride_details_key(merchant_id, driver_id))
         .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
 }
 
 /// Cleans up the ride details for a given merchant, driver, and ride from the Redis store.
@@ -116,6 +119,7 @@ pub async fn ride_cleanup(
             &on_ride_loc_key(merchant_id, driver_id),
         ])
         .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
 }
 
 /// Stores the driver details associated with a specific ride into the Redis database.
@@ -150,6 +154,7 @@ pub async fn set_driver_details(
             *redis_expiry,
         )
         .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
 }
 
 /// Retrieves driver details (driverId) associated with a specific ride.
@@ -172,6 +177,7 @@ pub async fn get_driver_details(
     persistent_redis_pool
         .get_key::<DriverDetails>(&on_ride_driver_details_key(ride_id))
         .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -199,7 +205,8 @@ pub async fn get_drivers_within_radius(
             (*radius, GeoUnit::Meters),
             SortOrder::Asc,
         )
-        .await?;
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))?;
 
     let nearby_drivers: Vec<(DriverId, Point)> = cat_maybes(nearby_drivers)
         .into_iter()
@@ -252,7 +259,8 @@ pub async fn get_driver_location(
 ) -> Result<Option<DriverLastKnownLocation>, AppError> {
     let driver_last_known_location = persistent_redis_pool
         .get_key::<DriverAllDetails>(&driver_details_key(driver_id))
-        .await?
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))?
         .map(|details| details.driver_last_known_location);
     Ok(driver_last_known_location)
 }
@@ -302,7 +310,8 @@ pub async fn set_driver_last_location_update(
             value,
             *last_location_timstamp_expiry,
         )
-        .await?;
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))?;
 
     Ok(last_known_location)
 }
@@ -338,6 +347,7 @@ pub async fn push_on_ride_driver_locations(
             *rpush_expiry,
         )
         .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
 }
 
 /// Retrieves the count of geographical locations for a driver during an active ride from Redis.
@@ -363,6 +373,7 @@ pub async fn get_on_ride_driver_locations_count(
     persistent_redis_pool
         .llen(&on_ride_loc_key(merchant_id, driver_id))
         .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
 }
 
 /// Fetches the driver's geographical locations during an active ride from Redis.
@@ -389,6 +400,7 @@ pub async fn get_on_ride_driver_locations(
     persistent_redis_pool
         .lpop::<Point>(&on_ride_loc_key(merchant_id, driver_id), Some(len as usize))
         .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
 }
 
 /// Caches a driver's unique identifier (driverId) with a given authentication token in Redis.
@@ -414,6 +426,7 @@ pub async fn set_driver_id(
     persistent_redis_pool
         .set_key_as_str(&set_driver_id_key(token), driver_id, *auth_token_expiry)
         .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
 }
 
 /// Retrieves a driver's unique identifier (driverId) associated with a given authentication token from Redis.
@@ -434,7 +447,8 @@ pub async fn get_driver_id(
 ) -> Result<Option<DriverId>, AppError> {
     Ok(persistent_redis_pool
         .get_key_as_str(&set_driver_id_key(token))
-        .await?
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))?
         .map(DriverId))
 }
 
@@ -466,10 +480,17 @@ where
     Args: Send + 'static,
     Fut: Future<Output = Result<(), AppError>>,
 {
-    if redis.setnx_with_expiry(&key, true, expiry).await? {
+    if redis
+        .setnx_with_expiry(&key, true, expiry)
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))?
+    {
         info!("Got lock : {}", &key);
         let resp = callback(args).await;
-        redis.delete_key(&key).await?;
+        redis
+            .delete_key(&key)
+            .await
+            .map_err(|err| AppError::InternalError(err.to_string()))?;
         info!("Released lock : {}", &key);
         resp
     } else {
@@ -510,7 +531,8 @@ pub async fn get_all_driver_last_locations(
 
     let driver_last_known_location = persistent_redis_pool
         .mget_keys::<DriverAllDetails>(driver_last_location_updates_keys)
-        .await?
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))?
         .into_iter()
         .map(|opt_detail| opt_detail.map(|detail| detail.driver_last_known_location))
         .collect::<Vec<Option<DriverLastKnownLocation>>>();
@@ -549,4 +571,5 @@ pub async fn push_drainer_driver_location(
     non_persistent_redis
         .mgeo_add_with_expiry(geo_entries, None, false, *bucket_expiry)
         .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
 }

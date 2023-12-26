@@ -6,8 +6,18 @@
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-#![deny(clippy::unwrap_used)]
-#![deny(clippy::expect_used)]
-#![deny(clippy::panic)]
+use serde::{Deserialize, Serialize};
 
-pub mod redis;
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ErrorBody {
+    error_message: String,
+    pub error_code: String,
+}
+
+#[macros::add_error]
+pub enum AppError {
+    InternalError(String),
+    InvalidRequest(String),
+    PanicOccured(String),
+}

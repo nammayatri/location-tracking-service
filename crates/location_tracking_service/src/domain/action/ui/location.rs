@@ -15,6 +15,7 @@ use crate::environment::AppState;
 use crate::kafka::producers::kafka_stream_updates;
 use crate::outbound::external::{authenticate_dobpp, bulk_location_update_dobpp};
 use crate::redis::{commands::*, keys::*};
+use crate::tools::error::AppError;
 use actix::Arbiter;
 use actix_web::web::Data;
 use chrono::Utc;
@@ -22,8 +23,7 @@ use futures::future::join_all;
 use futures::Future;
 use reqwest::Url;
 use shared::redis::types::RedisConnectionPool;
-use shared::tools::error::AppError;
-use shared::utils::logger::*;
+use tracing::{info, warn};
 
 async fn get_driver_id_from_authentication(
     persistent_redis: &RedisConnectionPool,

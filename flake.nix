@@ -59,7 +59,7 @@
               self'.devShells.services
             ];
             shellHook = ''
-              export REDIS_HOST=${config.process-compose."lts-services".services.redis."redis1".bind}
+              export REDIS_HOST=${config.process-compose."run-services".services.redis."redis1".bind}
               export DATABASE_URL=postgresql://postgres:root@localhost:5434/atlas_dev
 
               echo

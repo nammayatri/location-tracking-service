@@ -6,8 +6,6 @@
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-#![deny(clippy::unwrap_used)]
-#![deny(clippy::expect_used)]
-#![deny(clippy::panic)]
-
-pub mod redis;
+pub fn notification_duration_key(notification_id: String) -> String {
+    format!("notifition:duration:{}", notification_id)
+}

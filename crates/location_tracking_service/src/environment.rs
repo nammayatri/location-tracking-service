@@ -12,13 +12,14 @@ use std::{env::var, sync::Arc};
 use rdkafka::{error::KafkaError, producer::FutureProducer, ClientConfig};
 use reqwest::Url;
 use serde::Deserialize;
-use shared::{
-    redis::types::{RedisConnectionPool, RedisSettings},
-    utils::logger::*,
-};
+use shared::redis::types::{RedisConnectionPool, RedisSettings};
 use tokio::sync::mpsc::Sender;
+use tracing::info;
 
-use crate::common::{geo_polygon::read_geo_polygon, types::*};
+use crate::{
+    common::{geo_polygon::read_geo_polygon, types::*},
+    tools::logger::LoggerConfig,
+};
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct AppConfig {

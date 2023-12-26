@@ -8,9 +8,9 @@
 
 use crate::environment::AppState;
 use crate::redis::commands::*;
+use crate::tools::error::AppError;
 use crate::{common::types::*, domain::types::internal::ride::*};
 use actix_web::web::Data;
-use shared::tools::error::AppError;
 
 pub async fn ride_create(
     ride_id: RideId,

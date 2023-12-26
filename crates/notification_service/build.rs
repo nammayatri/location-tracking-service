@@ -6,8 +6,10 @@
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-#![deny(clippy::unwrap_used)]
-#![deny(clippy::expect_used)]
-#![deny(clippy::panic)]
-
-pub mod redis;
+fn main() {
+    #[allow(clippy::expect_used)]
+    tonic_build::configure()
+        .type_attribute(".", "#[derive(serde::Serialize, serde::Deserialize)]")
+        .compile(&["protos/notification_service.proto"], &["protos"])
+        .expect("Failed to compile `notification_service.proto` file");
+}

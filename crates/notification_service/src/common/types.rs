@@ -5,7 +5,17 @@
     or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more details. You should have received a copy of
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
+use serde::{Deserialize, Serialize};
 
-pub mod callapi;
-pub mod logger;
-pub mod prometheus;
+#[derive(Deserialize, Serialize, Clone, Debug, Eq, PartialEq)]
+pub struct Token(pub String);
+
+#[derive(Deserialize, Serialize, Clone, Debug, Eq, PartialEq, Hash)]
+pub struct ClientId(pub String);
+
+#[derive(Deserialize, Serialize, Clone)]
+pub enum NotificationStatus {
+    Sent,
+    Delivered,
+    Expired,
+}

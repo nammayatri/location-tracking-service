@@ -11,7 +11,7 @@
       };
       craneLib = (inputs.crane.mkLib pkgs).overrideToolchain rustToolchain;
       args = {
-        pname = "location-tracking-service";
+        pname = "rust-microservices";
         src = ./..;
         buildInputs = lib.optionals pkgs.stdenv.isDarwin
           (with pkgs.darwin.apple_sdk.frameworks; [

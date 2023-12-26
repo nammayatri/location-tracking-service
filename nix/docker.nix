@@ -7,7 +7,7 @@
         "aarch64-linux" = "-arm64";
         "aarch64-darwin" = "-arm64";
       };
-      imageName = "ghcr.io/nammayatri/location-tracking-service" + (imageNameSuffix.${system} or "");
+      imageName = "ghcr.io/nammayatri/rust-microservices" + (imageNameSuffix.${system} or "");
       # self.rev will be non-null only when the working tree is clean
       # This is equivalent to `git rev-parse --short HEAD`
       imageTag = builtins.substring 0 6 (self.rev or "dev");
@@ -26,7 +26,7 @@
               bash
               self'.packages.default
             ];
-            name = "location-tracking-service";
+            name = "rust-microservices";
             pathsToLink = [
               "/bin"
               "/opt"

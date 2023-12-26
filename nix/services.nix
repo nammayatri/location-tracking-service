@@ -3,7 +3,7 @@
   perSystem = { config, self', pkgs, lib, system, ... }:
 
     {
-      process-compose."lts-services" = {
+      process-compose."run-services" = {
         imports = [
           inputs.services-flake.processComposeModules.default
         ];
@@ -22,7 +22,7 @@
       # Flake outputs
       devShells.services = pkgs.mkShell {
         nativeBuildInputs = [
-          config.process-compose."lts-services".outputs.package
+          config.process-compose."run-services".outputs.package
         ];
       };
     };

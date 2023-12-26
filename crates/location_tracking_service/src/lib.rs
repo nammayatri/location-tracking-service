@@ -18,3 +18,4 @@ pub mod kafka;
 pub mod middleware;
 pub mod outbound;
 pub mod redis;
+pub mod tools;

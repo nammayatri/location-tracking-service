@@ -6,8 +6,10 @@
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-#![deny(clippy::unwrap_used)]
-#![deny(clippy::expect_used)]
-#![deny(clippy::panic)]
+tonic::include_proto!("notification_service");
 
+pub mod common;
+pub mod environment;
+pub mod reader;
 pub mod redis;
+pub mod tools;
