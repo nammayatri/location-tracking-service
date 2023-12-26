@@ -36,8 +36,14 @@ async fn get_driver_id_from_authentication(
     match get_driver_id(persistent_redis, token).await? {
         Some(driver_id) => Ok(driver_id),
         None => {
+            let final_merchant_id = if merchant_id == "96dd7f78-787e-4a0b-8675-e9e6fe93bb8f" {
+                "d2929b92-8b12-4e21-9efd-d6203940c4c5"
+            } else {
+                merchant_id
+            };
             let response =
-                authenticate_dobpp(auth_url, token.0.as_str(), auth_api_key, merchant_id).await?;
+                authenticate_dobpp(auth_url, token.0.as_str(), auth_api_key, final_merchant_id)
+                    .await?;
             set_driver_id(
                 persistent_redis,
                 auth_token_expiry,
