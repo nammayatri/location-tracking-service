@@ -33,6 +33,17 @@ let logger_cfg = {
     level = LogLevel.INFO,
     log_to_file = False
 }
+let cac_config = {
+    cac_hostname = "http://localhost:8080",
+    cac_polling_interval = 60,
+    update_cac_periodically = True,
+    cac_tenants = ["LTS-default"],
+}
+
+let superposition_client_config = {
+    superposition_hostname = "http://localhost:8080",
+    superposition_poll_frequency = 1,
+}
 -- drainer_delay :: 4 * 1024KB * 1024MB * 1024GB / 100 Bytes = 41943040
 in {
     logger_cfg = logger_cfg,
@@ -65,4 +76,6 @@ in {
     request_timeout = 9000,
     log_unprocessible_req_body = ["UNPROCESSIBLE_REQUEST", "REQUEST_TIMEOUT", "LARGE_PAYLOAD_SIZE", "HITS_LIMIT_EXCEEDED"],
     max_allowed_req_size = 512000, -- 500 KB
+    cac_config = cac_config,
+    superposition_client_config = superposition_client_config
 }

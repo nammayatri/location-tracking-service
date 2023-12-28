@@ -44,6 +44,8 @@ prometheus = { version = "0.13.3", features = ["process"] }
 
 shared = { git = "https://github.com/nammayatri/shared-kernel-rs", branch = "main" }
 macros = { git = "https://github.com/nammayatri/shared-kernel-rs", branch = "main" }
+cac_client = { git = "ssh://git@ssh.bitbucket.juspay.net/picaf/context-aware-config.git", rev = "555ed8b" }
+superposition_client = { git = "ssh://git@ssh.bitbucket.juspay.net/picaf/context-aware-config.git", rev = "555ed8b" }
 
 [dev-dependencies]
 pprof = { version = "0.12", features = ["flamegraph"] }

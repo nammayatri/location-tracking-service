@@ -9,17 +9,17 @@
 
 use std::{env::var, sync::Arc};
 
-use rdkafka::{error::KafkaError, producer::FutureProducer, ClientConfig};
-use reqwest::Url;
-use serde::Deserialize;
-use shared::redis::types::{RedisConnectionPool, RedisSettings};
-use tokio::sync::mpsc::Sender;
-use tracing::info;
-
 use crate::{
     common::{geo_polygon::read_geo_polygon, types::*},
     tools::logger::LoggerConfig,
 };
+use rdkafka::{error::KafkaError, producer::FutureProducer, ClientConfig};
+use reqwest::Url;
+use serde::Deserialize;
+use shared::redis::types::{RedisConnectionPool, RedisSettings};
+use std::time::Duration;
+use tokio::sync::mpsc::Sender;
+use tracing::info;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct AppConfig {
@@ -53,6 +53,8 @@ pub struct AppConfig {
     pub request_timeout: u64,
     pub log_unprocessible_req_body: Vec<String>,
     pub max_allowed_req_size: usize,
+    pub cac_config: CacConfig,
+    pub superposition_client_config: SuperpositionClientConfig,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -61,6 +63,19 @@ pub struct KafkaConfig {
     pub kafka_host: String,
 }
 
+#[derive(Debug, Deserialize, Clone)]
+pub struct CacConfig {
+    pub cac_hostname: String,
+    pub cac_polling_interval: Duration,
+    pub update_cac_periodically: bool,
+    pub cac_tenants: Vec<String>,
+}
+#[derive(Debug, Deserialize, Clone)]
+
+pub struct SuperpositionClientConfig {
+    pub superposition_hostname: String,
+    pub superposition_poll_frequency: u64,
+}
 #[derive(Debug, Deserialize, Clone)]
 pub struct RedisConfig {
     pub redis_host: String,

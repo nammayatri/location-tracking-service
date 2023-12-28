@@ -6,6 +6,7 @@
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
+pub mod cac;
 pub mod geo_polygon;
 pub mod heap_size;
 pub mod kafka;
