@@ -8,7 +8,7 @@
     - If you already have Nix installed, you must [enable Flakes](https://nixos.wiki/wiki/Flakes#Enable_flakes) manually.
     - Then, run the following to check that everything is green ✅.
         ```sh
-        nix run github:srid/nix-health
+        nix run nixpkgs#nix-health
         ```
 1. [Optional] Setup the Nix **binary cache**:
     ```sh
