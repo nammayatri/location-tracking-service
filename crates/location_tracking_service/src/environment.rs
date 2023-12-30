@@ -15,13 +15,18 @@ use crate::{
 };
 use rdkafka::{error::KafkaError, producer::FutureProducer, ClientConfig};
 use reqwest::Url;
-use serde::Deserialize;
-use shared::redis::types::{RedisConnectionPool, RedisSettings};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use shared::tools::error::AppError;
+use shared::{
+    redis::types::{RedisConnectionPool, RedisSettings},
+    utils::logger::*,
+};
 use std::time::Duration;
 use tokio::sync::mpsc::Sender;
 use tracing::info;
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct AppConfig {
     pub port: u16,
     pub logger_cfg: LoggerConfig,
@@ -57,26 +62,26 @@ pub struct AppConfig {
     pub superposition_client_config: SuperpositionClientConfig,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct KafkaConfig {
     pub kafka_key: String,
     pub kafka_host: String,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct CacConfig {
     pub cac_hostname: String,
     pub cac_polling_interval: Duration,
     pub update_cac_periodically: bool,
     pub cac_tenants: Vec<String>,
 }
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 
 pub struct SuperpositionClientConfig {
     pub superposition_hostname: String,
     pub superposition_poll_frequency: u64,
 }
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct RedisConfig {
     pub redis_host: String,
     pub redis_port: u16,
@@ -87,6 +92,166 @@ pub struct RedisConfig {
     pub default_ttl: u32,
     pub default_hash_ttl: u32,
     pub stream_read_count: u64,
+}
+
+impl AppConfig {
+    pub fn get_field(&self, key: &str) -> Result<Value, AppError> {
+        match key {
+            "port" => Ok(Value::Number(serde_json::Number::from(self.port))),
+            "logger_cfg" => {
+                let res = serde_json::to_value(self.logger_cfg);
+                match res {
+                    Ok(res) => Ok(res),
+                    _ => Err(AppError::DefaultConfigsNotFound(
+                        "Failed to extract default config".to_string(),
+                    )),
+                }
+            }
+            "persistent_redis_cfg" => {
+                let res = serde_json::to_value(&self.persistent_redis_cfg);
+                match res {
+                    Ok(res) => Ok(res),
+                    _ => Err(AppError::DefaultConfigsNotFound(
+                        "Failed to extract default config".to_string(),
+                    )),
+                }
+            }
+            "non_persistent_redis_cfg" => {
+                let res = serde_json::to_value(&self.non_persistent_redis_cfg);
+                match res {
+                    Ok(res) => Ok(res),
+                    _ => Err(AppError::DefaultConfigsNotFound(
+                        "Failed to extract default config".to_string(),
+                    )),
+                }
+            }
+            "persistent_migration_redis_cfg" => {
+                let res = serde_json::to_value(&self.persistent_migration_redis_cfg);
+                match res {
+                    Ok(res) => Ok(res),
+                    _ => Err(AppError::DefaultConfigsNotFound(
+                        "Failed to extract default config".to_string(),
+                    )),
+                }
+            }
+            "non_persistent_migration_redis_cfg" => {
+                let res = serde_json::to_value(&self.non_persistent_migration_redis_cfg);
+                match res {
+                    Ok(res) => Ok(res),
+                    _ => Err(AppError::DefaultConfigsNotFound(
+                        "Failed to extract default config".to_string(),
+                    )),
+                }
+            }
+            "redis_migration_stage" => Ok(Value::Bool(self.redis_migration_stage)),
+            "workers" => Ok(Value::Number(serde_json::Number::from(self.workers))),
+            "drainer_delay" => Ok(Value::Number(serde_json::Number::from(self.drainer_delay))),
+            "drainer_size" => Ok(Value::Number(serde_json::Number::from(self.drainer_size))),
+            "new_ride_drainer_delay" => Ok(Value::Number(serde_json::Number::from(
+                self.new_ride_drainer_delay,
+            ))),
+            "auth_url" => Ok(Value::String(self.auth_url.clone())),
+            "auth_api_key" => Ok(Value::String(self.auth_api_key.clone())),
+            "bulk_location_callback_url" => {
+                Ok(Value::String(self.bulk_location_callback_url.clone()))
+            }
+            "auth_token_expiry" => Ok(Value::Number(serde_json::Number::from(
+                self.auth_token_expiry,
+            ))),
+            "redis_expiry" => Ok(Value::Number(serde_json::Number::from(self.redis_expiry))),
+            "min_location_accuracy" => {
+                let res = serde_json::Number::from_f64(self.min_location_accuracy);
+                match res {
+                    Some(res) => Ok(Value::Number(res)),
+                    _ => Err(AppError::DefaultConfigsNotFound(
+                        "Failed to extract default config due to failure in decoding f64 to Number"
+                            .to_string(),
+                    )),
+                }
+            }
+            "last_location_timstamp_expiry" => Ok(Value::Number(serde_json::Number::from(
+                self.last_location_timstamp_expiry,
+            ))),
+            "location_update_limit" => Ok(Value::Number(serde_json::Number::from(
+                self.location_update_limit,
+            ))),
+            "location_update_interval" => Ok(Value::Number(serde_json::Number::from(
+                self.location_update_interval,
+            ))),
+            "kafka_cfg" => {
+                let res = serde_json::to_value(&self.kafka_cfg);
+                match res {
+                    Ok(res) => Ok(res),
+                    _ => Err(AppError::DefaultConfigsNotFound(
+                        "Failed to extract default config".to_string(),
+                    )),
+                }
+            }
+            "driver_location_update_topic" => {
+                Ok(Value::String(self.driver_location_update_topic.clone()))
+            }
+            "batch_size" => Ok(Value::Number(serde_json::Number::from(self.batch_size))),
+            "bucket_size" => Ok(Value::Number(serde_json::Number::from(self.bucket_size))),
+            "nearby_bucket_threshold" => Ok(Value::Number(serde_json::Number::from(
+                self.nearby_bucket_threshold,
+            ))),
+            "driver_location_accuracy_buffer" => {
+                let res = serde_json::Number::from_f64(self.driver_location_accuracy_buffer);
+                match res {
+                    Some(res) => Ok(Value::Number(res)),
+                    _ => Err(AppError::DefaultConfigsNotFound(
+                        "Failed to extract default config due to failure in decoding f64 to Number"
+                            .to_string(),
+                    )),
+                }
+            }
+            "blacklist_merchants" => {
+                let res = serde_json::to_value(&self.blacklist_merchants);
+                match res {
+                    Ok(res) => Ok(res),
+                    _ => Err(AppError::DefaultConfigsNotFound(
+                        "Failed to extract default config".to_string(),
+                    )),
+                }
+            }
+            "request_timeout" => Ok(Value::Number(serde_json::Number::from(
+                self.request_timeout,
+            ))),
+            "log_unprocessible_req_body" => {
+                let res = serde_json::to_value(&self.log_unprocessible_req_body);
+                match res {
+                    Ok(res) => Ok(res),
+                    _ => Err(AppError::DefaultConfigsNotFound(
+                        "Failed to extract default config".to_string(),
+                    )),
+                }
+            }
+            "max_allowed_req_size" => Ok(Value::Number(serde_json::Number::from(
+                self.max_allowed_req_size,
+            ))),
+            "cac_config" => {
+                let res = serde_json::to_value(&self.cac_config);
+                match res {
+                    Ok(res) => Ok(res),
+                    _ => Err(AppError::DefaultConfigsNotFound(
+                        "Failed to extract default config".to_string(),
+                    )),
+                }
+            }
+            "superposition_client_config" => {
+                let res = serde_json::to_value(&self.superposition_client_config);
+                match res {
+                    Ok(res) => Ok(res),
+                    _ => Err(AppError::DefaultConfigsNotFound(
+                        "Failed to extract default config".to_string(),
+                    )),
+                }
+            }
+            _ => Err(AppError::DefaultConfigsNotFound(
+                "Failed to extract default config, given key did not match any default config's field".to_string(),
+            )),
+        }
+    }
 }
 
 #[derive(Clone)]

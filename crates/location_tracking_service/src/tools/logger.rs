@@ -7,7 +7,7 @@
 */
 #![allow(clippy::expect_used)]
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tracing::subscriber::set_global_default;
 pub use tracing::{debug, error, info, instrument, warn};
 use tracing_appender::non_blocking::WorkerGuard;
@@ -15,7 +15,7 @@ use tracing_bunyan_formatter::{BunyanFormattingLayer, JsonStorageLayer};
 use tracing_log::LogTracer;
 use tracing_subscriber::{filter::LevelFilter, layer::SubscriberExt, Registry};
 
-#[derive(Debug, Deserialize, Clone, Copy)]
+#[derive(Debug, Deserialize, Serialize, Clone, Copy)]
 pub enum LogLevel {
     TRACE,
     DEBUG,
@@ -38,7 +38,7 @@ impl From<LogLevel> for LevelFilter {
     }
 }
 
-#[derive(Debug, Deserialize, Clone, Copy)]
+#[derive(Debug, Deserialize, Serialize, Clone, Copy)]
 pub struct LoggerConfig {
     pub level: LogLevel,
     pub log_to_file: bool,
