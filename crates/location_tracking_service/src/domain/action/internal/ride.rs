@@ -69,7 +69,7 @@ pub async fn ride_end(
         &data.persistent_redis,
         &request_body.driver_id,
         &request_body.merchant_id,
-        data.batch_size,
+        data.business_configs.batch_size,
     )
     .await?;
 

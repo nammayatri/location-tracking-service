@@ -6,28 +6,19 @@
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 #![allow(clippy::expect_used)]
-#![allow(clippy::panic)]
 
 use std::{env::var, sync::Arc};
 
 use crate::{
-    common::{geo_polygon::read_geo_polygon, types::*},
+    common::{cac::get_config, geo_polygon::read_geo_polygon, types::*},
     tools::logger::LoggerConfig,
 };
 use rdkafka::{error::KafkaError, producer::FutureProducer, ClientConfig};
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use shared::tools::error::AppError;
-use shared::{
-    redis::types::{RedisConnectionPool, RedisSettings},
-    utils::logger::*,
-};
-use std::time::Duration;
+use shared::redis::types::{RedisConnectionPool, RedisSettings};
 use tokio::sync::mpsc::Sender;
-use tracing::info;
-
-use tokio::sync::mpsc::Sender;
+use tracing::{error, info};
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct AppConfig {
@@ -52,23 +43,24 @@ pub struct AppConfig {
     pub request_timeout: u64,
     pub log_unprocessible_req_body: Vec<String>,
     pub max_allowed_req_size: usize,
+    pub bucket_size: u64,
+    pub nearby_bucket_threshold: u64,
     pub cac_config: CacConfig,
     pub superposition_client_config: SuperpositionClientConfig,
-    pub buisness_configs: BuisnessConfigs,
+    pub business_configs: BusinessConfigs,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct BuisnessConfigs {
+pub struct BusinessConfigs {
     pub auth_token_expiry: u32,
-    pub min_location_accuracy: f64,
+    pub min_location_accuracy: Accuracy,
     pub driver_location_accuracy_buffer: f64,
     pub last_location_timstamp_expiry: u32,
     pub location_update_limit: usize,
     pub location_update_interval: u64,
     pub batch_size: i64,
-    pub bucket_size: u64,
-    pub nearby_bucket_threshold: u64,
 }
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct KafkaConfig {
     pub kafka_key: String,
@@ -80,7 +72,7 @@ pub struct CacConfig {
     pub cac_hostname: String,
     pub cac_polling_interval: u64,
     pub update_cac_periodically: bool,
-    pub cac_tenants: Vec<String>,
+    pub cac_tenant: String,
 }
 #[derive(Debug, Deserialize, Serialize, Clone)]
 
@@ -101,54 +93,6 @@ pub struct RedisConfig {
     pub stream_read_count: u64,
 }
 
-impl BuisnessConfigs {
-    pub fn get_field(&self, key: &str) -> Result<Value, AppError> {
-        match key {
-            "auth_token_expiry" => Ok(Value::Number(serde_json::Number::from(
-                self.auth_token_expiry,
-            ))),
-            "min_location_accuracy" => {
-                let res = serde_json::Number::from_f64(self.min_location_accuracy);
-                match res {
-                    Some(res) => Ok(Value::Number(res)),
-                    _ => Err(AppError::DefaultConfigsNotFound(
-                        "Failed to extract default config due to failure in decoding f64 to Number"
-                            .to_string(),
-                    )),
-                }
-            }
-            "last_location_timstamp_expiry" => Ok(Value::Number(serde_json::Number::from(
-                self.last_location_timstamp_expiry,
-            ))),
-            "location_update_limit" => Ok(Value::Number(serde_json::Number::from(
-                self.location_update_limit,
-            ))),
-            "location_update_interval" => Ok(Value::Number(serde_json::Number::from(
-                self.location_update_interval,
-            ))),
-            "batch_size" => Ok(Value::Number(serde_json::Number::from(self.batch_size))),
-            "bucket_size" => Ok(Value::Number(serde_json::Number::from(self.bucket_size))),
-            "nearby_bucket_threshold" => Ok(Value::Number(serde_json::Number::from(
-                self.nearby_bucket_threshold,
-            ))),
-            "driver_location_accuracy_buffer" => {
-                let res = serde_json::Number::from_f64(self.driver_location_accuracy_buffer);
-                match res {
-                    Some(res) => Ok(Value::Number(res)),
-                    _ => Err(AppError::DefaultConfigsNotFound(
-                        "Failed to extract default config due to failure in decoding f64 to Number"
-                            .to_string(),
-                    )),
-                }
-            }
-            _ => Err(AppError::DefaultConfigsNotFound(
-                "Failed to extract default config, given key did not match any default config's field".to_string(),
-            )),
-        }
-    }
-}
-
-#[derive(Clone)]
 pub struct AppState {
     pub non_persistent_redis: Arc<RedisConnectionPool>,
     pub persistent_redis: Arc<RedisConnectionPool>,
@@ -161,22 +105,17 @@ pub struct AppState {
     pub auth_url: Url,
     pub auth_api_key: String,
     pub bulk_location_callback_url: Url,
-    pub auth_token_expiry: u32,
     pub redis_expiry: u32,
-    pub min_location_accuracy: Accuracy,
-    pub last_location_timstamp_expiry: u32,
-    pub location_update_limit: usize,
-    pub location_update_interval: u64,
     pub producer: Option<FutureProducer>,
     pub driver_location_update_topic: String,
-    pub batch_size: i64,
-    pub bucket_size: u64,
-    pub nearby_bucket_threshold: u64,
-    pub driver_location_accuracy_buffer: f64,
     pub blacklist_merchants: Vec<MerchantId>,
     pub max_allowed_req_size: usize,
     pub log_unprocessible_req_body: Vec<String>,
     pub request_timeout: u64,
+    pub bucket_size: u64,
+    pub nearby_bucket_threshold: u64,
+    pub cac_tenant: String,
+    pub business_configs: BusinessConfigs,
 }
 
 impl AppState {
@@ -318,176 +257,93 @@ impl AppState {
             auth_api_key: app_config.auth_api_key,
             bulk_location_callback_url: Url::parse(app_config.bulk_location_callback_url.as_str())
                 .expect("Failed to parse bulk_location_callback_url."),
-            auth_token_expiry: {
-                let cfgs = get_config_from_cac_client(
-                    app_config.cac_config.cac_tenants[0].to_string(),
-                    "auth_token_expiry".to_string(),
-                    serde_json::Map::new(),
-                    app_config.buisness_configs.clone(),
-                    get_random_number(),
-                )
-                .await;
-                match cfgs {
-                    Ok(val) => val
-                        .as_u64()
-                        .expect("Failed to convert auth token expiry to u32")
-                        as u32,
-                    Err(err) => {
-                        panic!("{err}")
-                    }
-                }
-            },
-            min_location_accuracy: {
-                let cfgs = get_config_from_cac_client(
-                    app_config.cac_config.cac_tenants[0].to_string(),
-                    "min_location_accuracy".to_string(),
-                    serde_json::Map::new(),
-                    app_config.buisness_configs.clone(),
-                    get_random_number(),
-                )
-                .await;
-                match cfgs {
-                    Ok(val) => {
-                        Accuracy(val.as_f64().expect(
-                            "Failed to min location accuracy to f64 and then Accuracy type",
-                        ))
-                    }
-                    Err(err) => {
-                        panic!("{err}")
-                    }
-                }
-            },
             redis_expiry: app_config.redis_expiry,
-            last_location_timstamp_expiry: {
-                let cfgs = get_config_from_cac_client(
-                    app_config.cac_config.cac_tenants[0].to_string(),
-                    "last_location_timstamp_expiry".to_string(),
-                    serde_json::Map::new(),
-                    app_config.buisness_configs.clone(),
-                    get_random_number(),
-                )
-                .await;
-                match cfgs {
-                    Ok(val) => val
-                        .as_u64()
-                        .expect("Failed to convert last location timestamp expiary to u32")
-                        as u32,
-                    Err(err) => {
-                        panic!("{err}")
-                    }
-                }
-            },
-            location_update_limit: {
-                let cfgs = get_config_from_cac_client(
-                    app_config.cac_config.cac_tenants[0].to_string(),
-                    "location_update_limit".to_string(),
-                    serde_json::Map::new(),
-                    app_config.buisness_configs.clone(),
-                    get_random_number(),
-                )
-                .await;
-                match cfgs {
-                    Ok(val) => val
-                        .as_u64()
-                        .expect("Failed to convert location update limit to usize")
-                        as usize,
-                    Err(err) => {
-                        panic!("{err}")
-                    }
-                }
-            },
-            location_update_interval: {
-                let cfgs = get_config_from_cac_client(
-                    app_config.cac_config.cac_tenants[0].to_string(),
-                    "location_update_interval".to_string(),
-                    serde_json::Map::new(),
-                    app_config.buisness_configs.clone(),
-                    get_random_number(),
-                )
-                .await;
-                match cfgs {
-                    Ok(val) => val
-                        .as_u64()
-                        .expect("Failed to convert location update interval to u64"),
-                    Err(err) => {
-                        panic!("{err}")
-                    }
-                }
-            },
             producer,
             driver_location_update_topic: app_config.driver_location_update_topic,
-            batch_size: {
-                let cfgs = get_config_from_cac_client(
-                    app_config.cac_config.cac_tenants[0].to_string(),
-                    "batch_size".to_string(),
-                    serde_json::Map::new(),
-                    app_config.buisness_configs.clone(),
-                    get_random_number(),
-                )
-                .await;
-                match cfgs {
-                    Ok(val) => val.as_i64().expect("Failed to convert batch size to i64"),
-                    Err(err) => {
-                        panic!("{err}")
-                    }
-                }
-            },
-            bucket_size: {
-                let cfgs = get_config_from_cac_client(
-                    app_config.cac_config.cac_tenants[0].to_string(),
-                    "bucket_size".to_string(),
-                    serde_json::Map::new(),
-                    app_config.buisness_configs.clone(),
-                    get_random_number(),
-                )
-                .await;
-                match cfgs {
-                    Ok(val) => val.as_u64().expect("Failed to convert bucket size to u64"),
-                    Err(err) => {
-                        panic!("{err}")
-                    }
-                }
-            },
-            nearby_bucket_threshold: {
-                let cfgs = get_config_from_cac_client(
-                    app_config.cac_config.cac_tenants[0].to_string(),
-                    "nearby_bucket_threshold".to_string(),
-                    serde_json::Map::new(),
-                    app_config.buisness_configs.clone(),
-                    get_random_number(),
-                )
-                .await;
-                match cfgs {
-                    Ok(val) => val
-                        .as_u64()
-                        .expect("Failed to convert nearby bucket threshold to u64"),
-                    Err(err) => {
-                        panic!("{err}")
-                    }
-                }
-            },
-            driver_location_accuracy_buffer: {
-                let cfgs = get_config_from_cac_client(
-                    app_config.cac_config.cac_tenants[0].to_string(),
-                    "driver_location_accuracy_buffer".to_string(),
-                    serde_json::Map::new(),
-                    app_config.buisness_configs.clone(),
-                    get_random_number(),
-                )
-                .await;
-                match cfgs {
-                    Ok(val) => val
-                        .as_f64()
-                        .expect("Failed to convert driver location accuracy buffer to f64"),
-                    Err(err) => {
-                        panic!("{err}")
-                    }
-                }
-            },
             max_allowed_req_size: app_config.max_allowed_req_size,
             log_unprocessible_req_body: app_config.log_unprocessible_req_body,
             request_timeout: app_config.request_timeout,
             blacklist_merchants,
+            bucket_size: app_config.bucket_size,
+            nearby_bucket_threshold: app_config.nearby_bucket_threshold,
+            cac_tenant: app_config.cac_config.cac_tenant,
+            business_configs: app_config.business_configs,
+        }
+    }
+}
+
+impl Clone for AppState {
+    fn clone(&self) -> Self {
+        let tokio_runtime = tokio::runtime::Runtime::new();
+        let business_configs = match tokio_runtime {
+            Ok(tokio_runtime) => tokio_runtime.block_on(async {
+                BusinessConfigs {
+                    auth_token_expiry: get_config(self.cac_tenant.clone(), "auth_token_expiry")
+                        .await
+                        .unwrap_or(self.business_configs.auth_token_expiry),
+                    min_location_accuracy: get_config(
+                        self.cac_tenant.clone(),
+                        "min_location_accuracy",
+                    )
+                    .await
+                    .unwrap_or(self.business_configs.min_location_accuracy),
+                    last_location_timstamp_expiry: get_config(
+                        self.cac_tenant.clone(),
+                        "last_location_timstamp_expiry",
+                    )
+                    .await
+                    .unwrap_or(self.business_configs.last_location_timstamp_expiry),
+                    location_update_limit: get_config(
+                        self.cac_tenant.clone(),
+                        "location_update_limit",
+                    )
+                    .await
+                    .unwrap_or(self.business_configs.location_update_limit),
+                    location_update_interval: get_config(
+                        self.cac_tenant.clone(),
+                        "location_update_interval",
+                    )
+                    .await
+                    .unwrap_or(self.business_configs.location_update_interval),
+                    batch_size: get_config(self.cac_tenant.clone(), "batch_size")
+                        .await
+                        .unwrap_or(self.business_configs.batch_size),
+                    driver_location_accuracy_buffer: get_config(
+                        self.cac_tenant.clone(),
+                        "driver_location_accuracy_buffer",
+                    )
+                    .await
+                    .unwrap_or(self.business_configs.driver_location_accuracy_buffer),
+                }
+            }),
+            Err(err) => {
+                error!("Error in tokio runtime while cloning CAC configs. {err}");
+                self.business_configs.clone()
+            }
+        };
+        AppState {
+            non_persistent_redis: self.non_persistent_redis.clone(),
+            persistent_redis: self.persistent_redis.clone(),
+            drainer_delay: self.drainer_delay,
+            drainer_size: self.drainer_size,
+            new_ride_drainer_delay: self.new_ride_drainer_delay,
+            sender: self.sender.clone(),
+            polygon: self.polygon.clone(),
+            blacklist_polygon: self.blacklist_polygon.clone(),
+            auth_url: self.auth_url.clone(),
+            auth_api_key: self.auth_api_key.clone(),
+            bulk_location_callback_url: self.bulk_location_callback_url.clone(),
+            redis_expiry: self.redis_expiry,
+            producer: self.producer.clone(),
+            driver_location_update_topic: self.driver_location_update_topic.clone(),
+            max_allowed_req_size: self.max_allowed_req_size,
+            log_unprocessible_req_body: self.log_unprocessible_req_body.clone(),
+            request_timeout: self.request_timeout,
+            blacklist_merchants: self.blacklist_merchants.clone(),
+            bucket_size: self.bucket_size,
+            nearby_bucket_threshold: self.nearby_bucket_threshold,
+            cac_tenant: self.cac_tenant.clone(),
+            business_configs,
         }
     }
 }

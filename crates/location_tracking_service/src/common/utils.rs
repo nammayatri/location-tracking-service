@@ -1,5 +1,3 @@
-use crate::environment::BuisnessConfigs;
-
 /*  Copyright 2022-23, Juspay India Pvt Ltd
     This program is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License
     as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. This program
@@ -9,13 +7,8 @@ use crate::environment::BuisnessConfigs;
 */
 use super::types::*;
 use crate::tools::error::AppError;
-use cac_client as cac;
 use geo::{point, Intersects};
-use rand::Rng;
-use serde_json::{json, Map, Value};
-use shared::tools::error::AppError;
-use std::{f64::consts::PI, sync::Arc};
-use superposition_client as spclient;
+use std::f64::consts::PI;
 
 /// Retrieves the name of the city based on latitude and longitude coordinates.
 ///
@@ -227,83 +220,4 @@ pub fn distance_between_in_meters(latlong1: &Point, latlong2: &Point) -> f64 {
 ///
 pub fn cat_maybes<T>(options: Vec<Option<T>>) -> Vec<T> {
     options.into_iter().flatten().collect()
-}
-
-pub fn get_cac_client(tenant_name: String) -> Result<Arc<cac::Client>, String> {
-    cac::CLIENT_FACTORY.get_client(tenant_name)
-}
-
-pub async fn get_superposition_client(
-    tenant_name: String,
-) -> Result<Arc<spclient::Client>, String> {
-    spclient::CLIENT_FACTORY.get_client(tenant_name).await
-}
-
-pub async fn get_config_from_cac_client(
-    tenant_name: String,
-    key: String,
-    mut ctx: Map<String, Value>,
-    buisness_cfgs: BuisnessConfigs,
-    toss: i8,
-) -> Result<Value, AppError> {
-    let cacclient: Result<Arc<cac::Client>, String> = get_cac_client(tenant_name.clone());
-    let superclient: Result<Arc<spclient::Client>, String> =
-        get_superposition_client(tenant_name.clone()).await;
-    match (cacclient, superclient) {
-        (Ok(cacclient), Ok(superclient)) => {
-            let variant_ids = superclient
-                .get_applicable_variant(&json!(ctx.clone()), toss)
-                .await;
-            ctx.insert(String::from("variantIds"), variant_ids.clone().into());
-            let res = cacclient.eval(ctx.clone());
-            match res {
-                Ok(res) => match res.get(&key) {
-                    Some(val) => Ok(val.clone()),
-                    _ => {
-                        log::error!("Key does not exist in cac client's response for tenant {}, trying fetch the same key from default config", tenant_name);
-                        get_default_config(tenant_name, key, buisness_cfgs).await
-                    }
-                },
-                _ => {
-                    log::error!("Failed to fetch config from cac client for tenant {}, trying fetch default config", tenant_name);
-                    get_default_config(tenant_name, key, buisness_cfgs).await
-                }
-            }
-        }
-        (Err(_), Ok(_)) => {
-            log::error!(
-                "Failed to fetch instance of cac client for tenant {}",
-                tenant_name
-            );
-            get_default_config(tenant_name, key, buisness_cfgs).await
-        }
-        (Ok(_), Err(_)) => {
-            log::error!(
-                "Failed to fetch instance of superposition client for tenant {}",
-                tenant_name
-            );
-            get_default_config(tenant_name, key, buisness_cfgs).await
-        }
-        _ => {
-            log::error!(
-                "Failed to fetch instance of cac client and superposition client for tenant {}",
-                tenant_name
-            );
-            get_default_config(tenant_name, key, buisness_cfgs).await
-        }
-    }
-}
-
-pub async fn get_default_config(
-    tenant_name: String,
-    key: String,
-    def_buisness_cfgs: BuisnessConfigs,
-) -> Result<Value, AppError> {
-    println!("Fetching default config for tenant {}", tenant_name);
-    def_buisness_cfgs.get_field(&key)
-}
-
-pub fn get_random_number() -> i8 {
-    let mut rng = rand::thread_rng();
-    rng.gen_range(1..100)
 }

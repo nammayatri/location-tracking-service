@@ -37,7 +37,7 @@ let cac_config = {
     cac_hostname = "http://localhost:8080",
     cac_polling_interval = 60,
     update_cac_periodically = True,
-    cac_tenants = ["LTS-default"],
+    cac_tenant = "LTS-default",
 }
 
 let superposition_client_config = {
@@ -45,7 +45,7 @@ let superposition_client_config = {
     superposition_poll_frequency = 1,
 }
 
-let buisness_configs = {
+let business_configs = {
     auth_token_expiry = 86400,
     min_location_accuracy = 50.0,
     driver_location_accuracy_buffer = 25.0,
@@ -53,8 +53,6 @@ let buisness_configs = {
     location_update_limit = 6000000000,
     location_update_interval = 60,
     batch_size = 100,
-    bucket_size = 30,
-    nearby_bucket_threshold = 4,
 }
 -- drainer_delay :: 4 * 1024KB * 1024MB * 1024GB / 100 Bytes = 41943040
 in {
@@ -79,7 +77,9 @@ in {
     request_timeout = 9000,
     log_unprocessible_req_body = ["UNPROCESSIBLE_REQUEST", "REQUEST_TIMEOUT", "LARGE_PAYLOAD_SIZE", "HITS_LIMIT_EXCEEDED"],
     max_allowed_req_size = 512000, -- 500 KB
+    bucket_size = 30,
+    nearby_bucket_threshold = 4,
     cac_config = cac_config,
     superposition_client_config = superposition_client_config,
-    buisness_configs = buisness_configs,
+    business_configs = business_configs,
 }

@@ -43,7 +43,7 @@ pub enum AppError {
     KafkaPushFailed(String),
     DrainerPushFailed(String),
     CacConfigFailed(String),
-    DefaultConfigsNotFound(String),
+    CacClientInitFailed(String),
 }
 
 impl AppError {
@@ -81,8 +81,8 @@ impl AppError {
             AppError::CacConfigFailed(reason) => {
                 format!("CAC Config Failed : {reason}")
             }
-            AppError::DefaultConfigsNotFound(reason) => {
-                format!("Default Configs Not Found : {reason}")
+            AppError::CacClientInitFailed(reason) => {
+                format!("CAC Client Init Failed : {reason}")
             }
             _ => "Some Error Occured".to_string(),
         }
@@ -114,7 +114,7 @@ impl AppError {
             AppError::KafkaPushFailed(_) => "KAFKA_PUSH_FAILED",
             AppError::DrainerPushFailed(_) => "DRAINER_PUSH_FAILED",
             AppError::CacConfigFailed(_) => "CAC_CONFIG_FAILED",
-            AppError::DefaultConfigsNotFound(_) => "DEFAULT_CONFIGS_NOT_FOUND",
+            AppError::CacClientInitFailed(_) => "CAC_INIT_FAILED",
         }
         .to_string()
     }
@@ -149,7 +149,7 @@ impl ResponseError for AppError {
             AppError::KafkaPushFailed(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::DrainerPushFailed(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::CacConfigFailed(_) => StatusCode::INTERNAL_SERVER_ERROR,
-            AppError::DefaultConfigsNotFound(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            AppError::CacClientInitFailed(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::InvalidConfiguration(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::RequestTimeout => StatusCode::REQUEST_TIMEOUT,
         }

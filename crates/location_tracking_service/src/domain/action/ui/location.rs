@@ -86,16 +86,16 @@ pub async fn update_driver_location(
         &data.persistent_redis,
         &data.auth_url,
         &data.auth_api_key,
-        &data.auth_token_expiry,
+        &data.business_configs.auth_token_expiry,
         &token,
         &merchant_id,
     )
     .await?;
 
-    if locations.len() > data.batch_size as usize {
+    if locations.len() > data.business_configs.batch_size as usize {
         warn!(
             "Way points more than {} points => {} points",
-            data.batch_size,
+            data.business_configs.batch_size,
             locations.len()
         );
     }
@@ -138,8 +138,8 @@ pub async fn update_driver_location(
     sliding_window_limiter(
         &data.persistent_redis,
         &sliding_rate_limiter_key(&driver_id, &city, &merchant_id),
-        data.location_update_limit,
-        data.location_update_interval as u32,
+        data.business_configs.location_update_limit,
+        data.business_configs.location_update_interval as u32,
     )
     .await?;
 
@@ -219,7 +219,7 @@ async fn process_driver_locations(
     let set_driver_last_location_update = async {
         set_driver_last_location_update(
             &data.persistent_redis,
-            &data.last_location_timstamp_expiry,
+            &data.business_configs.last_location_timstamp_expiry,
             &driver_id,
             &merchant_id,
             &latest_driver_location.pt,
@@ -273,14 +273,14 @@ async fn process_driver_locations(
         let locations = get_filtered_driver_locations(
             last_known_location.as_ref(),
             locations,
-            data.min_location_accuracy,
-            data.driver_location_accuracy_buffer,
+            data.business_configs.min_location_accuracy,
+            data.business_configs.driver_location_accuracy_buffer,
         );
         if !locations.is_empty() {
-            if locations.len() > data.batch_size as usize {
+            if locations.len() > data.business_configs.batch_size as usize {
                 warn!(
                     "On Ride Way points more than {} points after filtering => {} points",
-                    data.batch_size,
+                    data.business_configs.batch_size,
                     locations.len()
                 );
             }
@@ -310,7 +310,9 @@ async fn process_driver_locations(
         )
         .await?;
 
-        if on_ride_driver_locations_count + geo_entries.len() as i64 > data.batch_size {
+        if on_ride_driver_locations_count + geo_entries.len() as i64
+            > data.business_configs.batch_size
+        {
             let mut on_ride_driver_locations = get_on_ride_driver_locations(
                 &data.persistent_redis,
                 &driver_id,

@@ -18,7 +18,6 @@ use location_tracking_service::{
 use std::{
     env::var,
     sync::atomic::{AtomicBool, Ordering},
-    time::Duration,
 };
 use std::{net::Ipv4Addr, sync::Arc};
 use tokio::signal::unix::SignalKind;
@@ -80,28 +79,16 @@ async fn start_server() -> std::io::Result<()> {
         error!("Panic Occured : {payload}");
     }));
 
-    let cac_resp = init_cac_clients(app_config.cac_config.clone()).await;
-    let superposition_response: Result<(), AppError> = init_superposition_clients(
+    let _ = init_cac_clients(app_config.cac_config.clone())
+        .await
+        .map_err(|err| error!("Init CAC Client Error : {err}"));
+    let _ = init_superposition_clients(
         app_config.superposition_client_config.clone(),
         app_config.cac_config.clone(),
     )
-    .await;
+    .await
+    .map_err(|err| error!("Init Superposition Client Error : {err}"));
 
-    tokio::time::sleep(Duration::from_secs(5)).await;
-
-    match (cac_resp, superposition_response) {
-        (Ok(_), Ok(_)) => (),
-        (Err(err), Ok(_)) => {
-            error!("Failed to instantiate CAC :{}", err);
-        }
-        (Ok(_), Err(err)) => {
-            error!("Failed to instantiate Superposition Client :{}", err);
-        }
-        (Err(err1), Err(err2)) => {
-            error!("Failed to instantiate CAC :{}", err1);
-            error!("Failed to instantiate Superposition Client :{}", err2);
-        }
-    };
     let port = app_config.port;
     let workers = app_config.workers;
     let max_allowed_req_size = app_config.max_allowed_req_size;
