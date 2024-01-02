@@ -15,7 +15,7 @@ use superposition_client as spclient;
 
 pub async fn init_cac_clients(cac_conf: CacConfig) -> Result<(), AppError> {
     let cac_hostname: String = cac_conf.cac_hostname;
-    let polling_interval: Duration = cac_conf.cac_polling_interval;
+    let polling_interval: Duration = Duration::from_secs(cac_conf.cac_polling_interval);
     let update_cac_periodically = cac_conf.update_cac_periodically;
     let cac_tenants: Vec<String> = cac_conf.cac_tenants;
 

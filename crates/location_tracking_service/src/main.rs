@@ -18,6 +18,7 @@ use location_tracking_service::{
 use std::{
     env::var,
     sync::atomic::{AtomicBool, Ordering},
+    time::Duration,
 };
 use std::{net::Ipv4Addr, sync::Arc};
 use tokio::signal::unix::SignalKind;
@@ -85,10 +86,20 @@ async fn start_server() -> std::io::Result<()> {
         app_config.cac_config.clone(),
     )
     .await;
+
+    tokio::time::sleep(Duration::from_secs(5)).await;
+
     match (cac_resp, superposition_response) {
         (Ok(_), Ok(_)) => (),
-        _ => {
-            error!("Failed to instantiate CAC or Superposition Client or Both");
+        (Err(err), Ok(_)) => {
+            error!("Failed to instantiate CAC :{}", err);
+        }
+        (Ok(_), Err(err)) => {
+            error!("Failed to instantiate Superposition Client :{}", err);
+        }
+        (Err(err1), Err(err2)) => {
+            error!("Failed to instantiate CAC :{}", err1);
+            error!("Failed to instantiate Superposition Client :{}", err2);
         }
     };
     let port = app_config.port;

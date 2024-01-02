@@ -6,6 +6,7 @@
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 #![allow(clippy::expect_used)]
+#![allow(clippy::panic)]
 
 use std::{env::var, sync::Arc};
 
@@ -26,6 +27,8 @@ use std::time::Duration;
 use tokio::sync::mpsc::Sender;
 use tracing::info;
 
+use tokio::sync::mpsc::Sender;
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct AppConfig {
     pub port: u16,
@@ -42,26 +45,30 @@ pub struct AppConfig {
     pub auth_url: String,
     pub auth_api_key: String,
     pub bulk_location_callback_url: String,
-    pub auth_token_expiry: u32,
     pub redis_expiry: u32,
-    pub min_location_accuracy: f64,
-    pub last_location_timstamp_expiry: u32,
-    pub location_update_limit: usize,
-    pub location_update_interval: u64,
     pub kafka_cfg: KafkaConfig,
     pub driver_location_update_topic: String,
-    pub batch_size: i64,
-    pub bucket_size: u64,
-    pub nearby_bucket_threshold: u64,
-    pub driver_location_accuracy_buffer: f64,
     pub blacklist_merchants: Vec<String>,
     pub request_timeout: u64,
     pub log_unprocessible_req_body: Vec<String>,
     pub max_allowed_req_size: usize,
     pub cac_config: CacConfig,
     pub superposition_client_config: SuperpositionClientConfig,
+    pub buisness_configs: BuisnessConfigs,
 }
 
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct BuisnessConfigs {
+    pub auth_token_expiry: u32,
+    pub min_location_accuracy: f64,
+    pub driver_location_accuracy_buffer: f64,
+    pub last_location_timstamp_expiry: u32,
+    pub location_update_limit: usize,
+    pub location_update_interval: u64,
+    pub batch_size: i64,
+    pub bucket_size: u64,
+    pub nearby_bucket_threshold: u64,
+}
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct KafkaConfig {
     pub kafka_key: String,
@@ -71,7 +78,7 @@ pub struct KafkaConfig {
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct CacConfig {
     pub cac_hostname: String,
-    pub cac_polling_interval: Duration,
+    pub cac_polling_interval: u64,
     pub update_cac_periodically: bool,
     pub cac_tenants: Vec<String>,
 }
@@ -94,71 +101,12 @@ pub struct RedisConfig {
     pub stream_read_count: u64,
 }
 
-impl AppConfig {
+impl BuisnessConfigs {
     pub fn get_field(&self, key: &str) -> Result<Value, AppError> {
         match key {
-            "port" => Ok(Value::Number(serde_json::Number::from(self.port))),
-            "logger_cfg" => {
-                let res = serde_json::to_value(self.logger_cfg);
-                match res {
-                    Ok(res) => Ok(res),
-                    _ => Err(AppError::DefaultConfigsNotFound(
-                        "Failed to extract default config".to_string(),
-                    )),
-                }
-            }
-            "persistent_redis_cfg" => {
-                let res = serde_json::to_value(&self.persistent_redis_cfg);
-                match res {
-                    Ok(res) => Ok(res),
-                    _ => Err(AppError::DefaultConfigsNotFound(
-                        "Failed to extract default config".to_string(),
-                    )),
-                }
-            }
-            "non_persistent_redis_cfg" => {
-                let res = serde_json::to_value(&self.non_persistent_redis_cfg);
-                match res {
-                    Ok(res) => Ok(res),
-                    _ => Err(AppError::DefaultConfigsNotFound(
-                        "Failed to extract default config".to_string(),
-                    )),
-                }
-            }
-            "persistent_migration_redis_cfg" => {
-                let res = serde_json::to_value(&self.persistent_migration_redis_cfg);
-                match res {
-                    Ok(res) => Ok(res),
-                    _ => Err(AppError::DefaultConfigsNotFound(
-                        "Failed to extract default config".to_string(),
-                    )),
-                }
-            }
-            "non_persistent_migration_redis_cfg" => {
-                let res = serde_json::to_value(&self.non_persistent_migration_redis_cfg);
-                match res {
-                    Ok(res) => Ok(res),
-                    _ => Err(AppError::DefaultConfigsNotFound(
-                        "Failed to extract default config".to_string(),
-                    )),
-                }
-            }
-            "redis_migration_stage" => Ok(Value::Bool(self.redis_migration_stage)),
-            "workers" => Ok(Value::Number(serde_json::Number::from(self.workers))),
-            "drainer_delay" => Ok(Value::Number(serde_json::Number::from(self.drainer_delay))),
-            "drainer_size" => Ok(Value::Number(serde_json::Number::from(self.drainer_size))),
-            "new_ride_drainer_delay" => Ok(Value::Number(serde_json::Number::from(
-                self.new_ride_drainer_delay,
-            ))),
-            "auth_url" => Ok(Value::String(self.auth_url.clone())),
-            "auth_api_key" => Ok(Value::String(self.auth_api_key.clone())),
-            "bulk_location_callback_url" => {
-                Ok(Value::String(self.bulk_location_callback_url.clone()))
-            }
             "auth_token_expiry" => Ok(Value::Number(serde_json::Number::from(
                 self.auth_token_expiry,
             ))),
-            "redis_expiry" => Ok(Value::Number(serde_json::Number::from(self.redis_expiry))),
             "min_location_accuracy" => {
                 let res = serde_json::Number::from_f64(self.min_location_accuracy);
                 match res {
@@ -178,18 +126,6 @@ impl AppConfig {
             "location_update_interval" => Ok(Value::Number(serde_json::Number::from(
                 self.location_update_interval,
             ))),
-            "kafka_cfg" => {
-                let res = serde_json::to_value(&self.kafka_cfg);
-                match res {
-                    Ok(res) => Ok(res),
-                    _ => Err(AppError::DefaultConfigsNotFound(
-                        "Failed to extract default config".to_string(),
-                    )),
-                }
-            }
-            "driver_location_update_topic" => {
-                Ok(Value::String(self.driver_location_update_topic.clone()))
-            }
             "batch_size" => Ok(Value::Number(serde_json::Number::from(self.batch_size))),
             "bucket_size" => Ok(Value::Number(serde_json::Number::from(self.bucket_size))),
             "nearby_bucket_threshold" => Ok(Value::Number(serde_json::Number::from(
@@ -202,48 +138,6 @@ impl AppConfig {
                     _ => Err(AppError::DefaultConfigsNotFound(
                         "Failed to extract default config due to failure in decoding f64 to Number"
                             .to_string(),
-                    )),
-                }
-            }
-            "blacklist_merchants" => {
-                let res = serde_json::to_value(&self.blacklist_merchants);
-                match res {
-                    Ok(res) => Ok(res),
-                    _ => Err(AppError::DefaultConfigsNotFound(
-                        "Failed to extract default config".to_string(),
-                    )),
-                }
-            }
-            "request_timeout" => Ok(Value::Number(serde_json::Number::from(
-                self.request_timeout,
-            ))),
-            "log_unprocessible_req_body" => {
-                let res = serde_json::to_value(&self.log_unprocessible_req_body);
-                match res {
-                    Ok(res) => Ok(res),
-                    _ => Err(AppError::DefaultConfigsNotFound(
-                        "Failed to extract default config".to_string(),
-                    )),
-                }
-            }
-            "max_allowed_req_size" => Ok(Value::Number(serde_json::Number::from(
-                self.max_allowed_req_size,
-            ))),
-            "cac_config" => {
-                let res = serde_json::to_value(&self.cac_config);
-                match res {
-                    Ok(res) => Ok(res),
-                    _ => Err(AppError::DefaultConfigsNotFound(
-                        "Failed to extract default config".to_string(),
-                    )),
-                }
-            }
-            "superposition_client_config" => {
-                let res = serde_json::to_value(&self.superposition_client_config);
-                match res {
-                    Ok(res) => Ok(res),
-                    _ => Err(AppError::DefaultConfigsNotFound(
-                        "Failed to extract default config".to_string(),
                     )),
                 }
             }
@@ -424,18 +318,172 @@ impl AppState {
             auth_api_key: app_config.auth_api_key,
             bulk_location_callback_url: Url::parse(app_config.bulk_location_callback_url.as_str())
                 .expect("Failed to parse bulk_location_callback_url."),
-            auth_token_expiry: app_config.auth_token_expiry,
-            min_location_accuracy: Accuracy(app_config.min_location_accuracy),
+            auth_token_expiry: {
+                let cfgs = get_config_from_cac_client(
+                    app_config.cac_config.cac_tenants[0].to_string(),
+                    "auth_token_expiry".to_string(),
+                    serde_json::Map::new(),
+                    app_config.buisness_configs.clone(),
+                    get_random_number(),
+                )
+                .await;
+                match cfgs {
+                    Ok(val) => val
+                        .as_u64()
+                        .expect("Failed to convert auth token expiry to u32")
+                        as u32,
+                    Err(err) => {
+                        panic!("{err}")
+                    }
+                }
+            },
+            min_location_accuracy: {
+                let cfgs = get_config_from_cac_client(
+                    app_config.cac_config.cac_tenants[0].to_string(),
+                    "min_location_accuracy".to_string(),
+                    serde_json::Map::new(),
+                    app_config.buisness_configs.clone(),
+                    get_random_number(),
+                )
+                .await;
+                match cfgs {
+                    Ok(val) => {
+                        Accuracy(val.as_f64().expect(
+                            "Failed to min location accuracy to f64 and then Accuracy type",
+                        ))
+                    }
+                    Err(err) => {
+                        panic!("{err}")
+                    }
+                }
+            },
             redis_expiry: app_config.redis_expiry,
-            last_location_timstamp_expiry: app_config.last_location_timstamp_expiry,
-            location_update_limit: app_config.location_update_limit,
-            location_update_interval: app_config.location_update_interval,
+            last_location_timstamp_expiry: {
+                let cfgs = get_config_from_cac_client(
+                    app_config.cac_config.cac_tenants[0].to_string(),
+                    "last_location_timstamp_expiry".to_string(),
+                    serde_json::Map::new(),
+                    app_config.buisness_configs.clone(),
+                    get_random_number(),
+                )
+                .await;
+                match cfgs {
+                    Ok(val) => val
+                        .as_u64()
+                        .expect("Failed to convert last location timestamp expiary to u32")
+                        as u32,
+                    Err(err) => {
+                        panic!("{err}")
+                    }
+                }
+            },
+            location_update_limit: {
+                let cfgs = get_config_from_cac_client(
+                    app_config.cac_config.cac_tenants[0].to_string(),
+                    "location_update_limit".to_string(),
+                    serde_json::Map::new(),
+                    app_config.buisness_configs.clone(),
+                    get_random_number(),
+                )
+                .await;
+                match cfgs {
+                    Ok(val) => val
+                        .as_u64()
+                        .expect("Failed to convert location update limit to usize")
+                        as usize,
+                    Err(err) => {
+                        panic!("{err}")
+                    }
+                }
+            },
+            location_update_interval: {
+                let cfgs = get_config_from_cac_client(
+                    app_config.cac_config.cac_tenants[0].to_string(),
+                    "location_update_interval".to_string(),
+                    serde_json::Map::new(),
+                    app_config.buisness_configs.clone(),
+                    get_random_number(),
+                )
+                .await;
+                match cfgs {
+                    Ok(val) => val
+                        .as_u64()
+                        .expect("Failed to convert location update interval to u64"),
+                    Err(err) => {
+                        panic!("{err}")
+                    }
+                }
+            },
             producer,
             driver_location_update_topic: app_config.driver_location_update_topic,
-            batch_size: app_config.batch_size,
-            bucket_size: app_config.bucket_size,
-            nearby_bucket_threshold: app_config.nearby_bucket_threshold,
-            driver_location_accuracy_buffer: app_config.driver_location_accuracy_buffer,
+            batch_size: {
+                let cfgs = get_config_from_cac_client(
+                    app_config.cac_config.cac_tenants[0].to_string(),
+                    "batch_size".to_string(),
+                    serde_json::Map::new(),
+                    app_config.buisness_configs.clone(),
+                    get_random_number(),
+                )
+                .await;
+                match cfgs {
+                    Ok(val) => val.as_i64().expect("Failed to convert batch size to i64"),
+                    Err(err) => {
+                        panic!("{err}")
+                    }
+                }
+            },
+            bucket_size: {
+                let cfgs = get_config_from_cac_client(
+                    app_config.cac_config.cac_tenants[0].to_string(),
+                    "bucket_size".to_string(),
+                    serde_json::Map::new(),
+                    app_config.buisness_configs.clone(),
+                    get_random_number(),
+                )
+                .await;
+                match cfgs {
+                    Ok(val) => val.as_u64().expect("Failed to convert bucket size to u64"),
+                    Err(err) => {
+                        panic!("{err}")
+                    }
+                }
+            },
+            nearby_bucket_threshold: {
+                let cfgs = get_config_from_cac_client(
+                    app_config.cac_config.cac_tenants[0].to_string(),
+                    "nearby_bucket_threshold".to_string(),
+                    serde_json::Map::new(),
+                    app_config.buisness_configs.clone(),
+                    get_random_number(),
+                )
+                .await;
+                match cfgs {
+                    Ok(val) => val
+                        .as_u64()
+                        .expect("Failed to convert nearby bucket threshold to u64"),
+                    Err(err) => {
+                        panic!("{err}")
+                    }
+                }
+            },
+            driver_location_accuracy_buffer: {
+                let cfgs = get_config_from_cac_client(
+                    app_config.cac_config.cac_tenants[0].to_string(),
+                    "driver_location_accuracy_buffer".to_string(),
+                    serde_json::Map::new(),
+                    app_config.buisness_configs.clone(),
+                    get_random_number(),
+                )
+                .await;
+                match cfgs {
+                    Ok(val) => val
+                        .as_f64()
+                        .expect("Failed to convert driver location accuracy buffer to f64"),
+                    Err(err) => {
+                        panic!("{err}")
+                    }
+                }
+            },
             max_allowed_req_size: app_config.max_allowed_req_size,
             log_unprocessible_req_body: app_config.log_unprocessible_req_body,
             request_timeout: app_config.request_timeout,

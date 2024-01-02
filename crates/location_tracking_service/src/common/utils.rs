@@ -1,4 +1,4 @@
-use crate::environment::AppConfig;
+use crate::environment::BuisnessConfigs;
 
 /*  Copyright 2022-23, Juspay India Pvt Ltd
     This program is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License
@@ -11,6 +11,7 @@ use super::types::*;
 use crate::tools::error::AppError;
 use cac_client as cac;
 use geo::{point, Intersects};
+use rand::Rng;
 use serde_json::{json, Map, Value};
 use shared::tools::error::AppError;
 use std::{f64::consts::PI, sync::Arc};
@@ -242,7 +243,7 @@ pub async fn get_config_from_cac_client(
     tenant_name: String,
     key: String,
     mut ctx: Map<String, Value>,
-    app_config: AppConfig,
+    buisness_cfgs: BuisnessConfigs,
     toss: i8,
 ) -> Result<Value, AppError> {
     let cacclient: Result<Arc<cac::Client>, String> = get_cac_client(tenant_name.clone());
@@ -260,12 +261,12 @@ pub async fn get_config_from_cac_client(
                     Some(val) => Ok(val.clone()),
                     _ => {
                         log::error!("Key does not exist in cac client's response for tenant {}, trying fetch the same key from default config", tenant_name);
-                        get_default_config(tenant_name, key, app_config).await
+                        get_default_config(tenant_name, key, buisness_cfgs).await
                     }
                 },
                 _ => {
                     log::error!("Failed to fetch config from cac client for tenant {}, trying fetch default config", tenant_name);
-                    get_default_config(tenant_name, key, app_config).await
+                    get_default_config(tenant_name, key, buisness_cfgs).await
                 }
             }
         }
@@ -274,21 +275,21 @@ pub async fn get_config_from_cac_client(
                 "Failed to fetch instance of cac client for tenant {}",
                 tenant_name
             );
-            get_default_config(tenant_name, key, app_config).await
+            get_default_config(tenant_name, key, buisness_cfgs).await
         }
         (Ok(_), Err(_)) => {
             log::error!(
                 "Failed to fetch instance of superposition client for tenant {}",
                 tenant_name
             );
-            get_default_config(tenant_name, key, app_config).await
+            get_default_config(tenant_name, key, buisness_cfgs).await
         }
         _ => {
             log::error!(
                 "Failed to fetch instance of cac client and superposition client for tenant {}",
                 tenant_name
             );
-            get_default_config(tenant_name, key, app_config).await
+            get_default_config(tenant_name, key, buisness_cfgs).await
         }
     }
 }
@@ -296,8 +297,13 @@ pub async fn get_config_from_cac_client(
 pub async fn get_default_config(
     tenant_name: String,
     key: String,
-    def_app_config: AppConfig,
+    def_buisness_cfgs: BuisnessConfigs,
 ) -> Result<Value, AppError> {
     println!("Fetching default config for tenant {}", tenant_name);
-    def_app_config.get_field(&key)
+    def_buisness_cfgs.get_field(&key)
+}
+
+pub fn get_random_number() -> i8 {
+    let mut rng = rand::thread_rng();
+    rng.gen_range(1..100)
 }
