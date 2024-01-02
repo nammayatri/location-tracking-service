@@ -10,12 +10,12 @@ use actix_web::{
     web::{Data, Json, Path},
 };
 
+use crate::tools::error::AppError;
 use crate::{
     common::types::*,
     domain::{action::internal::*, types::internal::ride::*},
     environment::AppState,
 };
-use shared::tools::error::AppError;
 
 #[post("/internal/ride/{rideId}/create")]
 async fn ride_create(

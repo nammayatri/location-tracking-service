@@ -15,7 +15,7 @@ use crate::{
     redis::keys::health_check_key,
 };
 
-use shared::tools::error::AppError;
+use crate::tools::error::AppError;
 
 #[get("/healthcheck")]
 async fn health_check(data: Data<AppState>) -> Result<Json<ResponseData>, AppError> {
@@ -25,12 +25,14 @@ async fn health_check(data: Data<AppState>) -> Result<Json<ResponseData>, AppErr
             "driver-location-service-health-check",
             data.redis_expiry,
         )
-        .await?;
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))?;
 
     let health_check_resp = data
         .persistent_redis
         .get_key_as_str(&health_check_key())
-        .await?;
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))?;
 
     if health_check_resp.is_none() {
         return Err(AppError::InternalError(

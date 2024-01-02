@@ -6,8 +6,9 @@
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
+use crate::tools::error::AppError;
 use chrono::Utc;
-use shared::{redis::types::RedisConnectionPool, tools::error::AppError};
+use shared::redis::types::RedisConnectionPool;
 
 /// Applies a sliding window rate limiter using a Redis backend.
 ///
@@ -33,7 +34,8 @@ pub async fn sliding_window_limiter(
 
     let hits_frame = persistent_redis_pool
         .get_key::<Vec<i64>>(key)
-        .await?
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))?
         .unwrap_or(Vec::new());
 
     let curr_frame = curr_time / frame_len as i64;
@@ -64,6 +66,7 @@ pub async fn sliding_window_limiter(
         persistent_redis_pool
             .set_key(key, new_hits, frame_len)
             .await
+            .map_err(|err| AppError::InternalError(err.to_string()))
     } else {
         Err(AppError::HitsLimitExceeded(key.to_string()))
     }

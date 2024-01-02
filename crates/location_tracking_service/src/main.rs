@@ -13,9 +13,8 @@ use location_tracking_service::{
     drainer::run_drainer,
     environment::{AppConfig, AppState},
     middleware::*,
+    tools::{error::AppError, logger::setup_tracing, prometheus::prometheus_metrics},
 };
-use shared::utils::logger::*;
-use shared::{tools::error::AppError, utils::prometheus::prometheus_metrics};
 use std::{
     env::var,
     sync::atomic::{AtomicBool, Ordering},
@@ -26,6 +25,7 @@ use tokio::{
     signal::unix::signal,
     sync::mpsc::{self, Receiver, Sender},
 };
+use tracing::error;
 use tracing_actix_web::TracingLogger;
 
 /// Reads and parses a Dhall configuration file into an `AppConfig` struct.

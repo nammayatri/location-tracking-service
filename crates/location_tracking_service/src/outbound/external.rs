@@ -7,12 +7,10 @@
 */
 use super::types::*;
 use crate::common::types::*;
+use crate::tools::callapi::{call_api, call_api_unwrapping_error};
+use crate::tools::error::AppError;
 use actix_http::StatusCode;
 use reqwest::{Method, Url};
-use shared::{
-    tools::error::AppError,
-    utils::callapi::{call_api, call_api_unwrapping_error},
-};
 
 /// Authenticates a driver using the `dobpp` method.
 ///

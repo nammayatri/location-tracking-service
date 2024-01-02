@@ -8,6 +8,8 @@
 
 use std::{rc::Rc, time::Duration};
 
+use crate::incoming_api;
+use crate::tools::prometheus::INCOMING_API;
 use actix::fut::{ready, Ready};
 use actix_http::{h1, header::CONTENT_LENGTH, StatusCode};
 use actix_web::{
@@ -17,17 +19,13 @@ use actix_web::{
     Error, HttpRequest,
 };
 use futures::future::LocalBoxFuture;
-use shared::{
-    incoming_api,
-    tools::error::AppError,
-    utils::{logger::*, prometheus::INCOMING_API},
-};
 use tokio::time::{timeout, Instant};
 use tracing::Span;
+use tracing::{error, info, warn};
 use tracing_actix_web::{DefaultRootSpanBuilder, RootSpanBuilder};
 use uuid::Uuid;
 
-use crate::environment::AppState;
+use crate::{environment::AppState, tools::error::AppError};
 
 /// Processes a service request, applying a timeout if specified in the application data.
 ///

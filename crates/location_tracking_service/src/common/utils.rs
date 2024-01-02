@@ -6,8 +6,8 @@
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 use super::types::*;
+use crate::tools::error::AppError;
 use geo::{point, Intersects};
-use shared::tools::error::AppError;
 use std::f64::consts::PI;
 
 /// Retrieves the name of the city based on latitude and longitude coordinates.

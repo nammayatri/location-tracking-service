@@ -6,16 +6,16 @@
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-use std::fmt::Debug;
-use std::str::FromStr;
-
 use crate::call_external_api;
 use crate::tools::error::AppError;
-use crate::utils::{logger::*, prometheus::CALL_EXTERNAL_API};
+use crate::tools::prometheus::CALL_EXTERNAL_API;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use reqwest::{Client, Method, Response, Url};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+use std::fmt::Debug;
+use std::str::FromStr;
+use tracing::{error, info};
 
 /// Sends an asynchronous API request to the specified URL.
 ///
@@ -98,7 +98,7 @@ where
     );
 
     let status = match resp.as_ref() {
-        Ok(resp) => resp.status().to_string(),
+        Ok(resp) => resp.status().as_str().to_string(),
         Err(err) => err
             .status()
             .map(|status| status.to_string())
@@ -222,7 +222,7 @@ where
     );
 
     let status = match resp.as_ref() {
-        Ok(resp) => resp.status().to_string(),
+        Ok(resp) => resp.status().as_str().to_string(),
         Err(err) => err
             .status()
             .map(|status| status.to_string())

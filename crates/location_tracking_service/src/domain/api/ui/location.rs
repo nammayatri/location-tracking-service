@@ -19,7 +19,7 @@ use crate::{
     environment::AppState,
 };
 
-use shared::tools::error::AppError;
+use crate::tools::error::AppError;
 
 #[post("/ui/driver/location")]
 pub async fn update_driver_location(

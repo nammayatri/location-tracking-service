@@ -7,12 +7,12 @@
 */
 use std::time::Duration;
 
+use crate::tools::error::AppError;
 use rdkafka::{
     producer::{FutureProducer, FutureRecord},
     util::Timeout,
 };
 use serde::Serialize;
-use shared::tools::error::AppError;
 
 /// Pushes a serialized message to a specified Kafka topic.
 ///

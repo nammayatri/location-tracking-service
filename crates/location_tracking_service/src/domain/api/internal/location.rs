@@ -11,11 +11,11 @@ use actix_web::{
     HttpRequest,
 };
 
+use crate::tools::error::AppError;
 use crate::{
     domain::{action::internal::*, types::internal::location::*},
     environment::AppState,
 };
-use shared::tools::error::AppError;
 
 #[get("/internal/drivers/nearby")]
 async fn get_nearby_drivers(
