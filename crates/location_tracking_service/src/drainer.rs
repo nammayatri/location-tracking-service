@@ -5,6 +5,8 @@
     or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more details. You should have received a copy of
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
+use crate::queue_drainer_latency;
+use crate::tools::prometheus::{NEW_RIDE_QUEUE_COUNTER, QUEUE_COUNTER, QUEUE_DRAINER_LATENCY};
 use crate::{
     common::{types::*, utils::get_bucket_from_timestamp},
     redis::{commands::push_drainer_driver_location, keys::driver_loc_bucket_key},
@@ -13,13 +15,6 @@ use chrono::{DateTime, Utc};
 use fred::types::{GeoPosition, GeoValue};
 use rustc_hash::FxHashMap;
 use shared::redis::types::RedisConnectionPool;
-use shared::{
-    queue_drainer_latency,
-    utils::{
-        logger::*,
-        prometheus::{NEW_RIDE_QUEUE_COUNTER, QUEUE_COUNTER, QUEUE_DRAINER_LATENCY},
-    },
-};
 use std::{
     cmp::min,
     sync::atomic::{AtomicBool, Ordering},
@@ -27,6 +22,7 @@ use std::{
 use std::{sync::Arc, time::Duration};
 use tokio::sync::mpsc;
 use tokio::time::interval;
+use tracing::{error, info};
 
 /// Asynchronously drains driver locations to a Redis server.
 ///

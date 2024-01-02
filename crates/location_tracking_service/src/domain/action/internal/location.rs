@@ -9,6 +9,7 @@ use actix_web::web::Data;
 use chrono::Utc;
 use strum::IntoEnumIterator;
 
+use crate::tools::error::AppError;
 use crate::{
     common::{
         types::*,
@@ -17,8 +18,9 @@ use crate::{
     domain::types::internal::location::*,
     environment::AppState,
     redis::commands::*,
+    tools::logger::*,
 };
-use shared::{redis::types::RedisConnectionPool, tools::error::AppError, utils::logger::*};
+use shared::redis::types::RedisConnectionPool;
 
 #[allow(clippy::too_many_arguments)]
 async fn search_nearby_drivers_with_vehicle(
