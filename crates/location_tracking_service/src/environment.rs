@@ -18,7 +18,7 @@ use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use shared::redis::types::{RedisConnectionPool, RedisSettings};
 use tokio::sync::mpsc::Sender;
-use tracing::{error, info};
+use tracing::info;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct AppConfig {
@@ -53,7 +53,7 @@ pub struct AppConfig {
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct BusinessConfigs {
     pub auth_token_expiry: u32,
-    pub min_location_accuracy: Accuracy,
+    pub min_location_accuracy: f64,
     pub driver_location_accuracy_buffer: f64,
     pub last_location_timstamp_expiry: u32,
     pub location_update_limit: usize,
@@ -274,53 +274,44 @@ impl AppState {
 
 impl Clone for AppState {
     fn clone(&self) -> Self {
-        let tokio_runtime = tokio::runtime::Runtime::new();
-        let business_configs = match tokio_runtime {
-            Ok(tokio_runtime) => tokio_runtime.block_on(async {
-                BusinessConfigs {
-                    auth_token_expiry: get_config(self.cac_tenant.clone(), "auth_token_expiry")
-                        .await
-                        .unwrap_or(self.business_configs.auth_token_expiry),
-                    min_location_accuracy: get_config(
-                        self.cac_tenant.clone(),
-                        "min_location_accuracy",
-                    )
+        info!("Cloning AppState");
+        let business_configs = futures::executor::block_on(async {
+            BusinessConfigs {
+                auth_token_expiry: get_config(self.cac_tenant.clone(), "auth_token_expiry")
                     .await
+                    .unwrap_or(self.business_configs.auth_token_expiry),
+                min_location_accuracy: get_config(self.cac_tenant.clone(), "min_location_accuracy")
+                    .await
+                    .map_err(|err| {
+                        log::error!("Error fetching min_location_accuracy: {}", err.message());
+                    })
                     .unwrap_or(self.business_configs.min_location_accuracy),
-                    last_location_timstamp_expiry: get_config(
-                        self.cac_tenant.clone(),
-                        "last_location_timstamp_expiry",
-                    )
-                    .await
-                    .unwrap_or(self.business_configs.last_location_timstamp_expiry),
-                    location_update_limit: get_config(
-                        self.cac_tenant.clone(),
-                        "location_update_limit",
-                    )
+                last_location_timstamp_expiry: get_config(
+                    self.cac_tenant.clone(),
+                    "last_location_timstamp_expiry",
+                )
+                .await
+                .unwrap_or(self.business_configs.last_location_timstamp_expiry),
+                location_update_limit: get_config(self.cac_tenant.clone(), "location_update_limit")
                     .await
                     .unwrap_or(self.business_configs.location_update_limit),
-                    location_update_interval: get_config(
-                        self.cac_tenant.clone(),
-                        "location_update_interval",
-                    )
+                location_update_interval: get_config(
+                    self.cac_tenant.clone(),
+                    "location_update_interval",
+                )
+                .await
+                .unwrap_or(self.business_configs.location_update_interval),
+                batch_size: get_config(self.cac_tenant.clone(), "batch_size")
                     .await
-                    .unwrap_or(self.business_configs.location_update_interval),
-                    batch_size: get_config(self.cac_tenant.clone(), "batch_size")
-                        .await
-                        .unwrap_or(self.business_configs.batch_size),
-                    driver_location_accuracy_buffer: get_config(
-                        self.cac_tenant.clone(),
-                        "driver_location_accuracy_buffer",
-                    )
-                    .await
-                    .unwrap_or(self.business_configs.driver_location_accuracy_buffer),
-                }
-            }),
-            Err(err) => {
-                error!("Error in tokio runtime while cloning CAC configs. {err}");
-                self.business_configs.clone()
+                    .unwrap_or(self.business_configs.batch_size),
+                driver_location_accuracy_buffer: get_config(
+                    self.cac_tenant.clone(),
+                    "driver_location_accuracy_buffer",
+                )
+                .await
+                .unwrap_or(self.business_configs.driver_location_accuracy_buffer),
             }
-        };
+        });
         AppState {
             non_persistent_redis: self.non_persistent_redis.clone(),
             persistent_redis: self.persistent_redis.clone(),

@@ -81,7 +81,7 @@ async fn start_server() -> std::io::Result<()> {
 
     let _ = init_cac_clients(app_config.cac_config.clone())
         .await
-        .map_err(|err| error!("Init CAC Client Error : {err}"));
+        .map_err(|err| error!("Init CAC Client Error : {}", err.message()));
     let _ = init_superposition_clients(
         app_config.superposition_client_config.clone(),
         app_config.cac_config.clone(),
@@ -100,8 +100,6 @@ async fn start_server() -> std::io::Result<()> {
     ) = mpsc::channel(app_config.drainer_size);
 
     let app_state = AppState::new(app_config, sender).await;
-
-    let data = web::Data::new(app_state);
 
     let graceful_termination_requested = Arc::new(AtomicBool::new(false));
     let graceful_termination_requested_sigterm = graceful_termination_requested.to_owned();
@@ -127,12 +125,12 @@ async fn start_server() -> std::io::Result<()> {
         nearby_bucket_threshold,
         non_persistent_redis,
     ) = (
-        data.drainer_size,
-        data.drainer_delay,
-        data.new_ride_drainer_delay,
-        data.bucket_size,
-        data.nearby_bucket_threshold,
-        data.non_persistent_redis.clone(),
+        app_state.drainer_size,
+        app_state.drainer_delay,
+        app_state.new_ride_drainer_delay,
+        app_state.bucket_size,
+        app_state.nearby_bucket_threshold,
+        app_state.non_persistent_redis.clone(),
     );
     let channel_thread = tokio::spawn(async move {
         run_drainer(
@@ -152,7 +150,7 @@ async fn start_server() -> std::io::Result<()> {
 
     HttpServer::new(move || {
         App::new()
-            .app_data(data.clone())
+            .app_data(web::Data::new(app_state.clone()))
             .app_data(
                 web::JsonConfig::default()
                     .limit(max_allowed_req_size)

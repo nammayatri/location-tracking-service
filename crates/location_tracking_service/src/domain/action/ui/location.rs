@@ -273,7 +273,7 @@ async fn process_driver_locations(
         let locations = get_filtered_driver_locations(
             last_known_location.as_ref(),
             locations,
-            data.business_configs.min_location_accuracy,
+            Accuracy(data.business_configs.min_location_accuracy),
             data.business_configs.driver_location_accuracy_buffer,
         );
         if !locations.is_empty() {

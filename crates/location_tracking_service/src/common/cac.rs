@@ -10,6 +10,7 @@ use crate::environment::{CacConfig, SuperpositionClientConfig};
 use crate::tools::error::AppError;
 use actix_web::rt;
 use cac_client as cac;
+use log::info;
 use rand::Rng;
 use serde::de::DeserializeOwned;
 use serde_json::json;
@@ -67,7 +68,7 @@ pub async fn init_superposition_clients(
 
 pub async fn get_config<T>(tenant_name: String, key: &str) -> Result<T, AppError>
 where
-    T: DeserializeOwned,
+    T: DeserializeOwned + std::fmt::Debug,
 {
     let cac_client = cac::CLIENT_FACTORY.get_client(tenant_name.to_owned());
     let superpostion_client = spclient::CLIENT_FACTORY
@@ -86,8 +87,11 @@ where
                 .map_err(|err| AppError::CacConfigFailed(err.to_string()))?;
 
             match res.get(key) {
-                Some(val) => Ok(serde_json::from_value(val.clone())
-                    .map_err(|err| AppError::CacConfigFailed(err.to_string()))?),
+                Some(val) => {
+                    let val = serde_json::from_value(val.clone());
+                    info!("The config value of {} is : {:?}", key, val);
+                    Ok(val.map_err(|err| AppError::CacConfigFailed(err.to_string()))?)
+                }
                 None => Err(AppError::CacConfigFailed(format!(
                     "Key does not exist in cac client's response for tenant {}",
                     tenant_name
