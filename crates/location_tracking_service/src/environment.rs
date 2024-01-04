@@ -10,7 +10,7 @@
 use std::{env::var, sync::Arc};
 
 use crate::{
-    common::{cac::get_config, geo_polygon::read_geo_polygon, types::*},
+    common::{geo_polygon::read_geo_polygon, types::*},
     tools::logger::LoggerConfig,
 };
 use rdkafka::{error::KafkaError, producer::FutureProducer, ClientConfig};
@@ -93,6 +93,7 @@ pub struct RedisConfig {
     pub stream_read_count: u64,
 }
 
+#[derive(Clone)]
 pub struct AppState {
     pub non_persistent_redis: Arc<RedisConnectionPool>,
     pub persistent_redis: Arc<RedisConnectionPool>,
@@ -268,73 +269,6 @@ impl AppState {
             nearby_bucket_threshold: app_config.nearby_bucket_threshold,
             cac_tenant: app_config.cac_config.cac_tenant,
             business_configs: app_config.business_configs,
-        }
-    }
-}
-
-impl Clone for AppState {
-    fn clone(&self) -> Self {
-        info!("Cloning AppState");
-        let business_configs = futures::executor::block_on(async {
-            BusinessConfigs {
-                auth_token_expiry: get_config(self.cac_tenant.clone(), "auth_token_expiry")
-                    .await
-                    .unwrap_or(self.business_configs.auth_token_expiry),
-                min_location_accuracy: get_config(self.cac_tenant.clone(), "min_location_accuracy")
-                    .await
-                    .map_err(|err| {
-                        log::error!("Error fetching min_location_accuracy: {}", err.message());
-                    })
-                    .unwrap_or(self.business_configs.min_location_accuracy),
-                last_location_timstamp_expiry: get_config(
-                    self.cac_tenant.clone(),
-                    "last_location_timstamp_expiry",
-                )
-                .await
-                .unwrap_or(self.business_configs.last_location_timstamp_expiry),
-                location_update_limit: get_config(self.cac_tenant.clone(), "location_update_limit")
-                    .await
-                    .unwrap_or(self.business_configs.location_update_limit),
-                location_update_interval: get_config(
-                    self.cac_tenant.clone(),
-                    "location_update_interval",
-                )
-                .await
-                .unwrap_or(self.business_configs.location_update_interval),
-                batch_size: get_config(self.cac_tenant.clone(), "batch_size")
-                    .await
-                    .unwrap_or(self.business_configs.batch_size),
-                driver_location_accuracy_buffer: get_config(
-                    self.cac_tenant.clone(),
-                    "driver_location_accuracy_buffer",
-                )
-                .await
-                .unwrap_or(self.business_configs.driver_location_accuracy_buffer),
-            }
-        });
-        AppState {
-            non_persistent_redis: self.non_persistent_redis.clone(),
-            persistent_redis: self.persistent_redis.clone(),
-            drainer_delay: self.drainer_delay,
-            drainer_size: self.drainer_size,
-            new_ride_drainer_delay: self.new_ride_drainer_delay,
-            sender: self.sender.clone(),
-            polygon: self.polygon.clone(),
-            blacklist_polygon: self.blacklist_polygon.clone(),
-            auth_url: self.auth_url.clone(),
-            auth_api_key: self.auth_api_key.clone(),
-            bulk_location_callback_url: self.bulk_location_callback_url.clone(),
-            redis_expiry: self.redis_expiry,
-            producer: self.producer.clone(),
-            driver_location_update_topic: self.driver_location_update_topic.clone(),
-            max_allowed_req_size: self.max_allowed_req_size,
-            log_unprocessible_req_body: self.log_unprocessible_req_body.clone(),
-            request_timeout: self.request_timeout,
-            blacklist_merchants: self.blacklist_merchants.clone(),
-            bucket_size: self.bucket_size,
-            nearby_bucket_threshold: self.nearby_bucket_threshold,
-            cac_tenant: self.cac_tenant.clone(),
-            business_configs,
         }
     }
 }
