@@ -174,7 +174,7 @@ pub async fn run_drainer(
                         if new_ride {
                             new_ride_driver_locations
                                 .entry(driver_loc_bucket_key(&merchant_id, &city, &vehicle_type, &bucket))
-                                .or_insert_with(Vec::new)
+                                .or_default()
                                 .push(GeoValue {
                                     coordinates: GeoPosition {
                                         latitude,
@@ -188,7 +188,7 @@ pub async fn run_drainer(
                         } else {
                             driver_locations
                                 .entry(driver_loc_bucket_key(&merchant_id, &city, &vehicle_type, &bucket))
-                                .or_insert_with(Vec::new)
+                                .or_default()
                                 .push(GeoValue {
                                     coordinates: GeoPosition {
                                         latitude,

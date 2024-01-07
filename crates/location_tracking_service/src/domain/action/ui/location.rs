@@ -8,6 +8,7 @@
 
 use std::pin::Pin;
 
+use crate::common::cac::get_config;
 use crate::common::utils::{distance_between_in_meters, get_city, is_blacklist_for_special_zone};
 use crate::common::{sliding_window_rate_limiter::sliding_window_limiter, types::*};
 use crate::domain::types::ui::location::*;
@@ -82,20 +83,25 @@ pub async fn update_driver_location(
     mut locations: Vec<UpdateDriverLocationRequest>,
     driver_mode: DriverMode,
 ) -> Result<APISuccess, AppError> {
+    let auth_token_exp: u32 = get_config(data.cac_tenant.clone(), "auth_token_expiry")
+        .await
+        .unwrap_or(data.business_configs.auth_token_expiry);
     let driver_id = get_driver_id_from_authentication(
         &data.persistent_redis,
         &data.auth_url,
         &data.auth_api_key,
-        &data.auth_token_expiry,
+        &auth_token_exp,
         &token,
         &merchant_id,
     )
     .await?;
-
-    if locations.len() > data.batch_size as usize {
+    let batch_sze = get_config(data.cac_tenant.clone(), "batch_size")
+        .await
+        .unwrap_or(data.business_configs.batch_size) as usize;
+    if locations.len() > batch_sze {
         warn!(
             "Way points more than {} points => {} points",
-            data.batch_size,
+            batch_sze,
             locations.len()
         );
     }
@@ -135,11 +141,18 @@ pub async fn update_driver_location(
         &data.polygon,
     )?;
 
+    let loc_update_limit = get_config(data.cac_tenant.clone(), "location_update_limit")
+        .await
+        .unwrap_or(data.business_configs.location_update_limit);
+    let loc_update_interval = (get_config(data.cac_tenant.clone(), "location_update_interval")
+        .await
+        .unwrap_or(data.business_configs.location_update_interval))
+        as u32;
     sliding_window_limiter(
         &data.persistent_redis,
         &sliding_rate_limiter_key(&driver_id, &city, &merchant_id),
-        data.location_update_limit,
-        data.location_update_interval as u32,
+        loc_update_limit,
+        loc_update_interval,
     )
     .await?;
 
@@ -217,9 +230,13 @@ async fn process_driver_locations(
     let mut all_tasks: Vec<Pin<Box<dyn Future<Output = Result<(), AppError>>>>> = Vec::new();
 
     let set_driver_last_location_update = async {
+        let last_loc_timestamp_exp =
+            get_config(data.cac_tenant.clone(), "last_location_timstamp_expiry")
+                .await
+                .unwrap_or(data.business_configs.last_location_timstamp_expiry);
         set_driver_last_location_update(
             &data.persistent_redis,
-            &data.last_location_timstamp_expiry,
+            &last_loc_timestamp_exp,
             &driver_id,
             &merchant_id,
             &latest_driver_location.pt,
@@ -268,19 +285,33 @@ async fn process_driver_locations(
             latest_driver_location.pt, driver_id, merchant_id
         );
     }
-
+    let batch_sze = get_config(data.cac_tenant.clone(), "batch_size")
+        .await
+        .unwrap_or(data.business_configs.batch_size) as usize;
     let locations = if let Some(RideStatus::INPROGRESS) = driver_ride_status.as_ref() {
+        let min_loc_accuracy = Accuracy(
+            get_config(data.cac_tenant.clone(), "min_location_accuracy")
+                .await
+                .map_err(|err| {
+                    log::error!("Error fetching min_location_accuracy: {}", err.message());
+                })
+                .unwrap_or(data.business_configs.min_location_accuracy),
+        );
+        let driver_loc_accuracy_buffer =
+            get_config(data.cac_tenant.clone(), "driver_location_accuracy_buffer")
+                .await
+                .unwrap_or(data.business_configs.driver_location_accuracy_buffer);
         let locations = get_filtered_driver_locations(
             last_known_location.as_ref(),
             locations,
-            data.min_location_accuracy,
-            data.driver_location_accuracy_buffer,
+            min_loc_accuracy,
+            driver_loc_accuracy_buffer,
         );
         if !locations.is_empty() {
-            if locations.len() > data.batch_size as usize {
+            if locations.len() > batch_sze {
                 warn!(
                     "On Ride Way points more than {} points after filtering => {} points",
-                    data.batch_size,
+                    batch_sze.clone(),
                     locations.len()
                 );
             }
@@ -310,7 +341,7 @@ async fn process_driver_locations(
         )
         .await?;
 
-        if on_ride_driver_locations_count + geo_entries.len() as i64 > data.batch_size {
+        if on_ride_driver_locations_count + geo_entries.len() as i64 > batch_sze as i64 {
             let mut on_ride_driver_locations = get_on_ride_driver_locations(
                 &data.persistent_redis,
                 &driver_id,

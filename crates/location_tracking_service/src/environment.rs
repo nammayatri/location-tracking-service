@@ -9,19 +9,18 @@
 
 use std::{env::var, sync::Arc};
 
-use rdkafka::{error::KafkaError, producer::FutureProducer, ClientConfig};
-use reqwest::Url;
-use serde::Deserialize;
-use shared::redis::types::{RedisConnectionPool, RedisSettings};
-use tokio::sync::mpsc::Sender;
-use tracing::info;
-
 use crate::{
     common::{geo_polygon::read_geo_polygon, types::*},
     tools::logger::LoggerConfig,
 };
+use rdkafka::{error::KafkaError, producer::FutureProducer, ClientConfig};
+use reqwest::Url;
+use serde::{Deserialize, Serialize};
+use shared::redis::types::{RedisConnectionPool, RedisSettings};
+use tokio::sync::mpsc::Sender;
+use tracing::info;
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct AppConfig {
     pub port: u16,
     pub logger_cfg: LoggerConfig,
@@ -37,31 +36,51 @@ pub struct AppConfig {
     pub auth_url: String,
     pub auth_api_key: String,
     pub bulk_location_callback_url: String,
-    pub auth_token_expiry: u32,
     pub redis_expiry: u32,
-    pub min_location_accuracy: f64,
-    pub last_location_timstamp_expiry: u32,
-    pub location_update_limit: usize,
-    pub location_update_interval: u64,
     pub kafka_cfg: KafkaConfig,
     pub driver_location_update_topic: String,
-    pub batch_size: i64,
-    pub bucket_size: u64,
-    pub nearby_bucket_threshold: u64,
-    pub driver_location_accuracy_buffer: f64,
     pub blacklist_merchants: Vec<String>,
     pub request_timeout: u64,
     pub log_unprocessible_req_body: Vec<String>,
     pub max_allowed_req_size: usize,
+    pub bucket_size: u64,
+    pub nearby_bucket_threshold: u64,
+    pub cac_config: CacConfig,
+    pub superposition_client_config: SuperpositionClientConfig,
+    pub business_configs: BusinessConfigs,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct BusinessConfigs {
+    pub auth_token_expiry: u32,
+    pub min_location_accuracy: f64,
+    pub driver_location_accuracy_buffer: f64,
+    pub last_location_timstamp_expiry: u32,
+    pub location_update_limit: usize,
+    pub location_update_interval: u64,
+    pub batch_size: i64,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct KafkaConfig {
     pub kafka_key: String,
     pub kafka_host: String,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct CacConfig {
+    pub cac_hostname: String,
+    pub cac_polling_interval: u64,
+    pub update_cac_periodically: bool,
+    pub cac_tenant: String,
+}
+#[derive(Debug, Deserialize, Serialize, Clone)]
+
+pub struct SuperpositionClientConfig {
+    pub superposition_hostname: String,
+    pub superposition_poll_frequency: u64,
+}
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct RedisConfig {
     pub redis_host: String,
     pub redis_port: u16,
@@ -87,22 +106,17 @@ pub struct AppState {
     pub auth_url: Url,
     pub auth_api_key: String,
     pub bulk_location_callback_url: Url,
-    pub auth_token_expiry: u32,
     pub redis_expiry: u32,
-    pub min_location_accuracy: Accuracy,
-    pub last_location_timstamp_expiry: u32,
-    pub location_update_limit: usize,
-    pub location_update_interval: u64,
     pub producer: Option<FutureProducer>,
     pub driver_location_update_topic: String,
-    pub batch_size: i64,
-    pub bucket_size: u64,
-    pub nearby_bucket_threshold: u64,
-    pub driver_location_accuracy_buffer: f64,
     pub blacklist_merchants: Vec<MerchantId>,
     pub max_allowed_req_size: usize,
     pub log_unprocessible_req_body: Vec<String>,
     pub request_timeout: u64,
+    pub bucket_size: u64,
+    pub nearby_bucket_threshold: u64,
+    pub cac_tenant: String,
+    pub business_configs: BusinessConfigs,
 }
 
 impl AppState {
@@ -244,22 +258,17 @@ impl AppState {
             auth_api_key: app_config.auth_api_key,
             bulk_location_callback_url: Url::parse(app_config.bulk_location_callback_url.as_str())
                 .expect("Failed to parse bulk_location_callback_url."),
-            auth_token_expiry: app_config.auth_token_expiry,
-            min_location_accuracy: Accuracy(app_config.min_location_accuracy),
             redis_expiry: app_config.redis_expiry,
-            last_location_timstamp_expiry: app_config.last_location_timstamp_expiry,
-            location_update_limit: app_config.location_update_limit,
-            location_update_interval: app_config.location_update_interval,
             producer,
             driver_location_update_topic: app_config.driver_location_update_topic,
-            batch_size: app_config.batch_size,
-            bucket_size: app_config.bucket_size,
-            nearby_bucket_threshold: app_config.nearby_bucket_threshold,
-            driver_location_accuracy_buffer: app_config.driver_location_accuracy_buffer,
             max_allowed_req_size: app_config.max_allowed_req_size,
             log_unprocessible_req_body: app_config.log_unprocessible_req_body,
             request_timeout: app_config.request_timeout,
             blacklist_merchants,
+            bucket_size: app_config.bucket_size,
+            nearby_bucket_threshold: app_config.nearby_bucket_threshold,
+            cac_tenant: app_config.cac_config.cac_tenant,
+            business_configs: app_config.business_configs,
         }
     }
 }

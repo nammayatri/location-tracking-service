@@ -42,6 +42,8 @@ pub enum AppError {
     DriverAppAuthFailed,
     KafkaPushFailed(String),
     DrainerPushFailed(String),
+    CacConfigFailed(String),
+    CacClientInitFailed(String),
 }
 
 impl AppError {
@@ -76,6 +78,12 @@ impl AppError {
             AppError::PanicOccured(reason) => {
                 format!("Panic occured : {reason}")
             }
+            AppError::CacConfigFailed(reason) => {
+                format!("CAC Config Failed : {reason}")
+            }
+            AppError::CacClientInitFailed(reason) => {
+                format!("CAC Client Init Failed : {reason}")
+            }
             _ => "Some Error Occured".to_string(),
         }
     }
@@ -105,6 +113,8 @@ impl AppError {
             AppError::RequestTimeout => "REQUEST_TIMEOUT",
             AppError::KafkaPushFailed(_) => "KAFKA_PUSH_FAILED",
             AppError::DrainerPushFailed(_) => "DRAINER_PUSH_FAILED",
+            AppError::CacConfigFailed(_) => "CAC_CONFIG_FAILED",
+            AppError::CacClientInitFailed(_) => "CAC_INIT_FAILED",
         }
         .to_string()
     }
@@ -138,6 +148,8 @@ impl ResponseError for AppError {
             AppError::DriverBulkLocationUpdateFailed(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::KafkaPushFailed(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::DrainerPushFailed(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            AppError::CacConfigFailed(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            AppError::CacClientInitFailed(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::InvalidConfiguration(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::RequestTimeout => StatusCode::REQUEST_TIMEOUT,
         }

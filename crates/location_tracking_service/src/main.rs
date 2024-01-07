@@ -8,7 +8,7 @@
 
 use actix_web::{web, App, HttpServer};
 use location_tracking_service::{
-    common::types::*,
+    common::{cac::init_cac_clients, cac::init_superposition_clients, types::*},
     domain::api,
     drainer::run_drainer,
     environment::{AppConfig, AppState},
@@ -64,7 +64,7 @@ pub fn read_dhall_config(config_path: &str) -> Result<AppConfig, String> {
 async fn start_server() -> std::io::Result<()> {
     let dhall_config_path = var("DHALL_CONFIG")
         .unwrap_or_else(|_| "./dhall-configs/dev/location_tracking_service.dhall".to_string());
-    let app_config = read_dhall_config(&dhall_config_path).unwrap_or_else(|err| {
+    let app_config: AppConfig = read_dhall_config(&dhall_config_path).unwrap_or_else(|err| {
         println!("Dhall Config Reading Error : {}", err);
         std::process::exit(1);
     });
@@ -79,6 +79,16 @@ async fn start_server() -> std::io::Result<()> {
         error!("Panic Occured : {payload}");
     }));
 
+    let _ = init_cac_clients(app_config.cac_config.clone())
+        .await
+        .map_err(|err| error!("Init CAC Client Error : {}", err.message()));
+    let _ = init_superposition_clients(
+        app_config.superposition_client_config.clone(),
+        app_config.cac_config.clone(),
+    )
+    .await
+    .map_err(|err| error!("Init Superposition Client Error : {err}"));
+
     let port = app_config.port;
     let workers = app_config.workers;
     let max_allowed_req_size = app_config.max_allowed_req_size;
@@ -90,8 +100,6 @@ async fn start_server() -> std::io::Result<()> {
     ) = mpsc::channel(app_config.drainer_size);
 
     let app_state = AppState::new(app_config, sender).await;
-
-    let data = web::Data::new(app_state);
 
     let graceful_termination_requested = Arc::new(AtomicBool::new(false));
     let graceful_termination_requested_sigterm = graceful_termination_requested.to_owned();
@@ -117,12 +125,12 @@ async fn start_server() -> std::io::Result<()> {
         nearby_bucket_threshold,
         non_persistent_redis,
     ) = (
-        data.drainer_size,
-        data.drainer_delay,
-        data.new_ride_drainer_delay,
-        data.bucket_size,
-        data.nearby_bucket_threshold,
-        data.non_persistent_redis.clone(),
+        app_state.drainer_size,
+        app_state.drainer_delay,
+        app_state.new_ride_drainer_delay,
+        app_state.bucket_size,
+        app_state.nearby_bucket_threshold,
+        app_state.non_persistent_redis.clone(),
     );
     let channel_thread = tokio::spawn(async move {
         run_drainer(
@@ -142,7 +150,7 @@ async fn start_server() -> std::io::Result<()> {
 
     HttpServer::new(move || {
         App::new()
-            .app_data(data.clone())
+            .app_data(web::Data::new(app_state.clone()))
             .app_data(
                 web::JsonConfig::default()
                     .limit(max_allowed_req_size)

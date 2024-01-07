@@ -6,6 +6,7 @@
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
+use crate::common::cac::get_config;
 use crate::environment::AppState;
 use crate::redis::commands::*;
 use crate::tools::error::AppError;
@@ -65,11 +66,14 @@ pub async fn ride_end(
     data: Data<AppState>,
     request_body: RideEndRequest,
 ) -> Result<RideEndResponse, AppError> {
+    let batch_sze = get_config(data.cac_tenant.clone(), "batch_size")
+        .await
+        .unwrap_or(data.business_configs.batch_size);
     let mut on_ride_driver_locations = get_on_ride_driver_locations(
         &data.persistent_redis,
         &request_body.driver_id,
         &request_body.merchant_id,
-        data.batch_size,
+        batch_sze,
     )
     .await?;
 

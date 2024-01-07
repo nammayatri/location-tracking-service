@@ -33,6 +33,27 @@ let logger_cfg = {
     level = LogLevel.INFO,
     log_to_file = False
 }
+let cac_config = {
+    cac_hostname = "http://localhost:8080",
+    cac_polling_interval = 60,
+    update_cac_periodically = True,
+    cac_tenant = "LTS-default",
+}
+
+let superposition_client_config = {
+    superposition_hostname = "http://localhost:8080",
+    superposition_poll_frequency = 1,
+}
+
+let business_configs = {
+    auth_token_expiry = 86400,
+    min_location_accuracy = 50.0,
+    driver_location_accuracy_buffer = 25.0,
+    last_location_timstamp_expiry = 86400,
+    location_update_limit = 6000000000,
+    location_update_interval = 60,
+    batch_size = 100,
+}
 -- drainer_delay :: 4 * 1024KB * 1024MB * 1024GB / 100 Bytes = 41943040
 in {
     logger_cfg = logger_cfg,
@@ -50,19 +71,15 @@ in {
     auth_url = "http://127.0.0.1:8016/internal/auth",
     auth_api_key = "ae288466-2add-11ee-be56-0242ac120002",
     bulk_location_callback_url = "http://127.0.0.1:8016/internal/bulkLocUpdate",
-    auth_token_expiry = 86400,
-    min_location_accuracy = 50.0,
-    driver_location_accuracy_buffer = 25.0,
     redis_expiry = 86400,
-    last_location_timstamp_expiry = 86400,
-    location_update_limit = 6000000000,
-    location_update_interval = 60,
     driver_location_update_topic = "location-updates",
-    batch_size = 100,
-    bucket_size = 30,
-    nearby_bucket_threshold = 4,
     blacklist_merchants = ["favorit0-0000-0000-0000-00000favorit"],
     request_timeout = 9000,
     log_unprocessible_req_body = ["UNPROCESSIBLE_REQUEST", "REQUEST_TIMEOUT", "LARGE_PAYLOAD_SIZE", "HITS_LIMIT_EXCEEDED"],
     max_allowed_req_size = 512000, -- 500 KB
+    bucket_size = 30,
+    nearby_bucket_threshold = 4,
+    cac_config = cac_config,
+    superposition_client_config = superposition_client_config,
+    business_configs = business_configs,
 }
