@@ -39,6 +39,7 @@ pub async fn kafka_stream_updates(
     topic: &str,
     locations: Vec<UpdateDriverLocationRequest>,
     merchant_id: MerchantId,
+    merchant_operating_city_id: MerchantOperatingCityId,
     ride_id: Option<RideId>,
     ride_status: Option<RideStatus>,
     driver_mode: DriverMode,
@@ -52,8 +53,16 @@ pub async fn kafka_stream_updates(
 
     for loc in locations {
         let message = LocationUpdate {
+            r_id: ride_id.to_owned(),
+            m_id: merchant_id.to_owned(),
+            pt: Point {
+                lat: loc.pt.lat,
+                lon: loc.pt.lon,
+            },
+            da: true,
             rid: ride_id.to_owned(),
             mid: merchant_id.to_owned(),
+            mocid: merchant_operating_city_id.to_owned(),
             ts: loc.ts,
             st: TimeStamp(Utc::now()),
             lat: loc.pt.lat,

@@ -20,7 +20,7 @@ use crate::common::types::*;
 /// A string formatted Redis key.
 ///
 pub fn set_driver_id_key(Token(token): &Token) -> String {
-    format!("lts:dl:driver_id:{token}")
+    format!("lts:driver_id:{token}")
 }
 
 /// Constructs a Redis key for controlling the API hit limits for a driver.

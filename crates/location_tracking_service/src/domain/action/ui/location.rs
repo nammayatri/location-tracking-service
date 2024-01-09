@@ -31,21 +31,29 @@ async fn get_driver_id_from_authentication(
     auth_api_key: &str,
     auth_token_expiry: &u32,
     token: &Token,
-    MerchantId(merchant_id): &MerchantId,
-) -> Result<DriverId, AppError> {
+) -> Result<(DriverId, MerchantId, MerchantOperatingCityId), AppError> {
     match get_driver_id(persistent_redis, token).await? {
-        Some(driver_id) => Ok(driver_id),
+        Some(auth_data) => Ok((
+            auth_data.driver_id,
+            auth_data.merchant_id,
+            auth_data.merchant_operating_city_id,
+        )),
         None => {
-            let response =
-                authenticate_dobpp(auth_url, token.0.as_str(), auth_api_key, merchant_id).await?;
+            let response = authenticate_dobpp(auth_url, token.0.as_str(), auth_api_key).await?;
             set_driver_id(
                 persistent_redis,
                 auth_token_expiry,
                 token,
-                &response.driver_id,
+                response.driver_id.to_owned(),
+                response.merchant_id.to_owned(),
+                response.merchant_operating_city_id.to_owned(),
             )
             .await?;
-            Ok(response.driver_id)
+            Ok((
+                response.driver_id,
+                response.merchant_id,
+                response.merchant_operating_city_id,
+            ))
         }
     }
 }
@@ -76,19 +84,17 @@ fn get_filtered_driver_locations(
 
 pub async fn update_driver_location(
     token: Token,
-    merchant_id: MerchantId,
     vehicle_type: VehicleType,
     data: Data<AppState>,
     mut locations: Vec<UpdateDriverLocationRequest>,
     driver_mode: DriverMode,
 ) -> Result<APISuccess, AppError> {
-    let driver_id = get_driver_id_from_authentication(
+    let (driver_id, merchant_id, merchant_operating_city_id) = get_driver_id_from_authentication(
         &data.persistent_redis,
         &data.auth_url,
         &data.auth_api_key,
         &data.auth_token_expiry,
         &token,
-        &merchant_id,
     )
     .await?;
 
@@ -155,6 +161,7 @@ pub async fn update_driver_location(
             last_known_location,
             driver_id,
             merchant_id,
+            merchant_operating_city_id,
             vehicle_type,
             city,
             driver_mode,
@@ -174,6 +181,7 @@ async fn process_driver_locations(
         Option<DriverLastKnownLocation>,
         DriverId,
         MerchantId,
+        MerchantOperatingCityId,
         VehicleType,
         CityName,
         DriverMode,
@@ -186,6 +194,7 @@ async fn process_driver_locations(
         last_known_location,
         driver_id,
         merchant_id,
+        merchant_operating_city_id,
         vehicle_type,
         city,
         driver_mode,
@@ -359,6 +368,7 @@ async fn process_driver_locations(
             &data.driver_location_update_topic,
             locations,
             merchant_id,
+            merchant_operating_city_id,
             driver_ride_id,
             driver_ride_status,
             driver_mode,
