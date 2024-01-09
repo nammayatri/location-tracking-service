@@ -19,8 +19,13 @@ pub enum DriverRideStatus {
 
 #[derive(Serialize)]
 pub struct LocationUpdate {
+    pub r_id: Option<RideId>, // TODO : To be removed.
+    pub m_id: MerchantId,     // TODO : To be removed.
+    pub pt: Point,            // TODO : To be removed.
+    pub da: bool,             // TODO : To be removed.
     pub rid: Option<RideId>,
     pub mid: MerchantId,
+    pub mocid: MerchantOperatingCityId,
     pub ts: TimeStamp,
     pub st: TimeStamp,
     pub lat: Latitude,

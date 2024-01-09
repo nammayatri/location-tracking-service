@@ -42,15 +42,6 @@ pub async fn update_driver_location(
             "token (Header) not found".to_string(),
         ))?;
 
-    let merchant_id = req
-        .headers()
-        .get("mId")
-        .and_then(|header_value| header_value.to_str().ok())
-        .map(|dm_str| dm_str.to_string())
-        .ok_or(AppError::InvalidRequest(
-            "mId (MerchantId - Header) not found".to_string(),
-        ))?;
-
     let vehicle_type = req
         .headers()
         .get("vt")
@@ -72,7 +63,6 @@ pub async fn update_driver_location(
     Ok(Json(
         location::update_driver_location(
             Token(token),
-            MerchantId(merchant_id),
             vehicle_type,
             data,
             request_body,

@@ -421,10 +421,17 @@ pub async fn set_driver_id(
     persistent_redis_pool: &RedisConnectionPool,
     auth_token_expiry: &u32,
     token: &Token,
-    DriverId(driver_id): &DriverId,
+    driver_id: DriverId,
+    merchant_id: MerchantId,
+    merchant_operating_city_id: MerchantOperatingCityId,
 ) -> Result<(), AppError> {
+    let auth_data = AuthData {
+        driver_id,
+        merchant_id,
+        merchant_operating_city_id,
+    };
     persistent_redis_pool
-        .set_key_as_str(&set_driver_id_key(token), driver_id, *auth_token_expiry)
+        .set_key(&set_driver_id_key(token), auth_data, *auth_token_expiry)
         .await
         .map_err(|err| AppError::InternalError(err.to_string()))
 }
@@ -444,12 +451,11 @@ pub async fn set_driver_id(
 pub async fn get_driver_id(
     persistent_redis_pool: &RedisConnectionPool,
     token: &Token,
-) -> Result<Option<DriverId>, AppError> {
-    Ok(persistent_redis_pool
-        .get_key_as_str(&set_driver_id_key(token))
+) -> Result<Option<AuthData>, AppError> {
+    persistent_redis_pool
+        .get_key::<AuthData>(&set_driver_id_key(token))
         .await
-        .map_err(|err| AppError::InternalError(err.to_string()))?
-        .map(DriverId))
+        .map_err(|err| AppError::InternalError(err.to_string()))
 }
 
 /// Executes a callback function while maintaining a lock in Redis.

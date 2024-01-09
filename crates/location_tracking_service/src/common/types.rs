@@ -16,6 +16,8 @@ pub struct RideId(pub String);
 pub struct DriverId(pub String);
 #[derive(Deserialize, Serialize, Clone, Debug, Eq, Hash, PartialEq)]
 pub struct MerchantId(pub String);
+#[derive(Deserialize, Serialize, Clone, Debug, Eq, Hash, PartialEq)]
+pub struct MerchantOperatingCityId(pub String);
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Copy)]
 pub struct Latitude(pub f64);
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Copy)]
@@ -77,10 +79,10 @@ impl Default for APISuccess {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct AuthData {
-    #[serde(rename = "driverId")]
     pub driver_id: DriverId,
+    pub merchant_id: MerchantId,
+    pub merchant_operating_city_id: MerchantOperatingCityId,
 }
 
 pub struct DriverLocationPoint {

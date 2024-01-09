@@ -13,8 +13,9 @@ use crate::common::types::*;
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AuthResponseData {
-    #[serde(rename = "driverId")]
     pub driver_id: DriverId,
+    pub merchant_id: MerchantId,
+    pub merchant_operating_city_id: MerchantOperatingCityId,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

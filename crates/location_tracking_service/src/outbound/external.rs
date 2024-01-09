@@ -30,7 +30,6 @@ pub async fn authenticate_dobpp(
     auth_url: &Url,
     token: &str,
     auth_api_key: &str,
-    merchant_id: &str,
 ) -> Result<AuthResponseData, AppError> {
     call_api_unwrapping_error::<AuthResponseData, String>(
         Method::GET,
@@ -39,7 +38,6 @@ pub async fn authenticate_dobpp(
             ("content-type", "application/json"),
             ("token", token),
             ("api-key", auth_api_key),
-            ("merchant-id", merchant_id),
         ],
         None,
         Box::new(|resp| {
