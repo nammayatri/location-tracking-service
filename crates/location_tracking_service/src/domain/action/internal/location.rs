@@ -115,7 +115,7 @@ pub async fn get_nearby_drivers(
                     }
                 }
             }
-
+            info!("Get Nearby Drivers final resp{:?}", resp);
             Ok(resp)
         }
         Some(vehicle) => {
