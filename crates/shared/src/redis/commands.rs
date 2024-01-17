@@ -19,6 +19,7 @@ use fred::{
     },
 };
 use rustc_hash::FxHashMap;
+use tracing::info;
 use std::fmt::Debug;
 
 impl RedisConnectionPool {
@@ -444,29 +445,33 @@ impl RedisConnectionPool {
 
         let output: Result<Vec<Vec<RedisValue>>, RedisError> = pipeline.all().await;
 
-        if let Ok(geovals) = output {
-            let mut output = Vec::new();
+        match output {
+            Ok(geovals) => {
+                let mut output = Vec::new();
 
-            for geoval in geovals {
-                if let [member, RedisValue::Array(position)] = &geoval[..] {
-                    if let [RedisValue::Double(longitude), RedisValue::Double(latitude)] =
-                        position[..]
-                    {
-                        output.push(GeoRadiusInfo {
-                            member: member.to_owned(),
-                            position: Some(GeoPosition {
-                                longitude,
-                                latitude,
-                            }),
-                            distance: None,
-                            hash: None,
-                        })
+                for geoval in geovals {
+                    if let [member, RedisValue::Array(position)] = &geoval[..] {
+                        if let [RedisValue::Double(longitude), RedisValue::Double(latitude)] =
+                            position[..]
+                        {
+                            output.push(GeoRadiusInfo {
+                                member: member.to_owned(),
+                                position: Some(GeoPosition {
+                                    longitude,
+                                    latitude,
+                                }),
+                                distance: None,
+                                hash: None,
+                            })
+                        }
                     }
                 }
+                Ok(output)
+            },
+            Err(err) => {
+                info!("Error in geo search {:?}",err);
+                Err(AppError::GeoSearchFailed)
             }
-            Ok(output)
-        } else {
-            Err(AppError::GeoSearchFailed)
         }
     }
 
