@@ -65,4 +65,6 @@ in {
     request_timeout = 9000,
     log_unprocessible_req_body = ["UNPROCESSIBLE_REQUEST", "REQUEST_TIMEOUT", "LARGE_PAYLOAD_SIZE", "HITS_LIMIT_EXCEEDED"],
     max_allowed_req_size = 512000, -- 500 KB
+    driver_location_delay_in_sec = 60,
+    trigger_fcm_callback_url = "http://127.0.0.1:8016/internal/driverInactiveFCM"
 }

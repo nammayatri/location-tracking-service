@@ -53,6 +53,8 @@ pub struct AppConfig {
     pub request_timeout: u64,
     pub log_unprocessible_req_body: Vec<String>,
     pub max_allowed_req_size: usize,
+    pub driver_location_delay_in_sec: i64,
+    pub trigger_fcm_callback_url: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -103,6 +105,8 @@ pub struct AppState {
     pub max_allowed_req_size: usize,
     pub log_unprocessible_req_body: Vec<String>,
     pub request_timeout: u64,
+    pub driver_location_delay_in_sec: i64,
+    pub trigger_fcm_callback_url: Url,
 }
 
 impl AppState {
@@ -260,6 +264,9 @@ impl AppState {
             log_unprocessible_req_body: app_config.log_unprocessible_req_body,
             request_timeout: app_config.request_timeout,
             blacklist_merchants,
+            driver_location_delay_in_sec: app_config.driver_location_delay_in_sec,
+            trigger_fcm_callback_url: Url::parse(app_config.trigger_fcm_callback_url.as_str())
+                .expect("Failed to parse fcm_callback_url."),
         }
     }
 }

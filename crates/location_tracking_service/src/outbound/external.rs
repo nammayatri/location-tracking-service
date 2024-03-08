@@ -85,3 +85,17 @@ pub async fn bulk_location_update_dobpp(
     )
     .await
 }
+
+pub async fn trigger_fcm_dobpp(
+    trigger_fcm_callback_url: &Url,
+    ride_id: RideId,
+    driver_id: DriverId,
+) -> Result<APISuccess, AppError> {
+    call_api::<APISuccess, TriggerFcmReq>(
+        Method::POST,
+        trigger_fcm_callback_url,
+        vec![("content-type", "application/json")],
+        Some(TriggerFcmReq { ride_id, driver_id }),
+    )
+    .await
+}
