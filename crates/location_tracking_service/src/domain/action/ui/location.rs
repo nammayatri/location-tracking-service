@@ -13,7 +13,9 @@ use crate::common::{sliding_window_rate_limiter::sliding_window_limiter, types::
 use crate::domain::types::ui::location::*;
 use crate::environment::AppState;
 use crate::kafka::producers::kafka_stream_updates;
-use crate::outbound::external::{authenticate_dobpp, bulk_location_update_dobpp};
+use crate::outbound::external::{
+    authenticate_dobpp, bulk_location_update_dobpp, trigger_fcm_dobpp,
+};
 use crate::redis::{commands::*, keys::*};
 use crate::tools::error::AppError;
 use actix::Arbiter;
@@ -397,6 +399,20 @@ pub async fn track_driver_location(
         get_driver_location(&data.persistent_redis, &driver_details.driver_id)
             .await?
             .ok_or(AppError::DriverLastKnownLocationNotFound)?;
+
+    let delay_time = Utc::now().timestamp() - data.driver_location_delay_in_sec;
+    let TimeStamp(driver_update_time) = driver_last_known_location_details.timestamp;
+    if driver_update_time.timestamp() < delay_time {
+        Arbiter::current().spawn(async move {
+            let _ = trigger_fcm_dobpp(
+                &data.trigger_fcm_callback_url,
+                ride_id,
+                driver_details.driver_id,
+            )
+            .await
+            .map_err(|err| AppError::DriverSendingFCMFailed(err.message()));
+        });
+    }
 
     Ok(DriverLocationResponse {
         curr_point: driver_last_known_location_details.location,

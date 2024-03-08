@@ -25,3 +25,10 @@ pub struct BulkDataReq {
     pub loc: Vec<Point>,
     pub driver_id: DriverId,
 }
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct TriggerFcmReq {
+    pub ride_id: RideId,
+    pub driver_id: DriverId,
+}
