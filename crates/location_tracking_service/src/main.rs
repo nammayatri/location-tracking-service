@@ -72,11 +72,7 @@ async fn start_server() -> std::io::Result<()> {
     let _guard = setup_tracing(app_config.logger_cfg);
 
     std::panic::set_hook(Box::new(|panic_info| {
-        let payload = panic_info
-            .payload()
-            .downcast_ref::<&str>()
-            .unwrap_or(&"Unknown panic");
-        error!("Panic Occured : {payload}");
+        error!("Panic Occured : {:?}", panic_info);
     }));
 
     let port = app_config.port;

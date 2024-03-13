@@ -6,7 +6,7 @@
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 use actix_web::{
-    post,
+    get, post,
     web::{Data, Json, Path},
 };
 
@@ -51,6 +51,20 @@ async fn ride_end(
     let ride_id = RideId(path.into_inner());
 
     Ok(Json(ride::ride_end(ride_id, data, request_body).await?))
+}
+
+#[get("/internal/ride/{rideId}/driver/locations")]
+async fn get_driver_location(
+    data: Data<AppState>,
+    param_obj: Json<DriverLocationRequest>,
+    path: Path<String>,
+) -> Result<Json<DriverLocationResponse>, AppError> {
+    let request_body = param_obj.into_inner();
+    let ride_id = RideId(path.into_inner());
+
+    Ok(Json(
+        ride::get_driver_location(ride_id, data, request_body).await?,
+    ))
 }
 
 #[post("/internal/ride/{rideId}/clear")]

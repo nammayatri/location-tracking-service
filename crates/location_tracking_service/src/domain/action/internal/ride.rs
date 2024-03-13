@@ -93,6 +93,24 @@ pub async fn ride_end(
     })
 }
 
+pub async fn get_driver_location(
+    _ride_id: RideId,
+    data: Data<AppState>,
+    request_body: DriverLocationRequest,
+) -> Result<DriverLocationResponse, AppError> {
+    let on_ride_driver_locations = get_on_ride_driver_locations(
+        &data.persistent_redis,
+        &request_body.driver_id,
+        &request_body.merchant_id,
+        data.batch_size,
+    )
+    .await?;
+
+    Ok(DriverLocationResponse {
+        loc: on_ride_driver_locations,
+    })
+}
+
 pub async fn ride_clear(
     ride_id: RideId,
     data: Data<AppState>,
