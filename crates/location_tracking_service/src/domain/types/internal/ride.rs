@@ -31,6 +31,19 @@ pub struct RideEndRequest {
     pub merchant_id: MerchantId,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct DriverLocationRequest {
+    pub driver_id: DriverId,
+    pub merchant_id: MerchantId,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct DriverLocationResponse {
+    pub loc: Vec<Point>,
+}
+
 // TODO :: To be deprecated...
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
