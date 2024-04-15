@@ -375,6 +375,7 @@ async fn process_driver_locations(
             driver_ride_status,
             driver_mode,
             &driver_id,
+            vehicle_type,
         )
         .await;
     });
