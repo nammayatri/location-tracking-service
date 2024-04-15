@@ -6,7 +6,9 @@
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 use chrono::{DateTime, Utc};
+use fred::types::GeoValue;
 use geo::MultiPolygon;
+use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use strum_macros::{Display, EnumIter, EnumString};
 
@@ -34,6 +36,8 @@ pub struct Accuracy(pub f64);
 pub struct SpeedInMeterPerSecond(pub f64);
 #[derive(Deserialize, Serialize, Clone, Debug, Eq, PartialEq)]
 pub struct Token(pub String);
+
+pub type DriversLocationMap = FxHashMap<String, Vec<GeoValue>>;
 
 #[derive(
     Debug, Clone, EnumString, EnumIter, Display, Serialize, Deserialize, Eq, Hash, PartialEq,
@@ -124,7 +128,7 @@ pub struct Dimensions {
     pub merchant_id: MerchantId,
     pub city: CityName,
     pub vehicle_type: VehicleType,
-    pub new_ride: bool,
+    pub created_at: DateTime<Utc>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

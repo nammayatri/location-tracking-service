@@ -6,15 +6,19 @@
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 use crate::queue_drainer_latency;
-use crate::tools::prometheus::{NEW_RIDE_QUEUE_COUNTER, QUEUE_COUNTER, QUEUE_DRAINER_LATENCY};
+use crate::tools::prometheus::QUEUE_DRAINER_LATENCY;
 use crate::{
-    common::{types::*, utils::get_bucket_from_timestamp},
+    common::{
+        types::*,
+        utils::{abs_diff_utc_as_sec, get_bucket_from_timestamp},
+    },
     redis::{commands::push_drainer_driver_location, keys::driver_loc_bucket_key},
 };
 use chrono::{DateTime, Utc};
 use fred::types::{GeoPosition, GeoValue};
 use rustc_hash::FxHashMap;
 use shared::redis::types::RedisConnectionPool;
+use std::cmp::max;
 use std::{
     cmp::min,
     sync::atomic::{AtomicBool, Ordering},
@@ -49,7 +53,7 @@ use tracing::{error, info};
 /// }
 /// ```
 async fn drain_driver_locations(
-    driver_locations: &FxHashMap<String, Vec<GeoValue>>,
+    driver_locations: &DriversLocationMap,
     bucket_expiry: i64,
     non_persistent_redis: &RedisConnectionPool,
 ) {
@@ -74,24 +78,19 @@ async fn drain_driver_locations(
 ///
 /// * `drainer_size` - A mutable reference to the current size of the drainer.
 /// * `driver_locations` - A mutable reference to the map storing driver locations.
-/// * `start_time` - A mutable reference to the start time of the current data batch.
-/// * `tag` - A string representing the type of ride (`"OFF_RIDE"` or `"NEW_RIDE"`).
+/// * `drainer_queue_min_max_timestamp_range` - A mutable reference to the minimum and maximum durations for draining the current data batch.
 ///
 fn cleanup_drainer(
     drainer_size: &mut usize,
-    driver_locations: &mut FxHashMap<String, Vec<GeoValue>>,
-    start_time: &mut DateTime<Utc>,
-    tag: &str,
+    driver_locations: &mut DriversLocationMap,
+    drainer_queue_min_max_timestamp_range: &mut Option<(DateTime<Utc>, DateTime<Utc>)>,
 ) {
-    queue_drainer_latency!(tag, *start_time);
-    *start_time = Utc::now();
-    if tag == "OFF_RIDE" {
-        QUEUE_COUNTER.reset()
-    } else {
-        NEW_RIDE_QUEUE_COUNTER.reset();
-    }
+    if let Some((min_drainer_ts, max_drainer_ts)) = drainer_queue_min_max_timestamp_range {
+        queue_drainer_latency!(*min_drainer_ts, *max_drainer_ts);
+    };
     *drainer_size = 0;
     *driver_locations = FxHashMap::default();
+    *drainer_queue_min_max_timestamp_range = None;
 }
 
 /// Asynchronously runs a drainer.
@@ -105,7 +104,6 @@ fn cleanup_drainer(
 /// * `graceful_termination_requested` - An atomic flag indicating if termination is requested.
 /// * `drainer_capacity` - Maximum capacity before forcefully draining data.
 /// * `drainer_delay` - Time interval for periodic draining.
-/// * `new_ride_drainer_delay` - Time interval for draining new ride data.
 /// * `bucket_size` - The size of each time bucket.
 /// * `near_by_bucket_threshold` - A threshold for nearby buckets.
 /// * `non_persistent_redis` - Redis connection pool for non-persistent storage.
@@ -116,21 +114,15 @@ pub async fn run_drainer(
     graceful_termination_requested: Arc<AtomicBool>,
     drainer_capacity: usize,
     drainer_delay: u64,
-    new_ride_drainer_delay: u64,
     bucket_size: u64,
     near_by_bucket_threshold: u64,
     non_persistent_redis: &RedisConnectionPool,
 ) {
-    let mut driver_locations: FxHashMap<String, Vec<GeoValue>> = FxHashMap::default();
+    let mut driver_locations: DriversLocationMap = FxHashMap::default();
     let mut timer = interval(Duration::from_secs(drainer_delay));
-    let mut start_time = Utc::now();
-
-    let mut new_ride_driver_locations: FxHashMap<String, Vec<GeoValue>> = FxHashMap::default();
-    let mut new_ride_timer = interval(Duration::from_secs(new_ride_drainer_delay));
-    let mut new_ride_start_time = Utc::now();
+    let mut drainer_queue_min_max_timestamp_range = None;
 
     let mut drainer_size = 0;
-    let mut new_ride_drainer_size = 0;
 
     let bucket_expiry = (bucket_size * near_by_bucket_threshold) as i64;
 
@@ -144,23 +136,7 @@ pub async fn run_drainer(
                 cleanup_drainer(
                     &mut drainer_size,
                     &mut driver_locations,
-                    &mut start_time,
-                    "OFF_RIDE",
-                );
-            }
-            if new_ride_drainer_size > 0 {
-                info!(tag = "[Force Draining Queue - New Ride]", length = %new_ride_drainer_size);
-                drain_driver_locations(
-                    &new_ride_driver_locations,
-                    bucket_expiry,
-                    non_persistent_redis,
-                )
-                .await;
-                cleanup_drainer(
-                    &mut new_ride_drainer_size,
-                    &mut new_ride_driver_locations,
-                    &mut new_ride_start_time,
-                    "NEW_RIDE",
+                    &mut drainer_queue_min_max_timestamp_range,
                 );
             }
             break;
@@ -169,55 +145,29 @@ pub async fn run_drainer(
             item = rx.recv() => {
                 info!(tag = "[Recieved Entries For Queuing]");
                 match item {
-                    Some((Dimensions { merchant_id, city, vehicle_type, new_ride }, Latitude(latitude), Longitude(longitude), TimeStamp(timestamp), DriverId(driver_id))) => {
+                    Some((Dimensions { merchant_id, city, vehicle_type, created_at }, Latitude(latitude), Longitude(longitude), TimeStamp(timestamp), DriverId(driver_id))) => {
                         let bucket = get_bucket_from_timestamp(&bucket_size, TimeStamp(timestamp));
-                        if new_ride {
-                            new_ride_driver_locations
-                                .entry(driver_loc_bucket_key(&merchant_id, &city, &vehicle_type, &bucket))
-                                .or_insert_with(Vec::new)
-                                .push(GeoValue {
-                                    coordinates: GeoPosition {
-                                        latitude,
-                                        longitude,
-                                    },
-                                    member: driver_id.into(),
-                                });
-                            new_ride_start_time = min(start_time, timestamp);
-                            new_ride_drainer_size += 1;
-                            NEW_RIDE_QUEUE_COUNTER.inc();
-                        } else {
-                            driver_locations
-                                .entry(driver_loc_bucket_key(&merchant_id, &city, &vehicle_type, &bucket))
-                                .or_insert_with(Vec::new)
-                                .push(GeoValue {
-                                    coordinates: GeoPosition {
-                                        latitude,
-                                        longitude,
-                                    },
-                                    member: driver_id.into(),
-                                });
-                            start_time = min(start_time, timestamp);
-                            drainer_size += 1;
-                            QUEUE_COUNTER.inc();
-                        }
+
+                        driver_locations
+                            .entry(driver_loc_bucket_key(&merchant_id, &city, &vehicle_type, &bucket))
+                            .or_insert_with(Vec::new)
+                            .push(GeoValue {
+                                coordinates: GeoPosition {
+                                    latitude,
+                                    longitude,
+                                },
+                                member: driver_id.into(),
+                            });
+                        drainer_queue_min_max_timestamp_range = drainer_queue_min_max_timestamp_range.map_or(Some((created_at, created_at)), |(min_duration, max_duration)| Some((min(created_at, min_duration), max(created_at, max_duration))));
+                        drainer_size += 1;
+
                         if drainer_size >= drainer_capacity {
                             info!(tag = "[Force Draining Queue]", length = %drainer_size);
                             drain_driver_locations(&driver_locations, bucket_expiry, non_persistent_redis).await;
                             cleanup_drainer(
                                 &mut drainer_size,
                                 &mut driver_locations,
-                                &mut start_time,
-                                "OFF_RIDE",
-                            );
-                        }
-                        if new_ride_drainer_size >= drainer_capacity {
-                            info!(tag = "[Force Draining Queue - New Ride]", length = %new_ride_drainer_size);
-                            drain_driver_locations(&new_ride_driver_locations, bucket_expiry, non_persistent_redis).await;
-                            cleanup_drainer(
-                                &mut new_ride_drainer_size,
-                                &mut new_ride_driver_locations,
-                                &mut new_ride_start_time,
-                                "NEW_RIDE",
+                                &mut drainer_queue_min_max_timestamp_range
                             );
                         }
                     },
@@ -231,20 +181,7 @@ pub async fn run_drainer(
                     cleanup_drainer(
                         &mut drainer_size,
                         &mut driver_locations,
-                        &mut start_time,
-                        "OFF_RIDE",
-                    );
-                }
-            },
-            _ = new_ride_timer.tick() => {
-                if new_ride_drainer_size > 0 {
-                    info!(tag = "[Draining Queue - New Ride]", length = %new_ride_drainer_size);
-                    drain_driver_locations(&new_ride_driver_locations, bucket_expiry, non_persistent_redis).await;
-                    cleanup_drainer(
-                        &mut new_ride_drainer_size,
-                        &mut new_ride_driver_locations,
-                        &mut new_ride_start_time,
-                        "NEW_RIDE",
+                        &mut drainer_queue_min_max_timestamp_range
                     );
                 }
             },

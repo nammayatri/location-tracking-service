@@ -258,10 +258,7 @@ async fn process_driver_locations(
                         merchant_id: merchant_id.to_owned(),
                         city: city.to_owned(),
                         vehicle_type: vehicle_type.to_owned(),
-                        new_ride: driver_ride_status
-                            .as_ref()
-                            .map(|ride_status| ride_status == &RideStatus::NEW)
-                            .unwrap_or(false),
+                        created_at: Utc::now(),
                     },
                     latest_driver_location.pt.lat,
                     latest_driver_location.pt.lon,

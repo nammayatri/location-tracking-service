@@ -8,7 +8,7 @@
 #![allow(clippy::expect_used)]
 
 use actix_web_prom::{PrometheusMetrics, PrometheusMetricsBuilder};
-use prometheus::{opts, register_histogram_vec, register_int_counter, HistogramVec, IntCounter};
+use prometheus::{opts, register_histogram_vec, HistogramVec};
 
 pub static INCOMING_API: once_cell::sync::Lazy<HistogramVec> = once_cell::sync::Lazy::new(|| {
     register_histogram_vec!(
@@ -27,25 +27,11 @@ pub static CALL_EXTERNAL_API: once_cell::sync::Lazy<HistogramVec> =
         .expect("Failed to register call external API metrics")
     });
 
-pub static QUEUE_COUNTER: once_cell::sync::Lazy<IntCounter> = once_cell::sync::Lazy::new(|| {
-    register_int_counter!("queue_counter", "Queue Counter Montitoring")
-        .expect("Failed to register queue counter metrics")
-});
-
-pub static NEW_RIDE_QUEUE_COUNTER: once_cell::sync::Lazy<IntCounter> =
-    once_cell::sync::Lazy::new(|| {
-        register_int_counter!(
-            "new_ride_queue_counter",
-            "New Ride Queue Counter Montitoring"
-        )
-        .expect("Failed to register new ride queue counter metrics")
-    });
-
 pub static QUEUE_DRAINER_LATENCY: once_cell::sync::Lazy<HistogramVec> =
     once_cell::sync::Lazy::new(|| {
         register_histogram_vec!(
             opts!("queue_drainer_latency", "Queue Drainer Montitoring").into(),
-            &["type"]
+            &[]
         )
         .expect("Failed to register queue drainer latency metrics")
     });
@@ -105,12 +91,10 @@ macro_rules! call_external_api {
 /// * `$start` - The time when the queue drainer started processing.
 #[macro_export]
 macro_rules! queue_drainer_latency {
-    ($type:expr, $start:expr) => {
-        let duration = Utc::now().signed_duration_since($start);
-        let duration =
-            duration.num_seconds() as f64 + (duration.num_milliseconds() % 1000) as f64 / 1000.0;
+    ($start:expr, $end:expr) => {
+        let duration = abs_diff_utc_as_sec($start, $end);
         QUEUE_DRAINER_LATENCY
-            .with_label_values(&[$type])
+            .with_label_values(&[])
             .observe(duration);
     };
 }
@@ -155,16 +139,6 @@ pub fn prometheus_metrics() -> PrometheusMetrics {
         .registry
         .register(Box::new(CALL_EXTERNAL_API.to_owned()))
         .expect("Failed to register call external API metrics");
-
-    prometheus
-        .registry
-        .register(Box::new(QUEUE_COUNTER.to_owned()))
-        .expect("Failed to register queue counter metrics");
-
-    prometheus
-        .registry
-        .register(Box::new(NEW_RIDE_QUEUE_COUNTER.to_owned()))
-        .expect("Failed to register queue counter metrics");
 
     prometheus
         .registry

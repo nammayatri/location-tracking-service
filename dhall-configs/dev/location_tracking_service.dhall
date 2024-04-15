@@ -44,7 +44,6 @@ in {
     workers = 1,
     drainer_size = 10,
     drainer_delay = 20,
-    new_ride_drainer_delay = 2,
     kafka_cfg = kafka_cfg,
     port = 8081,
     auth_url = "http://127.0.0.1:8016/internal/auth",

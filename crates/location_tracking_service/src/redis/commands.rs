@@ -8,9 +8,9 @@
 use crate::common::{types::*, utils::cat_maybes};
 use crate::redis::keys::*;
 use crate::tools::error::AppError;
-use fred::types::{GeoPosition, GeoUnit, GeoValue, SortOrder};
+use fred::types::{GeoPosition, GeoUnit, SortOrder};
 use futures::Future;
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashSet;
 use shared::redis::types::RedisConnectionPool;
 use tracing::info;
 
@@ -570,7 +570,7 @@ pub async fn get_all_driver_last_locations(
 /// * `Err(AppError)` - An error indicating what went wrong during the operation.
 ///
 pub async fn push_drainer_driver_location(
-    geo_entries: &FxHashMap<String, Vec<GeoValue>>,
+    geo_entries: &DriversLocationMap,
     bucket_expiry: &i64,
     non_persistent_redis: &RedisConnectionPool,
 ) -> Result<(), AppError> {

@@ -7,6 +7,7 @@
 */
 use super::types::*;
 use crate::tools::error::AppError;
+use chrono::{DateTime, Utc};
 use geo::{point, Intersects};
 use std::f64::consts::PI;
 
@@ -220,4 +221,27 @@ pub fn distance_between_in_meters(latlong1: &Point, latlong2: &Point) -> f64 {
 ///
 pub fn cat_maybes<T>(options: Vec<Option<T>>) -> Vec<T> {
     options.into_iter().flatten().collect()
+}
+
+/// Calculates the absolute difference in seconds between two UTC `DateTime` values.
+///
+/// This function takes two `DateTime<Utc>` values, `old` and `new`, and returns the absolute
+/// difference in seconds between them. The difference is calculated as follows:
+///
+/// 1. Subtract `old` from `new` to obtain the `Duration` between them.
+/// 2. Convert the duration to seconds and milliseconds.
+/// 3. Return the total duration in seconds as a floating-point number, including milliseconds.
+///
+/// # Arguments
+///
+/// * `old` - The older `DateTime<Utc>` value.
+/// * `new` - The newer `DateTime<Utc>` value.
+///
+/// # Returns
+///
+/// A floating-point number representing the absolute difference in seconds between `old` and `new`.
+///
+pub fn abs_diff_utc_as_sec(old: DateTime<Utc>, new: DateTime<Utc>) -> f64 {
+    let duration = new.signed_duration_since(old);
+    duration.num_seconds() as f64 + (duration.num_milliseconds() % 1000) as f64 / 1000.0
 }
