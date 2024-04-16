@@ -33,7 +33,6 @@ pub struct AppConfig {
     pub workers: usize,
     pub drainer_delay: u64,
     pub drainer_size: usize,
-    pub new_ride_drainer_delay: u64,
     pub auth_url: String,
     pub auth_api_key: String,
     pub bulk_location_callback_url: String,
