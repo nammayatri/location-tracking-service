@@ -93,7 +93,7 @@ pub async fn ride_end(
     })
 }
 
-pub async fn get_driver_location(
+pub async fn get_driver_locations(
     _ride_id: RideId,
     data: Data<AppState>,
     request_body: DriverLocationRequest,
@@ -106,8 +106,12 @@ pub async fn get_driver_location(
     )
     .await?;
 
+    let last_known_location =
+        get_driver_location(&data.persistent_redis, &request_body.driver_id).await?;
+
     Ok(DriverLocationResponse {
         loc: on_ride_driver_locations,
+        timestamp: last_known_location.map(|loc| loc.timestamp),
     })
 }
 

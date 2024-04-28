@@ -42,6 +42,7 @@ pub struct DriverLocationRequest {
 #[serde(rename_all = "camelCase")]
 pub struct DriverLocationResponse {
     pub loc: Vec<Point>,
+    pub timestamp: Option<TimeStamp>,
 }
 
 // TODO :: To be deprecated...

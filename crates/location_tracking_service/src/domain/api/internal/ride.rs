@@ -54,7 +54,7 @@ async fn ride_end(
 }
 
 #[get("/internal/ride/{rideId}/driver/locations")]
-async fn get_driver_location(
+async fn get_driver_locations(
     data: Data<AppState>,
     param_obj: Json<DriverLocationRequest>,
     path: Path<String>,
@@ -63,7 +63,7 @@ async fn get_driver_location(
     let ride_id = RideId(path.into_inner());
 
     Ok(Json(
-        ride::get_driver_location(ride_id, data, request_body).await?,
+        ride::get_driver_locations(ride_id, data, request_body).await?,
     ))
 }
 
