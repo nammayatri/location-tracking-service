@@ -8,7 +8,7 @@
 #![allow(clippy::expect_used)]
 
 use actix_web_prom::{PrometheusMetrics, PrometheusMetricsBuilder};
-use prometheus::{opts, register_histogram_vec, HistogramVec};
+use prometheus::{opts, register_histogram_vec, register_int_counter, HistogramVec, IntCounter};
 
 pub static INCOMING_API: once_cell::sync::Lazy<HistogramVec> = once_cell::sync::Lazy::new(|| {
     register_histogram_vec!(
@@ -34,6 +34,12 @@ pub static QUEUE_DRAINER_LATENCY: once_cell::sync::Lazy<HistogramVec> =
             &[]
         )
         .expect("Failed to register queue drainer latency metrics")
+    });
+
+pub static TOTAL_LOCATION_UPDATES: once_cell::sync::Lazy<IntCounter> =
+    once_cell::sync::Lazy::new(|| {
+        register_int_counter!("total_location_updates", "Total Location Updates")
+            .expect("Failed to register total locatio updates metrics")
     });
 
 /// Macro that observes the duration of incoming API requests and logs metrics related to the request.
@@ -144,6 +150,11 @@ pub fn prometheus_metrics() -> PrometheusMetrics {
         .registry
         .register(Box::new(QUEUE_DRAINER_LATENCY.to_owned()))
         .expect("Failed to register queue drainer latency metrics");
+
+    prometheus
+        .registry
+        .register(Box::new(TOTAL_LOCATION_UPDATES.to_owned()))
+        .expect("Failed to register total location updates metrics");
 
     prometheus
 }

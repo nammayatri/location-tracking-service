@@ -6,7 +6,7 @@
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 use crate::queue_drainer_latency;
-use crate::tools::prometheus::QUEUE_DRAINER_LATENCY;
+use crate::tools::prometheus::{QUEUE_DRAINER_LATENCY, TOTAL_LOCATION_UPDATES};
 use crate::{
     common::{
         types::*,
@@ -170,8 +170,13 @@ pub async fn run_drainer(
                                 &mut drainer_queue_min_max_timestamp_range
                             );
                         }
+
+                        TOTAL_LOCATION_UPDATES.inc()
                     },
-                    None => break,
+                    None => {
+                        error!("MPSC Sender is Disconnected, Should not happen while pod is serving traffic!");
+                        break;
+                    },
                 }
             },
             _ = timer.tick() => {
