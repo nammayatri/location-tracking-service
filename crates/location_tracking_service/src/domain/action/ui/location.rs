@@ -294,6 +294,10 @@ async fn process_driver_locations(
             }
             locations
         } else {
+            join_all(all_tasks)
+                .await
+                .into_iter()
+                .try_for_each(Result::from)?;
             return Ok(());
         }
     } else {

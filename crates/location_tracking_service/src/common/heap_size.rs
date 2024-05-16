@@ -9,6 +9,7 @@
 use super::types::*;
 use std::mem::size_of;
 
+#[allow(dead_code)]
 trait HeapSizeOf {
     fn heap_size_of(&self) -> usize;
 }

@@ -150,7 +150,7 @@ pub async fn run_drainer(
 
                         driver_locations
                             .entry(driver_loc_bucket_key(&merchant_id, &city, &vehicle_type, &bucket))
-                            .or_insert_with(Vec::new)
+                            .or_default()
                             .push(GeoValue {
                                 coordinates: GeoPosition {
                                     latitude,
