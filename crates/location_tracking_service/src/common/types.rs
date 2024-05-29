@@ -50,6 +50,7 @@ pub enum VehicleType {
     SUV,
     HATCHBACK,
     TAXI,
+    BIKE,
     #[strum(serialize = "TAXI_PLUS")]
     #[serde(rename = "TAXI_PLUS")]
     TaxiPlus,
