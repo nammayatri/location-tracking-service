@@ -398,7 +398,7 @@ pub async fn get_on_ride_driver_locations(
     len: i64,
 ) -> Result<Vec<Point>, AppError> {
     persistent_redis_pool
-        .lpop::<Point>(&on_ride_loc_key(merchant_id, driver_id), Some(len as usize))
+        .lrange::<Point>(&on_ride_loc_key(merchant_id, driver_id), 0, len)
         .await
         .map_err(|err| AppError::InternalError(err.to_string()))
 }

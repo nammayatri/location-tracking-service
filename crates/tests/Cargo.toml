@@ -11,5 +11,5 @@ serde_dhall = "0.12.1"
 tokio-stream = "0.1"
 tonic = "0.10.2"
 
-shared = { git = "https://github.com/nammayatri/shared-kernel-rs", rev = "5291e87" }
+shared = { git = "https://github.com/nammayatri/shared-kernel-rs", rev = "df43236" }
 location_tracking_service = { version = "0.1.0", path = "../location_tracking_service" }
