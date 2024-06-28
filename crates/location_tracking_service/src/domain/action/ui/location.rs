@@ -19,7 +19,7 @@ use crate::outbound::external::{
 use crate::redis::{commands::*, keys::*};
 use crate::tools::error::AppError;
 use actix::Arbiter;
-use actix_web::web::Data;
+use actix_web::{web::Data, HttpResponse};
 use chrono::Utc;
 use futures::future::join_all;
 use futures::Future;
@@ -90,7 +90,7 @@ pub async fn update_driver_location(
     data: Data<AppState>,
     mut locations: Vec<UpdateDriverLocationRequest>,
     driver_mode: DriverMode,
-) -> Result<APISuccess, AppError> {
+) -> Result<HttpResponse, AppError> {
     let (driver_id, merchant_id, merchant_operating_city_id) = get_driver_id_from_authentication(
         &data.persistent_redis,
         &data.auth_url,
@@ -129,7 +129,7 @@ pub async fn update_driver_location(
     let latest_driver_location = if let Some(location) = locations.last() {
         location.to_owned()
     } else {
-        return Ok(APISuccess::default());
+        return Ok(HttpResponse::Ok().finish());
     };
 
     info!(
@@ -170,8 +170,7 @@ pub async fn update_driver_location(
         ),
     )
     .await?;
-
-    Ok(APISuccess::default())
+    Ok(HttpResponse::Ok().finish())
 }
 
 #[allow(clippy::type_complexity)]

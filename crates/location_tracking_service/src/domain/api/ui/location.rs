@@ -10,7 +10,7 @@ use std::str::FromStr;
 use actix_web::{
     get, post,
     web::{Data, Json, Path},
-    HttpRequest,
+    HttpRequest, HttpResponse,
 };
 
 use crate::{
@@ -26,11 +26,11 @@ pub async fn update_driver_location(
     data: Data<AppState>,
     param_obj: Json<Vec<UpdateDriverLocationRequest>>,
     req: HttpRequest,
-) -> Result<Json<APISuccess>, AppError> {
+) -> Result<HttpResponse, AppError> {
     let request_body = param_obj.into_inner();
 
     if request_body.is_empty() {
-        return Ok(Json(APISuccess::default()));
+        return Ok(HttpResponse::Ok().finish());
     }
 
     let token = req
@@ -60,16 +60,9 @@ pub async fn update_driver_location(
             "dm (DriverMode - Header) not found".to_string(),
         ))?;
 
-    Ok(Json(
-        location::update_driver_location(
-            Token(token),
-            vehicle_type,
-            data,
-            request_body,
-            driver_mode,
-        )
-        .await?,
-    ))
+    location::update_driver_location(Token(token), vehicle_type, data, request_body, driver_mode)
+        .await?;
+    Ok(HttpResponse::Ok().finish())
 }
 
 #[get("/ui/driver/location/{rideId}")]
