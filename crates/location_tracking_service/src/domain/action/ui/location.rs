@@ -322,7 +322,7 @@ async fn process_driver_locations(
         .await?;
 
         if on_ride_driver_locations_count + geo_entries.len() as i64 > data.batch_size {
-            let mut on_ride_driver_locations = get_on_ride_driver_locations(
+            let mut on_ride_driver_locations = get_on_ride_driver_locations_and_delete(
                 &data.persistent_redis,
                 &driver_id,
                 &merchant_id,

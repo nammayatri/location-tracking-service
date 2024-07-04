@@ -376,6 +376,33 @@ pub async fn get_on_ride_driver_locations_count(
         .map_err(|err| AppError::InternalError(err.to_string()))
 }
 
+/// Fetches the driver's geographical locations during an active ride from Redis, and deletes it.
+///
+/// Retrieves a specified number of geographical points, based on the length parameter,
+/// that were stored in Redis for a driver during an active ride.
+///
+/// # Arguments
+///
+/// * `persistent_redis_pool` - A connection pool to the Redis datastore.
+/// * `driver_id` - Unique identifier of the driver.
+/// * `merchant_id` - Identifier for the merchant associated with the driver.
+/// * `len` - The number of points to retrieve.
+///
+/// # Returns
+///
+/// A `Result` wrapping a vector of geographical points (`Vec<Point>`), or an `AppError` in case of failures.
+pub async fn get_on_ride_driver_locations_and_delete(
+    persistent_redis_pool: &RedisConnectionPool,
+    driver_id: &DriverId,
+    merchant_id: &MerchantId,
+    len: i64,
+) -> Result<Vec<Point>, AppError> {
+    persistent_redis_pool
+        .lpop::<Point>(&on_ride_loc_key(merchant_id, driver_id), Some(len as usize))
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
 /// Fetches the driver's geographical locations during an active ride from Redis.
 ///
 /// Retrieves a specified number of geographical points, based on the length parameter,
