@@ -61,6 +61,24 @@ pub enum VehicleType {
     #[strum(serialize = "BLACK_XL")]
     #[serde(rename = "BLACK_XL")]
     BlackXl,
+    #[strum(serialize = "SUV_PLUS")]
+    #[serde(rename = "SUV_PLUS")]
+    SuvPlus,
+    #[strum(serialize = "AMBULACE_TAXI")]
+    #[serde(rename = "AMBULACE_TAXI")]
+    AmbulanceTaxi,
+    #[strum(serialize = "AMBULACE_TAXI_OXY")]
+    #[serde(rename = "AMBULACE_TAXI_OXY")]
+    AmbulanceTaxiOxy,
+    #[strum(serialize = "AMBULACE_AC")]
+    #[serde(rename = "AMBULACE_AC")]
+    AmbulanceAc,
+    #[strum(serialize = "AMBULACE_AC_OXY")]
+    #[serde(rename = "AMBULACE_AC_OXY")]
+    AmbulanceAcOxy,
+    #[strum(serialize = "AMBULACE_VENTILATOR")]
+    #[serde(rename = "AMBULACE_VENTILATOR")]
+    AmbulanceVentilator,
 }
 
 #[derive(Debug, Clone, EnumString, Display, Serialize, Deserialize, Eq, Hash, PartialEq)]
