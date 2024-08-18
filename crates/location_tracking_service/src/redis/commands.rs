@@ -20,7 +20,7 @@ use tracing::info;
 /// in the Redis store using the given key.
 ///
 /// # Arguments
-/// * `persistent_redis_pool` - A connection pool to the Redis store.
+/// * `redis` - A connection pool to the Redis store.
 /// * `redis_expiry` - The expiration time for the Redis key.
 /// * `merchant_id` - The ID of the merchant.
 /// * `driver_id` - The ID of the driver.
@@ -34,7 +34,7 @@ use tracing::info;
 /// * A Result indicating the success or failure of the operation.
 #[allow(clippy::too_many_arguments)]
 pub async fn set_ride_details(
-    persistent_redis_pool: &RedisConnectionPool,
+    redis: &RedisConnectionPool,
     redis_expiry: &u32,
     merchant_id: &MerchantId,
     driver_id: &DriverId,
@@ -51,7 +51,7 @@ pub async fn set_ride_details(
         ride_start_otp,
         estimated_pickup_distance,
     };
-    persistent_redis_pool
+    redis
         .set_key(
             &on_ride_details_key(merchant_id, driver_id),
             ride_details,
@@ -71,7 +71,7 @@ pub async fn set_ride_details(
 ///
 /// # Arguments
 ///
-/// * `persistent_redis_pool` - A reference to the Redis connection pool.
+/// * `redis` - A reference to the Redis connection pool.
 /// * `driver_id` - A reference to the ID of the driver.
 /// * `merchant_id` - A reference to the ID of the merchant.
 ///
@@ -83,11 +83,11 @@ pub async fn set_ride_details(
 /// * `Ok(None)` if the ride details are not found.
 /// * `Err(AppError::DeserializationError)` if there's an error during deserialization.
 pub async fn get_ride_details(
-    persistent_redis_pool: &RedisConnectionPool,
+    redis: &RedisConnectionPool,
     driver_id: &DriverId,
     merchant_id: &MerchantId,
 ) -> Result<Option<RideDetails>, AppError> {
-    persistent_redis_pool
+    redis
         .get_key::<RideDetails>(&on_ride_details_key(merchant_id, driver_id))
         .await
         .map_err(|err| AppError::InternalError(err.to_string()))
@@ -104,7 +104,7 @@ pub async fn get_ride_details(
 /// temporary data associated with that ride.
 ///
 /// # Arguments
-/// * `persistent_redis_pool` - A reference to the connection pool for the Redis store.
+/// * `redis` - A reference to the connection pool for the Redis store.
 /// * `merchant_id` - A reference to the ID of the merchant.
 /// * `driver_id` - A reference to the ID of the driver.
 /// * `ride_id` - A reference to the ID of the ride.
@@ -117,12 +117,12 @@ pub async fn get_ride_details(
 /// This function will return an `AppError` if there's a failure in deleting the keys
 /// from the Redis store.
 pub async fn ride_cleanup(
-    persistent_redis_pool: &RedisConnectionPool,
+    redis: &RedisConnectionPool,
     merchant_id: &MerchantId,
     driver_id: &DriverId,
     ride_id: &RideId,
 ) -> Result<(), AppError> {
-    persistent_redis_pool
+    redis
         .delete_keys(vec![
             &on_ride_details_key(merchant_id, driver_id),
             &on_ride_driver_details_key(ride_id),
@@ -140,7 +140,7 @@ pub async fn ride_cleanup(
 ///
 /// # Arguments
 ///
-/// * `persistent_redis_pool` - A reference to the Redis connection pool.
+/// * `redis` - A reference to the Redis connection pool.
 /// * `redis_expiry` - A reference to the expiration time (in seconds) for the stored data.
 /// * `ride_id` - A reference to the ID of the ride for which driver details are being stored.
 /// * `driver_details` - The details of the driver to be stored (driverId).
@@ -152,12 +152,12 @@ pub async fn ride_cleanup(
 /// * `Ok(())` if the driver details are successfully stored.
 /// * `Err(AppError::SerializationError)` if there's an error during serialization.
 pub async fn set_driver_details(
-    persistent_redis_pool: &RedisConnectionPool,
+    redis: &RedisConnectionPool,
     redis_expiry: &u32,
     ride_id: &RideId,
     driver_details: DriverDetails,
 ) -> Result<(), AppError> {
-    persistent_redis_pool
+    redis
         .set_key(
             &on_ride_driver_details_key(ride_id),
             driver_details,
@@ -173,7 +173,7 @@ pub async fn set_driver_details(
 /// It then deserializes the JSON string from Redis into a `DriverDetails` struct.
 ///
 /// # Parameters
-/// - `persistent_redis_pool`: A connection pool to the Redis datastore.
+/// - `redis`: A connection pool to the Redis datastore.
 /// - `ride_id`: The ID of the ride whose driver details we want to fetch.
 ///
 /// # Returns
@@ -181,10 +181,10 @@ pub async fn set_driver_details(
 /// - `Ok(None)` if no details are found for the given ride ID.
 /// - `Err(AppError)` if there's an issue during the fetch or deserialization process.
 pub async fn get_driver_details(
-    persistent_redis_pool: &RedisConnectionPool,
+    redis: &RedisConnectionPool,
     ride_id: &RideId,
 ) -> Result<Option<DriverDetails>, AppError> {
-    persistent_redis_pool
+    redis
         .get_key::<DriverDetails>(&on_ride_driver_details_key(ride_id))
         .await
         .map_err(|err| AppError::InternalError(err.to_string()))
@@ -192,7 +192,7 @@ pub async fn get_driver_details(
 
 #[allow(clippy::too_many_arguments)]
 pub async fn get_drivers_within_radius(
-    non_persistent_redis_pool: &RedisConnectionPool,
+    redis: &RedisConnectionPool,
     nearby_bucket_threshold: &u64,
     merchant_id: &MerchantId,
     city: &CityName,
@@ -208,7 +208,7 @@ pub async fn get_drivers_within_radius(
         .map(|bucket_idx| driver_loc_bucket_key(merchant_id, city, vehicle, &(bucket - bucket_idx)))
         .collect();
 
-    let nearby_drivers = non_persistent_redis_pool
+    let nearby_drivers = redis
         .mgeo_search(
             bucket_keys,
             GeoPosition::from((lon, lat)),
@@ -256,7 +256,7 @@ pub async fn get_drivers_within_radius(
 ///
 /// # Arguments
 ///
-/// * `persistent_redis_pool` - A connection pool to the Redis datastore.
+/// * `redis` - A connection pool to the Redis datastore.
 /// * `driver_id` - Unique identifier of the driver whose location is being fetched.
 ///
 /// # Returns
@@ -264,10 +264,10 @@ pub async fn get_drivers_within_radius(
 /// A `Result` wrapping the driver's last known location as `Option<DriverLastKnownLocation>`,
 /// or an `AppError` in case of deserialization failure.
 pub async fn get_driver_location(
-    persistent_redis_pool: &RedisConnectionPool,
+    redis: &RedisConnectionPool,
     driver_id: &DriverId,
 ) -> Result<Option<(DriverLastKnownLocation, Option<Meters>)>, AppError> {
-    let driver_last_known_location = persistent_redis_pool
+    let driver_last_known_location = redis
         .get_key::<DriverAllDetails>(&driver_details_key(driver_id))
         .await
         .map_err(|err| AppError::InternalError(err.to_string()))?
@@ -287,7 +287,7 @@ pub async fn get_driver_location(
 ///
 /// # Arguments
 ///
-/// * `persistent_redis_pool` - A connection pool to the Redis datastore.
+/// * `redis` - A connection pool to the Redis datastore.
 /// * `last_location_timstamp_expiry` - Expiry duration (in seconds) for the last known location record in Redis.
 /// * `driver_id` - Unique identifier of the driver whose location is being updated.
 /// * `merchant_id` - Identifier for the merchant associated with the driver.
@@ -299,7 +299,7 @@ pub async fn get_driver_location(
 /// A `Result` wrapping the driver's updated last known location (`DriverLastKnownLocation`),
 /// or an `AppError` in case of serialization failure.
 pub async fn set_driver_last_location_update(
-    persistent_redis_pool: &RedisConnectionPool,
+    redis: &RedisConnectionPool,
     last_location_timstamp_expiry: &u32,
     driver_id: &DriverId,
     merchant_id: &MerchantId,
@@ -321,7 +321,7 @@ pub async fn set_driver_last_location_update(
         travelled_distance: Some(travelled_distance),
     };
 
-    persistent_redis_pool
+    redis
         .set_key(
             &driver_details_key(driver_id),
             value,
@@ -340,7 +340,7 @@ pub async fn set_driver_last_location_update(
 ///
 /// # Arguments
 ///
-/// * `persistent_redis_pool` - A connection pool to the Redis datastore.
+/// * `redis` - A connection pool to the Redis datastore.
 /// * `driver_id` - Unique identifier of the driver.
 /// * `merchant_id` - Identifier for the merchant associated with the driver.
 /// * `geo_entries` - A slice of geographical points representing the locations to be added.
@@ -351,13 +351,13 @@ pub async fn set_driver_last_location_update(
 /// A `Result` wrapping the length of the Redis list after the push operation (`i64`),
 /// or an `AppError` in case of failures.
 pub async fn push_on_ride_driver_locations(
-    persistent_redis_pool: &RedisConnectionPool,
+    redis: &RedisConnectionPool,
     driver_id: &DriverId,
     merchant_id: &MerchantId,
     geo_entries: Vec<Point>,
     rpush_expiry: &u32,
 ) -> Result<i64, AppError> {
-    persistent_redis_pool
+    redis
         .rpush_with_expiry(
             &on_ride_loc_key(merchant_id, driver_id),
             geo_entries,
@@ -374,7 +374,7 @@ pub async fn push_on_ride_driver_locations(
 ///
 /// # Arguments
 ///
-/// * `persistent_redis_pool` - A connection pool to the Redis datastore.
+/// * `redis` - A connection pool to the Redis datastore.
 /// * `driver_id` - Unique identifier of the driver.
 /// * `merchant_id` - Identifier for the merchant associated with the driver.
 ///
@@ -383,11 +383,11 @@ pub async fn push_on_ride_driver_locations(
 /// A `Result` wrapping the length of the Redis list representing the count of geographical locations (`i64`),
 /// or an `AppError` in case of failures.
 pub async fn get_on_ride_driver_locations_count(
-    persistent_redis_pool: &RedisConnectionPool,
+    redis: &RedisConnectionPool,
     driver_id: &DriverId,
     merchant_id: &MerchantId,
 ) -> Result<i64, AppError> {
-    persistent_redis_pool
+    redis
         .llen(&on_ride_loc_key(merchant_id, driver_id))
         .await
         .map_err(|err| AppError::InternalError(err.to_string()))
@@ -400,7 +400,7 @@ pub async fn get_on_ride_driver_locations_count(
 ///
 /// # Arguments
 ///
-/// * `persistent_redis_pool` - A connection pool to the Redis datastore.
+/// * `redis` - A connection pool to the Redis datastore.
 /// * `driver_id` - Unique identifier of the driver.
 /// * `merchant_id` - Identifier for the merchant associated with the driver.
 /// * `len` - The number of points to retrieve.
@@ -409,12 +409,12 @@ pub async fn get_on_ride_driver_locations_count(
 ///
 /// A `Result` wrapping a vector of geographical points (`Vec<Point>`), or an `AppError` in case of failures.
 pub async fn get_on_ride_driver_locations_and_delete(
-    persistent_redis_pool: &RedisConnectionPool,
+    redis: &RedisConnectionPool,
     driver_id: &DriverId,
     merchant_id: &MerchantId,
     len: i64,
 ) -> Result<Vec<Point>, AppError> {
-    persistent_redis_pool
+    redis
         .lpop::<Point>(&on_ride_loc_key(merchant_id, driver_id), Some(len as usize))
         .await
         .map_err(|err| AppError::InternalError(err.to_string()))
@@ -427,7 +427,7 @@ pub async fn get_on_ride_driver_locations_and_delete(
 ///
 /// # Arguments
 ///
-/// * `persistent_redis_pool` - A connection pool to the Redis datastore.
+/// * `redis` - A connection pool to the Redis datastore.
 /// * `driver_id` - Unique identifier of the driver.
 /// * `merchant_id` - Identifier for the merchant associated with the driver.
 /// * `len` - The number of points to retrieve.
@@ -436,12 +436,12 @@ pub async fn get_on_ride_driver_locations_and_delete(
 ///
 /// A `Result` wrapping a vector of geographical points (`Vec<Point>`), or an `AppError` in case of failures.
 pub async fn get_on_ride_driver_locations(
-    persistent_redis_pool: &RedisConnectionPool,
+    redis: &RedisConnectionPool,
     driver_id: &DriverId,
     merchant_id: &MerchantId,
     len: i64,
 ) -> Result<Vec<Point>, AppError> {
-    persistent_redis_pool
+    redis
         .lrange::<Point>(&on_ride_loc_key(merchant_id, driver_id), 0, len)
         .await
         .map_err(|err| AppError::InternalError(err.to_string()))
@@ -453,7 +453,7 @@ pub async fn get_on_ride_driver_locations(
 ///
 /// # Arguments
 ///
-/// * `persistent_redis_pool` - A connection pool to the Redis datastore.
+/// * `redis` - A connection pool to the Redis datastore.
 /// * `auth_token_expiry` - Duration of time (in seconds) for which the driver ID should be associated with the token.
 /// * `token` - The authentication token.
 /// * `DriverId(driver_id)` - The unique driver identifier.
@@ -462,7 +462,7 @@ pub async fn get_on_ride_driver_locations(
 ///
 /// A `Result` indicating success or an `AppError` in case of failures.
 pub async fn set_driver_id(
-    persistent_redis_pool: &RedisConnectionPool,
+    redis: &RedisConnectionPool,
     auth_token_expiry: &u32,
     token: &Token,
     driver_id: DriverId,
@@ -474,7 +474,7 @@ pub async fn set_driver_id(
         merchant_id,
         merchant_operating_city_id,
     };
-    persistent_redis_pool
+    redis
         .set_key(&set_driver_id_key(token), auth_data, *auth_token_expiry)
         .await
         .map_err(|err| AppError::InternalError(err.to_string()))
@@ -486,17 +486,17 @@ pub async fn set_driver_id(
 ///
 /// # Arguments
 ///
-/// * `persistent_redis_pool` - A connection pool to the Redis datastore.
+/// * `redis` - A connection pool to the Redis datastore.
 /// * `token` - The authentication token.
 ///
 /// # Returns
 ///
 /// A `Result` wrapping the driver's unique identifier or `None` if not found, or an `AppError` in case of failures.
 pub async fn get_driver_id(
-    persistent_redis_pool: &RedisConnectionPool,
+    redis: &RedisConnectionPool,
     token: &Token,
 ) -> Result<Option<AuthData>, AppError> {
-    persistent_redis_pool
+    redis
         .get_key::<AuthData>(&set_driver_id_key(token))
         .await
         .map_err(|err| AppError::InternalError(err.to_string()))
@@ -556,7 +556,7 @@ where
 ///
 /// # Arguments
 ///
-/// * `persistent_redis_pool` - A reference to the Redis connection pool.
+/// * `redis` - A reference to the Redis connection pool.
 /// * `driver_ids` - A slice containing the IDs of the drivers whose locations are to be fetched.
 ///
 /// # Returns
@@ -571,7 +571,7 @@ where
 /// This function will return `AppError::DeserializationError` if there's an error deserializing the driver details from Redis.
 ///
 pub async fn get_all_driver_last_locations(
-    persistent_redis_pool: &RedisConnectionPool,
+    redis: &RedisConnectionPool,
     driver_ids: &[DriverId],
 ) -> Result<Vec<Option<DriverLastKnownLocation>>, AppError> {
     let driver_last_location_updates_keys = driver_ids
@@ -579,7 +579,7 @@ pub async fn get_all_driver_last_locations(
         .map(driver_details_key)
         .collect::<Vec<String>>();
 
-    let driver_last_known_location = persistent_redis_pool
+    let driver_last_known_location = redis
         .mget_keys::<DriverAllDetails>(driver_last_location_updates_keys)
         .await
         .map_err(|err| AppError::InternalError(err.to_string()))?
@@ -604,7 +604,7 @@ pub async fn get_all_driver_last_locations(
 /// * `bucket_expiry` - A reference to an `i64` representing the time (in seconds) after which the
 ///   entire bucket of geo entries will expire in Redis.
 ///
-/// * `non_persistent_redis` - A reference to the non-persistent Redis connection pool.
+/// * `redis` - A reference to the non-persistent Redis connection pool.
 ///
 /// # Returns
 ///
@@ -616,9 +616,9 @@ pub async fn get_all_driver_last_locations(
 pub async fn push_drainer_driver_location(
     geo_entries: &DriversLocationMap,
     bucket_expiry: &i64,
-    non_persistent_redis: &RedisConnectionPool,
+    redis: &RedisConnectionPool,
 ) -> Result<(), AppError> {
-    non_persistent_redis
+    redis
         .mgeo_add_with_expiry(geo_entries, None, false, *bucket_expiry)
         .await
         .map_err(|err| AppError::InternalError(err.to_string()))

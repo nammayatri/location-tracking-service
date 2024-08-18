@@ -18,7 +18,7 @@ pub async fn ride_create(
     request_body: RideCreateRequest,
 ) -> Result<APISuccess, AppError> {
     set_ride_details(
-        &data.persistent_redis,
+        &data.redis,
         &data.redis_expiry,
         &request_body.merchant_id,
         &request_body.driver_id,
@@ -34,13 +34,7 @@ pub async fn ride_create(
         driver_id: request_body.driver_id,
     };
 
-    set_driver_details(
-        &data.persistent_redis,
-        &data.redis_expiry,
-        &ride_id,
-        driver_details,
-    )
-    .await?;
+    set_driver_details(&data.redis, &data.redis_expiry, &ride_id, driver_details).await?;
 
     Ok(APISuccess::default())
 }
@@ -51,7 +45,7 @@ pub async fn ride_start(
     request_body: RideStartRequest,
 ) -> Result<APISuccess, AppError> {
     set_ride_details(
-        &data.persistent_redis,
+        &data.redis,
         &data.redis_expiry,
         &request_body.merchant_id,
         &request_body.driver_id,
@@ -72,7 +66,7 @@ pub async fn ride_end(
     request_body: RideEndRequest,
 ) -> Result<RideEndResponse, AppError> {
     let mut on_ride_driver_locations = get_on_ride_driver_locations(
-        &data.persistent_redis,
+        &data.redis,
         &request_body.driver_id,
         &request_body.merchant_id,
         data.batch_size,
@@ -85,7 +79,7 @@ pub async fn ride_end(
     });
 
     ride_cleanup(
-        &data.persistent_redis,
+        &data.redis,
         &request_body.merchant_id,
         &request_body.driver_id,
         &ride_id,
@@ -105,15 +99,14 @@ pub async fn get_driver_locations(
     request_body: DriverLocationRequest,
 ) -> Result<DriverLocationResponse, AppError> {
     let on_ride_driver_locations = get_on_ride_driver_locations(
-        &data.persistent_redis,
+        &data.redis,
         &request_body.driver_id,
         &request_body.merchant_id,
         data.batch_size,
     )
     .await?;
 
-    let last_known_location =
-        get_driver_location(&data.persistent_redis, &request_body.driver_id).await?;
+    let last_known_location = get_driver_location(&data.redis, &request_body.driver_id).await?;
 
     Ok(DriverLocationResponse {
         loc: on_ride_driver_locations,
@@ -128,7 +121,7 @@ pub async fn ride_details(
 ) -> Result<APISuccess, AppError> {
     if let RideStatus::CANCELLED = request_body.ride_status {
         ride_cleanup(
-            &data.persistent_redis,
+            &data.redis,
             &request_body.merchant_id,
             &request_body.driver_id,
             &request_body.ride_id,
@@ -136,7 +129,7 @@ pub async fn ride_details(
         .await?;
     } else {
         set_ride_details(
-            &data.persistent_redis,
+            &data.redis,
             &data.redis_expiry,
             &request_body.merchant_id,
             &request_body.driver_id,
@@ -153,7 +146,7 @@ pub async fn ride_details(
         };
 
         set_driver_details(
-            &data.persistent_redis,
+            &data.redis,
             &data.redis_expiry,
             &request_body.ride_id,
             driver_details,

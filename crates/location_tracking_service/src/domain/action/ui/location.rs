@@ -28,13 +28,13 @@ use shared::redis::types::RedisConnectionPool;
 use tracing::{info, warn};
 
 async fn get_driver_id_from_authentication(
-    persistent_redis: &RedisConnectionPool,
+    redis: &RedisConnectionPool,
     auth_url: &Url,
     auth_api_key: &str,
     auth_token_expiry: &u32,
     token: &Token,
 ) -> Result<(DriverId, MerchantId, MerchantOperatingCityId), AppError> {
-    match get_driver_id(persistent_redis, token).await? {
+    match get_driver_id(redis, token).await? {
         Some(auth_data) => Ok((
             auth_data.driver_id,
             auth_data.merchant_id,
@@ -43,7 +43,7 @@ async fn get_driver_id_from_authentication(
         None => {
             let response = authenticate_dobpp(auth_url, token.0.as_str(), auth_api_key).await?;
             set_driver_id(
-                persistent_redis,
+                redis,
                 auth_token_expiry,
                 token,
                 response.driver_id.to_owned(),
@@ -92,7 +92,7 @@ pub async fn update_driver_location(
     driver_mode: DriverMode,
 ) -> Result<HttpResponse, AppError> {
     let (driver_id, merchant_id, merchant_operating_city_id) = get_driver_id_from_authentication(
-        &data.persistent_redis,
+        &data.redis,
         &data.auth_url,
         &data.auth_api_key,
         &data.auth_token_expiry,
@@ -114,7 +114,7 @@ pub async fn update_driver_location(
         (a_ts).cmp(&b_ts)
     });
 
-    let last_known_location = get_driver_location(&data.persistent_redis, &driver_id).await?;
+    let last_known_location = get_driver_location(&data.redis, &driver_id).await?;
 
     let locations: Vec<UpdateDriverLocationRequest> = locations
         .into_iter()
@@ -144,7 +144,7 @@ pub async fn update_driver_location(
     )?;
 
     sliding_window_limiter(
-        &data.persistent_redis,
+        &data.redis,
         &sliding_rate_limiter_key(&driver_id, &city, &merchant_id),
         data.location_update_limit,
         data.location_update_interval as u32,
@@ -152,7 +152,7 @@ pub async fn update_driver_location(
     .await?;
 
     with_lock_redis(
-        &data.persistent_redis,
+        &data.redis,
         driver_processing_location_update_lock_key(&driver_id, &merchant_id, &city),
         60,
         process_driver_locations,
@@ -201,8 +201,7 @@ async fn process_driver_locations(
         driver_mode,
     ) = args;
 
-    let driver_ride_details =
-        get_ride_details(&data.persistent_redis, &driver_id, &merchant_id).await?;
+    let driver_ride_details = get_ride_details(&data.redis, &driver_id, &merchant_id).await?;
 
     let driver_ride_id = driver_ride_details
         .as_ref()
@@ -250,7 +249,7 @@ async fn process_driver_locations(
 
     let set_driver_last_location_update = async {
         set_driver_last_location_update(
-            &data.persistent_redis,
+            &data.redis,
             &data.last_location_timstamp_expiry,
             &driver_id,
             &merchant_id,
@@ -339,16 +338,13 @@ async fn process_driver_locations(
             })
             .collect::<Vec<Point>>();
 
-        let on_ride_driver_locations_count = get_on_ride_driver_locations_count(
-            &data.persistent_redis,
-            &driver_id.clone(),
-            &merchant_id,
-        )
-        .await?;
+        let on_ride_driver_locations_count =
+            get_on_ride_driver_locations_count(&data.redis, &driver_id.clone(), &merchant_id)
+                .await?;
 
         if on_ride_driver_locations_count + geo_entries.len() as i64 > data.batch_size {
             let mut on_ride_driver_locations = get_on_ride_driver_locations_and_delete(
-                &data.persistent_redis,
+                &data.redis,
                 &driver_id,
                 &merchant_id,
                 on_ride_driver_locations_count,
@@ -371,7 +367,7 @@ async fn process_driver_locations(
         } else {
             let push_on_ride_driver_locations = async {
                 push_on_ride_driver_locations(
-                    &data.persistent_redis,
+                    &data.redis,
                     &driver_id,
                     &merchant_id,
                     geo_entries,
@@ -438,15 +434,16 @@ pub async fn track_driver_location(
 ) -> Result<DriverLocationResponse, AppError> {
     let RideId(unwrapped_ride_id) = ride_id.to_owned();
 
-    let driver_details = get_driver_details(&data.persistent_redis, &ride_id)
-        .await?
-        .ok_or(AppError::InvalidRideStatus(
-            unwrapped_ride_id.to_owned(),
-            "COMPLETED".to_string(),
-        ))?;
+    let driver_details =
+        get_driver_details(&data.redis, &ride_id)
+            .await?
+            .ok_or(AppError::InvalidRideStatus(
+                unwrapped_ride_id.to_owned(),
+                "COMPLETED".to_string(),
+            ))?;
 
     let (driver_last_known_location_details, _) =
-        get_driver_location(&data.persistent_redis, &driver_details.driver_id)
+        get_driver_location(&data.redis, &driver_details.driver_id)
             .await?
             .ok_or(AppError::DriverLastKnownLocationNotFound)?;
 

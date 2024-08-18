@@ -106,12 +106,12 @@ async fn start_server() -> std::io::Result<()> {
         graceful_termination_requested_sigint.store(true, Ordering::Relaxed);
     });
 
-    let (drainer_size, drainer_delay, bucket_size, nearby_bucket_threshold, non_persistent_redis) = (
+    let (drainer_size, drainer_delay, bucket_size, nearby_bucket_threshold, redis) = (
         data.drainer_size,
         data.drainer_delay,
         data.bucket_size,
         data.nearby_bucket_threshold,
-        data.non_persistent_redis.clone(),
+        data.redis.clone(),
     );
     let channel_thread = tokio::spawn(async move {
         run_drainer(
@@ -121,7 +121,7 @@ async fn start_server() -> std::io::Result<()> {
             drainer_delay,
             bucket_size,
             nearby_bucket_threshold,
-            &non_persistent_redis,
+            &redis,
         )
         .await;
     });

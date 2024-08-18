@@ -17,7 +17,7 @@ use shared::redis::types::RedisConnectionPool;
 /// and determines if the rate limit has been exceeded.
 ///
 /// # Parameters
-/// - `persistent_redis_pool`: The Redis connection pool.
+/// - `redis`: The Redis connection pool.
 /// - `key`: The Redis key to use for tracking hits.
 /// - `frame_hits_lim`: The maximum number of hits allowed in a time frame.
 /// - `frame_len`: The length of a time frame in seconds.
@@ -25,14 +25,14 @@ use shared::redis::types::RedisConnectionPool;
 /// # Returns
 /// A vector of timestamps representing hits if within the limit, or an error otherwise.
 pub async fn sliding_window_limiter(
-    persistent_redis_pool: &RedisConnectionPool,
+    redis: &RedisConnectionPool,
     key: &str,
     frame_hits_lim: usize,
     frame_len: u32,
 ) -> Result<(), AppError> {
     let curr_time = Utc::now().timestamp();
 
-    let hits_frame = persistent_redis_pool
+    let hits_frame = redis
         .get_key::<Vec<i64>>(key)
         .await
         .map_err(|err| AppError::InternalError(err.to_string()))?
@@ -63,7 +63,7 @@ pub async fn sliding_window_limiter(
         new_hits.push(curr_frame);
         new_hits.extend(prev_and_curr_frame_hits);
 
-        persistent_redis_pool
+        redis
             .set_key(key, new_hits, frame_len)
             .await
             .map_err(|err| AppError::InternalError(err.to_string()))

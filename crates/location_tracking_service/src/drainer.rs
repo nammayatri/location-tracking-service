@@ -39,7 +39,7 @@ use tracing::{error, info};
 ///
 /// * `driver_locations` - A reference to a hashmap containing driver locations.
 /// * `bucket_expiry` - The expiration time for a bucket.
-/// * `non_persistent_redis` - A reference to the Redis connection pool.
+/// * `redis` - A reference to the Redis connection pool.
 ///
 /// # Example
 ///
@@ -48,23 +48,21 @@ use tracing::{error, info};
 /// ```ignore
 /// async fn run_drainer(...) {
 ///     ...
-///     drain_driver_locations(&driver_locations, bucket_expiry, &non_persistent_redis).await;
+///     drain_driver_locations(&driver_locations, bucket_expiry, &redis).await;
 ///     ...
 /// }
 /// ```
 async fn drain_driver_locations(
     driver_locations: &DriversLocationMap,
     bucket_expiry: i64,
-    non_persistent_redis: &RedisConnectionPool,
+    redis: &RedisConnectionPool,
 ) {
     info!(
         tag = "[Queued Entries For Draining]",
         "Queue: {:?}\nPushing to redis server", driver_locations
     );
 
-    if let Err(err) =
-        push_drainer_driver_location(driver_locations, &bucket_expiry, non_persistent_redis).await
-    {
+    if let Err(err) = push_drainer_driver_location(driver_locations, &bucket_expiry, redis).await {
         error!(tag = "[Error Pushing To Redis]", error = %err);
     }
 }
@@ -106,7 +104,7 @@ fn cleanup_drainer(
 /// * `drainer_delay` - Time interval for periodic draining.
 /// * `bucket_size` - The size of each time bucket.
 /// * `near_by_bucket_threshold` - A threshold for nearby buckets.
-/// * `non_persistent_redis` - Redis connection pool for non-persistent storage.
+/// * `redis` - Redis connection pool for non-persistent storage.
 ///
 #[allow(clippy::too_many_arguments)]
 pub async fn run_drainer(
@@ -116,7 +114,7 @@ pub async fn run_drainer(
     drainer_delay: u64,
     bucket_size: u64,
     near_by_bucket_threshold: u64,
-    non_persistent_redis: &RedisConnectionPool,
+    redis: &RedisConnectionPool,
 ) {
     let mut driver_locations: DriversLocationMap = FxHashMap::default();
     let mut timer = interval(Duration::from_secs(drainer_delay));
@@ -131,8 +129,7 @@ pub async fn run_drainer(
             info!(tag = "[Graceful Shutting Down]", length = %drainer_size);
             if drainer_size > 0 {
                 info!(tag = "[Force Draining Queue]", length = %drainer_size);
-                drain_driver_locations(&driver_locations, bucket_expiry, non_persistent_redis)
-                    .await;
+                drain_driver_locations(&driver_locations, bucket_expiry, redis).await;
                 cleanup_drainer(
                     &mut drainer_size,
                     &mut driver_locations,
@@ -163,7 +160,7 @@ pub async fn run_drainer(
 
                         if drainer_size >= drainer_capacity {
                             info!(tag = "[Force Draining Queue]", length = %drainer_size);
-                            drain_driver_locations(&driver_locations, bucket_expiry, non_persistent_redis).await;
+                            drain_driver_locations(&driver_locations, bucket_expiry, redis).await;
                             cleanup_drainer(
                                 &mut drainer_size,
                                 &mut driver_locations,
@@ -182,7 +179,7 @@ pub async fn run_drainer(
             _ = timer.tick() => {
                 if drainer_size > 0 {
                     info!(tag = "[Draining Queue]", length = %drainer_size);
-                    drain_driver_locations(&driver_locations, bucket_expiry, non_persistent_redis).await;
+                    drain_driver_locations(&driver_locations, bucket_expiry, redis).await;
                     cleanup_drainer(
                         &mut drainer_size,
                         &mut driver_locations,
