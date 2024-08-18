@@ -24,11 +24,8 @@ use shared::tools::logger::LoggerConfig;
 pub struct AppConfig {
     pub port: u16,
     pub logger_cfg: LoggerConfig,
-    pub persistent_redis_cfg: RedisConfig,
-    pub non_persistent_redis_cfg: RedisConfig,
-    pub persistent_migration_redis_cfg: RedisConfig,
-    pub non_persistent_migration_redis_cfg: RedisConfig,
-    pub redis_migration_stage: bool,
+    pub redis_cfg: RedisConfig,
+    pub replica_redis_cfg: Option<RedisConfig>,
     pub workers: usize,
     pub drainer_delay: u64,
     pub drainer_size: usize,
@@ -77,8 +74,7 @@ pub struct RedisConfig {
 
 #[derive(Clone)]
 pub struct AppState {
-    pub non_persistent_redis: Arc<RedisConnectionPool>,
-    pub persistent_redis: Arc<RedisConnectionPool>,
+    pub redis: Arc<RedisConnectionPool>,
     pub sender: Sender<(Dimensions, Latitude, Longitude, TimeStamp, DriverId)>,
     pub drainer_delay: u64,
     pub drainer_size: usize,
@@ -113,85 +109,32 @@ impl AppState {
         app_config: AppConfig,
         sender: Sender<(Dimensions, Latitude, Longitude, TimeStamp, DriverId)>,
     ) -> AppState {
-        let non_persistent_migration_redis_settings = if app_config.redis_migration_stage {
-            Some(RedisSettings::new(
-                app_config.non_persistent_migration_redis_cfg.redis_host,
-                app_config.non_persistent_migration_redis_cfg.redis_port,
-                app_config
-                    .non_persistent_migration_redis_cfg
-                    .redis_pool_size,
-                app_config
-                    .non_persistent_migration_redis_cfg
-                    .redis_partition,
-                app_config
-                    .non_persistent_migration_redis_cfg
-                    .reconnect_max_attempts,
-                app_config
-                    .non_persistent_migration_redis_cfg
-                    .reconnect_delay,
-                app_config.non_persistent_migration_redis_cfg.default_ttl,
-                app_config
-                    .non_persistent_migration_redis_cfg
-                    .default_hash_ttl,
-                app_config
-                    .non_persistent_migration_redis_cfg
-                    .stream_read_count,
-            ))
-        } else {
-            None
-        };
-
-        let non_persistent_redis = Arc::new(
+        let redis = Arc::new(
             RedisConnectionPool::new(
                 RedisSettings::new(
-                    app_config.non_persistent_redis_cfg.redis_host,
-                    app_config.non_persistent_redis_cfg.redis_port,
-                    app_config.non_persistent_redis_cfg.redis_pool_size,
-                    app_config.non_persistent_redis_cfg.redis_partition,
-                    app_config.non_persistent_redis_cfg.reconnect_max_attempts,
-                    app_config.non_persistent_redis_cfg.reconnect_delay,
-                    app_config.non_persistent_redis_cfg.default_ttl,
-                    app_config.non_persistent_redis_cfg.default_hash_ttl,
-                    app_config.non_persistent_redis_cfg.stream_read_count,
+                    app_config.redis_cfg.redis_host,
+                    app_config.redis_cfg.redis_port,
+                    app_config.redis_cfg.redis_pool_size,
+                    app_config.redis_cfg.redis_partition,
+                    app_config.redis_cfg.reconnect_max_attempts,
+                    app_config.redis_cfg.reconnect_delay,
+                    app_config.redis_cfg.default_ttl,
+                    app_config.redis_cfg.default_hash_ttl,
+                    app_config.redis_cfg.stream_read_count,
                 ),
-                non_persistent_migration_redis_settings,
-            )
-            .await
-            .expect("Failed to create Location Redis connection pool"),
-        );
-
-        let persistent_migration_redis_settings = if app_config.redis_migration_stage {
-            Some(RedisSettings::new(
-                app_config.persistent_migration_redis_cfg.redis_host,
-                app_config.persistent_migration_redis_cfg.redis_port,
-                app_config.persistent_migration_redis_cfg.redis_pool_size,
-                app_config.persistent_migration_redis_cfg.redis_partition,
-                app_config
-                    .persistent_migration_redis_cfg
-                    .reconnect_max_attempts,
-                app_config.persistent_migration_redis_cfg.reconnect_delay,
-                app_config.persistent_migration_redis_cfg.default_ttl,
-                app_config.persistent_migration_redis_cfg.default_hash_ttl,
-                app_config.persistent_migration_redis_cfg.stream_read_count,
-            ))
-        } else {
-            None
-        };
-
-        let persistent_redis = Arc::new(
-            RedisConnectionPool::new(
-                RedisSettings::new(
-                    app_config.persistent_redis_cfg.redis_host,
-                    app_config.persistent_redis_cfg.redis_port,
-                    app_config.persistent_redis_cfg.redis_pool_size,
-                    app_config.persistent_redis_cfg.redis_partition,
-                    app_config.persistent_redis_cfg.reconnect_max_attempts,
-                    app_config.persistent_redis_cfg.reconnect_delay,
-                    app_config.persistent_redis_cfg.default_ttl,
-                    app_config.persistent_redis_cfg.default_hash_ttl,
-                    app_config.persistent_redis_cfg.stream_read_count,
-                ),
-                persistent_migration_redis_settings,
+                app_config.replica_redis_cfg.map(|replica_redis_cfg| {
+                    RedisSettings::new(
+                        replica_redis_cfg.redis_host,
+                        replica_redis_cfg.redis_port,
+                        replica_redis_cfg.redis_pool_size,
+                        replica_redis_cfg.redis_partition,
+                        replica_redis_cfg.reconnect_max_attempts,
+                        replica_redis_cfg.reconnect_delay,
+                        replica_redis_cfg.default_ttl,
+                        replica_redis_cfg.default_hash_ttl,
+                        replica_redis_cfg.stream_read_count,
+                    )
+                }),
             )
             .await
             .expect("Failed to create Generic Redis connection pool"),
@@ -235,8 +178,7 @@ impl AppState {
             .collect::<Vec<MerchantId>>();
 
         AppState {
-            non_persistent_redis,
-            persistent_redis,
+            redis,
             drainer_delay: app_config.drainer_delay,
             drainer_size: app_config.drainer_size,
             sender,

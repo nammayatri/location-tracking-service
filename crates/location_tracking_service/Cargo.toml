@@ -42,8 +42,8 @@ tracing-appender = "0.2.2"
 tracing-subscriber = { version = "0.3.16", features = ["env-filter", "registry", "json"] }
 prometheus = { version = "0.13.3", features = ["process"] }
 
-shared = { git = "https://github.com/nammayatri/shared-kernel-rs", rev = "4a5263e" }
-macros = { git = "https://github.com/nammayatri/shared-kernel-rs", rev = "4a5263e" }
+shared = { git = "https://github.com/nammayatri/shared-kernel-rs", rev = "3a1497a" }
+macros = { git = "https://github.com/nammayatri/shared-kernel-rs", rev = "3a1497a" }
 
 [dev-dependencies]
 pprof = { version = "0.12", features = ["flamegraph"] }

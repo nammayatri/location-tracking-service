@@ -19,7 +19,7 @@ use crate::tools::error::AppError;
 
 #[get("/healthcheck")]
 async fn health_check(data: Data<AppState>) -> Result<Json<ResponseData>, AppError> {
-    data.persistent_redis
+    data.redis
         .set_key_as_str(
             &health_check_key(),
             "driver-location-service-health-check",
@@ -29,7 +29,7 @@ async fn health_check(data: Data<AppState>) -> Result<Json<ResponseData>, AppErr
         .map_err(|err| AppError::InternalError(err.to_string()))?;
 
     let health_check_resp = data
-        .persistent_redis
+        .redis
         .get_key_as_str(&health_check_key())
         .await
         .map_err(|err| AppError::InternalError(err.to_string()))?;

@@ -24,8 +24,7 @@ use shared::tools::logger::*;
 
 #[allow(clippy::too_many_arguments)]
 async fn search_nearby_drivers_with_vehicle(
-    persistent_redis: &RedisConnectionPool,
-    non_persistent_redis: &RedisConnectionPool,
+    redis: &RedisConnectionPool,
     nearby_bucket_threshold: &u64,
     merchant_id: &MerchantId,
     city: &CityName,
@@ -35,7 +34,7 @@ async fn search_nearby_drivers_with_vehicle(
     radius: &Radius,
 ) -> Result<Vec<DriverLocation>, AppError> {
     let nearby_drivers = get_drivers_within_radius(
-        non_persistent_redis,
+        redis,
         nearby_bucket_threshold,
         merchant_id,
         city,
@@ -51,8 +50,7 @@ async fn search_nearby_drivers_with_vehicle(
         .map(|driver| driver.driver_id.to_owned())
         .collect();
 
-    let driver_last_known_location =
-        get_all_driver_last_locations(persistent_redis, &driver_ids).await?;
+    let driver_last_known_location = get_all_driver_last_locations(redis, &driver_ids).await?;
 
     let resp = nearby_drivers
         .iter()
@@ -97,8 +95,7 @@ pub async fn get_nearby_drivers(
 
             for vehicle in VehicleType::iter() {
                 let nearby_drivers = search_nearby_drivers_with_vehicle(
-                    &data.persistent_redis,
-                    &data.non_persistent_redis,
+                    &data.redis,
                     &data.nearby_bucket_threshold,
                     &merchant_id,
                     &city,
@@ -122,8 +119,7 @@ pub async fn get_nearby_drivers(
         }
         Some(vehicle) => {
             let resp = search_nearby_drivers_with_vehicle(
-                &data.persistent_redis,
-                &data.non_persistent_redis,
+                &data.redis,
                 &data.nearby_bucket_threshold,
                 &merchant_id,
                 &city,
@@ -145,7 +141,7 @@ pub async fn get_drivers_location(
     let mut driver_locations = Vec::with_capacity(driver_ids.len());
 
     let driver_last_known_location =
-        get_all_driver_last_locations(&data.persistent_redis, &driver_ids).await?;
+        get_all_driver_last_locations(&data.redis, &driver_ids).await?;
 
     for (driver_id, driver_last_known_location) in
         driver_ids.iter().zip(driver_last_known_location.iter())

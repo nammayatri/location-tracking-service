@@ -1,4 +1,4 @@
-let non_persistent_redis_cfg = {
+let redis_cfg = {
     redis_host = "0.0.0.0",
     redis_port = 6380,
     redis_pool_size = 10,
@@ -10,9 +10,9 @@ let non_persistent_redis_cfg = {
     stream_read_count = 100,
 }
 
-let persistent_redis_cfg = {
+let replica_redis_cfg = {
     redis_host = "0.0.0.0",
-    redis_port = 6381,
+    redis_port = 6380,
     redis_pool_size = 10,
     redis_partition = 0,
     reconnect_max_attempts = 10,
@@ -36,11 +36,8 @@ let logger_cfg = {
 -- drainer_delay :: 4 * 1024KB * 1024MB * 1024GB / 100 Bytes = 41943040
 in {
     logger_cfg = logger_cfg,
-    non_persistent_redis_cfg = non_persistent_redis_cfg,
-    non_persistent_migration_redis_cfg = non_persistent_redis_cfg,
-    persistent_redis_cfg = persistent_redis_cfg,
-    persistent_migration_redis_cfg = persistent_redis_cfg,
-    redis_migration_stage = False,
+    redis_cfg = redis_cfg,
+    replica_redis_cfg = Some replica_redis_cfg,
     workers = 1,
     drainer_size = 10,
     drainer_delay = 20,
