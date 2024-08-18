@@ -20,7 +20,7 @@ use crate::{
 #[post("/internal/ride/{rideId}/create")]
 async fn ride_create(
     data: Data<AppState>,
-    param_obj: Json<RideRequest>,
+    param_obj: Json<RideCreateRequest>,
     path: Path<String>,
 ) -> Result<Json<APISuccess>, AppError> {
     let request_body = param_obj.into_inner();
@@ -32,7 +32,7 @@ async fn ride_create(
 #[post("/internal/ride/{rideId}/start")]
 async fn ride_start(
     data: Data<AppState>,
-    param_obj: Json<RideRequest>,
+    param_obj: Json<RideStartRequest>,
     path: Path<String>,
 ) -> Result<Json<APISuccess>, AppError> {
     let request_body = param_obj.into_inner();
@@ -65,18 +65,6 @@ async fn get_driver_locations(
     Ok(Json(
         ride::get_driver_locations(ride_id, data, request_body).await?,
     ))
-}
-
-#[post("/internal/ride/{rideId}/clear")]
-async fn ride_clear(
-    data: Data<AppState>,
-    param_obj: Json<RideRequest>,
-    path: Path<String>,
-) -> Result<Json<APISuccess>, AppError> {
-    let request_body = param_obj.into_inner();
-    let ride_id = RideId(path.into_inner());
-
-    Ok(Json(ride::ride_clear(ride_id, data, request_body).await?))
 }
 
 #[post("/internal/ride/rideDetails")]

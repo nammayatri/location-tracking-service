@@ -13,8 +13,9 @@ use location_tracking_service::{
     drainer::run_drainer,
     environment::{AppConfig, AppState},
     middleware::*,
-    tools::{error::AppError, logger::setup_tracing, prometheus::prometheus_metrics},
+    tools::{error::AppError, prometheus::prometheus_metrics},
 };
+use shared::tools::logger::setup_tracing;
 use std::{
     env::var,
     sync::atomic::{AtomicBool, Ordering},

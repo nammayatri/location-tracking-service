@@ -1614,7 +1614,7 @@ checksum = "b5e6163cb8c49088c2c36f57875e58ccd8c87c7427f7fbd50ea6710b2f3f2e8f"
 [[package]]
 name = "macros"
 version = "0.1.0"
-source = "git+https://github.com/nammayatri/shared-kernel-rs?rev=df43236#df43236a9e03aeec7149a1acdd5ae859a13788d8"
+source = "git+https://github.com/nammayatri/shared-kernel-rs?rev=4a5263e#4a5263ec282997a96e410bed4115a890bb938ccf"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2540,9 +2540,10 @@ dependencies = [
 [[package]]
 name = "shared"
 version = "0.1.0"
-source = "git+https://github.com/nammayatri/shared-kernel-rs?rev=df43236#df43236a9e03aeec7149a1acdd5ae859a13788d8"
+source = "git+https://github.com/nammayatri/shared-kernel-rs?rev=4a5263e#4a5263ec282997a96e410bed4115a890bb938ccf"
 dependencies = [
  "actix-web",
+ "actix-web-prom",
  "async-trait",
  "error-stack",
  "fred",

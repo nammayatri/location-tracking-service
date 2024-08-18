@@ -36,6 +36,9 @@ pub struct Accuracy(pub f64);
 pub struct SpeedInMeterPerSecond(pub f64);
 #[derive(Deserialize, Serialize, Clone, Debug, Eq, PartialEq)]
 pub struct Token(pub String);
+#[derive(Deserialize, Serialize, Clone, Debug, Eq, PartialEq, Copy)]
+#[macros::impl_getter]
+pub struct Meters(pub u32);
 
 pub type DriversLocationMap = FxHashMap<String, Vec<GeoValue>>;
 
@@ -130,6 +133,9 @@ pub struct MultiPolygonBody {
 pub struct RideDetails {
     pub ride_id: RideId,
     pub ride_status: RideStatus,
+    pub vehicle_number: Option<String>,
+    pub ride_start_otp: Option<u32>,
+    pub estimated_pickup_distance: Option<Meters>,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug, Eq, PartialEq)]
@@ -166,5 +172,11 @@ pub struct DriverLastKnownLocation {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct DriverAllDetails {
+    pub driver_last_known_location: DriverLastKnownLocation,
+    pub travelled_distance: Option<Meters>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct RideBookingDetails {
     pub driver_last_known_location: DriverLastKnownLocation,
 }

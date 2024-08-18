@@ -11,6 +11,7 @@ use actix_web::{
     HttpResponse, ResponseError,
 };
 use serde::{Deserialize, Serialize};
+use shared::tools::callapi::CallAPIError;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -146,6 +147,18 @@ impl ResponseError for AppError {
             AppError::InvalidConfiguration(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::RequestTimeout => StatusCode::REQUEST_TIMEOUT,
             AppError::DriverSendingFCMFailed(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        }
+    }
+}
+
+impl From<CallAPIError> for AppError {
+    fn from(error: CallAPIError) -> Self {
+        match error {
+            CallAPIError::InternalError(err) => AppError::InternalError(err),
+            CallAPIError::InvalidRequest(err) => AppError::InvalidRequest(err),
+            CallAPIError::ExternalAPICallError(err) => AppError::ExternalAPICallError(err),
+            CallAPIError::SerializationError(err) => AppError::SerializationError(err),
+            CallAPIError::DeserializationError(err) => AppError::DeserializationError(err),
         }
     }
 }

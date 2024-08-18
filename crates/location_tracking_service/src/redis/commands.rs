@@ -26,9 +26,13 @@ use tracing::info;
 /// * `driver_id` - The ID of the driver.
 /// * `ride_id` - The ID of the ride.
 /// * `ride_status` - The current status of the ride.
+/// * `vehicle_number` - Driver's vehicle number.
+/// * `ride_start_otp` - The otp to start the ride.
+/// * `estimated_pickup_distance` - The estimated pickup distance from driver's current location to customer's pickup location.
 ///
 /// # Returns
 /// * A Result indicating the success or failure of the operation.
+#[allow(clippy::too_many_arguments)]
 pub async fn set_ride_details(
     persistent_redis_pool: &RedisConnectionPool,
     redis_expiry: &u32,
@@ -36,10 +40,16 @@ pub async fn set_ride_details(
     driver_id: &DriverId,
     ride_id: RideId,
     ride_status: RideStatus,
+    vehicle_number: Option<String>,
+    ride_start_otp: Option<u32>,
+    estimated_pickup_distance: Option<Meters>,
 ) -> Result<(), AppError> {
     let ride_details = RideDetails {
         ride_id,
         ride_status,
+        vehicle_number,
+        ride_start_otp,
+        estimated_pickup_distance,
     };
     persistent_redis_pool
         .set_key(
@@ -256,12 +266,17 @@ pub async fn get_drivers_within_radius(
 pub async fn get_driver_location(
     persistent_redis_pool: &RedisConnectionPool,
     driver_id: &DriverId,
-) -> Result<Option<DriverLastKnownLocation>, AppError> {
+) -> Result<Option<(DriverLastKnownLocation, Option<Meters>)>, AppError> {
     let driver_last_known_location = persistent_redis_pool
         .get_key::<DriverAllDetails>(&driver_details_key(driver_id))
         .await
         .map_err(|err| AppError::InternalError(err.to_string()))?
-        .map(|details| details.driver_last_known_location);
+        .map(|details| {
+            (
+                details.driver_last_known_location,
+                details.travelled_distance,
+            )
+        });
     Ok(driver_last_known_location)
 }
 
@@ -290,6 +305,7 @@ pub async fn set_driver_last_location_update(
     merchant_id: &MerchantId,
     last_location_pt: &Point,
     last_location_ts: &TimeStamp,
+    travelled_distance: Meters,
 ) -> Result<DriverLastKnownLocation, AppError> {
     let last_known_location = DriverLastKnownLocation {
         location: Point {
@@ -302,6 +318,7 @@ pub async fn set_driver_last_location_update(
 
     let value = DriverAllDetails {
         driver_last_known_location: last_known_location.to_owned(),
+        travelled_distance: Some(travelled_distance),
     };
 
     persistent_redis_pool
