@@ -15,7 +15,7 @@ use actix_web::web::Data;
 pub async fn ride_create(
     ride_id: RideId,
     data: Data<AppState>,
-    request_body: RideRequest,
+    request_body: RideCreateRequest,
 ) -> Result<APISuccess, AppError> {
     set_ride_details(
         &data.persistent_redis,
@@ -24,6 +24,9 @@ pub async fn ride_create(
         &request_body.driver_id,
         ride_id.to_owned(),
         RideStatus::NEW,
+        Some(request_body.vehicle_number),
+        Some(request_body.ride_start_otp),
+        Some(request_body.estimated_pickup_distance),
     )
     .await?;
 
@@ -45,7 +48,7 @@ pub async fn ride_create(
 pub async fn ride_start(
     ride_id: RideId,
     data: Data<AppState>,
-    request_body: RideRequest,
+    request_body: RideStartRequest,
 ) -> Result<APISuccess, AppError> {
     set_ride_details(
         &data.persistent_redis,
@@ -54,6 +57,9 @@ pub async fn ride_start(
         &request_body.driver_id,
         ride_id,
         RideStatus::INPROGRESS,
+        None,
+        None,
+        None,
     )
     .await?;
 
@@ -111,24 +117,8 @@ pub async fn get_driver_locations(
 
     Ok(DriverLocationResponse {
         loc: on_ride_driver_locations,
-        timestamp: last_known_location.map(|loc| loc.timestamp),
+        timestamp: last_known_location.map(|(location, _)| location.timestamp),
     })
-}
-
-pub async fn ride_clear(
-    ride_id: RideId,
-    data: Data<AppState>,
-    request_body: RideRequest,
-) -> Result<APISuccess, AppError> {
-    ride_cleanup(
-        &data.persistent_redis,
-        &request_body.merchant_id,
-        &request_body.driver_id,
-        &ride_id,
-    )
-    .await?;
-
-    Ok(APISuccess::default())
 }
 
 // TODO :: To be deprecated...
@@ -152,6 +142,9 @@ pub async fn ride_details(
             &request_body.driver_id,
             request_body.ride_id.to_owned(),
             request_body.ride_status,
+            None,
+            None,
+            None,
         )
         .await?;
 

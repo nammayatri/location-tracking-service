@@ -9,7 +9,9 @@
 use serde::{Deserialize, Serialize};
 
 use crate::common::types::*;
+use std::collections::HashMap;
 
+// BPP Authentication
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AuthResponseData {
@@ -18,6 +20,7 @@ pub struct AuthResponseData {
     pub merchant_operating_city_id: MerchantOperatingCityId,
 }
 
+// Bulk location update during the ride
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct BulkDataReq {
@@ -26,9 +29,24 @@ pub struct BulkDataReq {
     pub driver_id: DriverId,
 }
 
+// Trigger FCM to start location pings if not sent for a while
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct TriggerFcmReq {
     pub ride_id: RideId,
     pub driver_id: DriverId,
+}
+
+// Live activity notification trigger for IOS
+#[derive(Serialize, Debug)]
+pub struct TriggerApnsReq {
+    pub aps: Apns,
+}
+
+#[derive(Serialize, Debug)]
+pub struct Apns {
+    pub timestamp: u64,
+    pub event: String,
+    pub content_state: HashMap<String, String>,
+    pub alert: HashMap<String, serde_json::Value>,
 }

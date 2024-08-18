@@ -11,7 +11,17 @@ use crate::common::types::*;
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
-pub struct RideRequest {
+pub struct RideCreateRequest {
+    pub merchant_id: MerchantId,
+    pub driver_id: DriverId,
+    pub vehicle_number: String,
+    pub ride_start_otp: u32,
+    pub estimated_pickup_distance: Meters,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct RideStartRequest {
     pub merchant_id: MerchantId,
     pub driver_id: DriverId,
 }
@@ -21,7 +31,6 @@ pub struct ResponseData {
     pub result: String,
 }
 
-// TODO :: To be deprecated...
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct RideEndRequest {
@@ -45,7 +54,6 @@ pub struct DriverLocationResponse {
     pub timestamp: Option<TimeStamp>,
 }
 
-// TODO :: To be deprecated...
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct RideEndResponse {

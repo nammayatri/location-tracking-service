@@ -16,10 +16,9 @@ use shared::redis::types::{RedisConnectionPool, RedisSettings};
 use tokio::sync::mpsc::Sender;
 use tracing::info;
 
-use crate::{
-    common::{geo_polygon::read_geo_polygon, types::*},
-    tools::logger::LoggerConfig,
-};
+use crate::common::{geo_polygon::read_geo_polygon, types::*};
+
+use shared::tools::logger::LoggerConfig;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct AppConfig {
@@ -54,6 +53,7 @@ pub struct AppConfig {
     pub max_allowed_req_size: usize,
     pub driver_location_delay_in_sec: i64,
     pub trigger_fcm_callback_url: String,
+    pub apns_url: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -105,6 +105,7 @@ pub struct AppState {
     pub request_timeout: u64,
     pub driver_location_delay_in_sec: i64,
     pub trigger_fcm_callback_url: Url,
+    pub apns_url: Url,
 }
 
 impl AppState {
@@ -264,6 +265,7 @@ impl AppState {
             driver_location_delay_in_sec: app_config.driver_location_delay_in_sec,
             trigger_fcm_callback_url: Url::parse(app_config.trigger_fcm_callback_url.as_str())
                 .expect("Failed to parse fcm_callback_url."),
+            apns_url: Url::parse(app_config.apns_url.as_str()).expect("Failed to parse apns_url."),
         }
     }
 }

@@ -7,8 +7,9 @@
 */
 #![allow(clippy::expect_used)]
 
-use actix_web_prom::{PrometheusMetrics, PrometheusMetricsBuilder};
+use actix_web_prom::PrometheusMetrics;
 use prometheus::{opts, register_histogram_vec, register_int_counter, HistogramVec, IntCounter};
+pub use shared::tools::prometheus::*;
 
 pub static INCOMING_API: once_cell::sync::Lazy<HistogramVec> = once_cell::sync::Lazy::new(|| {
     register_histogram_vec!(
@@ -17,15 +18,6 @@ pub static INCOMING_API: once_cell::sync::Lazy<HistogramVec> = once_cell::sync::
     )
     .expect("Failed to register incoming API metrics")
 });
-
-pub static CALL_EXTERNAL_API: once_cell::sync::Lazy<HistogramVec> =
-    once_cell::sync::Lazy::new(|| {
-        register_histogram_vec!(
-            opts!("external_request_duration", "Call external API requests").into(),
-            &["method", "host", "service", "status"]
-        )
-        .expect("Failed to register call external API metrics")
-    });
 
 pub static QUEUE_DRAINER_LATENCY: once_cell::sync::Lazy<HistogramVec> =
     once_cell::sync::Lazy::new(|| {
@@ -61,28 +53,6 @@ macro_rules! incoming_api {
         let version = std::env::var("DEPLOYMENT_VERSION").unwrap_or("DEV".to_string());
         INCOMING_API
             .with_label_values(&[$method, $endpoint, $status, $code, version.as_str()])
-            .observe(duration);
-    };
-}
-
-/// Macro that observes the duration of external API calls and logs metrics related to the external request.
-///
-/// This macro captures details of the external request like method, host, path, status, and the time taken for the external call.
-/// It then updates the `CALL_EXTERNAL_API` histogram with these metrics.
-///
-/// # Arguments
-///
-/// * `$method` - The HTTP method of the external request.
-/// * `$host` - The host or domain of the external service.
-/// * `$path` - The path or endpoint of the external service.
-/// * `$status` - The HTTP status code of the response from the external service.
-/// * `$start` - The time when the external request was initiated.
-#[macro_export]
-macro_rules! call_external_api {
-    ($method:expr, $host:expr, $path:expr, $status:expr, $start:expr) => {
-        let duration = $start.elapsed().as_secs_f64();
-        CALL_EXTERNAL_API
-            .with_label_values(&[$method, $host, $path, $status])
             .observe(duration);
     };
 }
@@ -131,20 +101,12 @@ macro_rules! queue_drainer_latency {
 ///
 /// * If there's a failure initializing metrics, registering metrics to the Prometheus registry, or any other unexpected error during the setup.
 pub fn prometheus_metrics() -> PrometheusMetrics {
-    let prometheus = PrometheusMetricsBuilder::new("api")
-        .endpoint("/metrics")
-        .build()
-        .expect("Failed to create Prometheus Metrics");
+    let prometheus = init_prometheus_metrics();
 
     prometheus
         .registry
         .register(Box::new(INCOMING_API.to_owned()))
         .expect("Failed to register incoming API metrics");
-
-    prometheus
-        .registry
-        .register(Box::new(CALL_EXTERNAL_API.to_owned()))
-        .expect("Failed to register call external API metrics");
 
     prometheus
         .registry
