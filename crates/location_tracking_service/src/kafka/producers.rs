@@ -45,7 +45,7 @@ pub async fn kafka_stream_updates(
     driver_mode: DriverMode,
     DriverId(key): &DriverId,
     vehicle_type: VehicleType,
-    travelled_distance: Meters,
+    // travelled_distance: Meters,
 ) {
     let ride_status = match ride_status {
         Some(RideStatus::NEW) => DriverRideStatus::OnPickup,
@@ -75,7 +75,7 @@ pub async fn kafka_stream_updates(
             active: true,
             mode: driver_mode.to_owned(),
             vehicle_variant: vehicle_type.to_owned(),
-            travelled_distance: travelled_distance.to_owned(),
+            // travelled_distance: travelled_distance.to_owned(),
         };
         if let Err(err) = push_to_kafka(producer, topic, key.as_str(), message).await {
             error!("Error occured in push_to_kafka => {}", err.message())
