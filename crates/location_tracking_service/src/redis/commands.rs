@@ -274,7 +274,7 @@ pub async fn get_driver_location(
         .map(|details| {
             (
                 details.driver_last_known_location,
-                details.travelled_distance,
+                None, // details.travelled_distance,
             )
         });
     Ok(driver_last_known_location)
@@ -305,7 +305,7 @@ pub async fn set_driver_last_location_update(
     merchant_id: &MerchantId,
     last_location_pt: &Point,
     last_location_ts: &TimeStamp,
-    travelled_distance: Meters,
+    // travelled_distance: Meters,
 ) -> Result<DriverLastKnownLocation, AppError> {
     let last_known_location = DriverLastKnownLocation {
         location: Point {
@@ -318,7 +318,7 @@ pub async fn set_driver_last_location_update(
 
     let value = DriverAllDetails {
         driver_last_known_location: last_known_location.to_owned(),
-        travelled_distance: Some(travelled_distance),
+        // travelled_distance: Some(travelled_distance),
     };
 
     redis

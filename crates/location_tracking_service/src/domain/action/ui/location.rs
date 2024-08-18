@@ -225,27 +225,27 @@ async fn process_driver_locations(
 
     let mut all_tasks: Vec<Pin<Box<dyn Future<Output = Result<(), AppError>>>>> = Vec::new();
 
-    let travelled_distance = if driver_ride_status == Some(RideStatus::NEW)
-        || driver_ride_status == Some(RideStatus::INPROGRESS)
-    {
-        Meters(
-            last_known_location
-                .to_owned()
-                .map(|(last_known_location, travelled_distance)| {
-                    travelled_distance
-                        .map(|travelled_distance| travelled_distance.inner())
-                        .unwrap_or(0)
-                        + distance_between_in_meters(
-                            &last_known_location.location,
-                            &latest_driver_location.pt,
-                        )
-                        .floor() as u32
-                })
-                .unwrap_or(0),
-        )
-    } else {
-        Meters(0)
-    };
+    // let travelled_distance = if driver_ride_status == Some(RideStatus::NEW)
+    //     || driver_ride_status == Some(RideStatus::INPROGRESS)
+    // {
+    //     Meters(
+    //         last_known_location
+    //             .to_owned()
+    //             .map(|(last_known_location, travelled_distance)| {
+    //                 travelled_distance
+    //                     .map(|travelled_distance| travelled_distance.inner())
+    //                     .unwrap_or(0)
+    //                     + distance_between_in_meters(
+    //                         &last_known_location.location,
+    //                         &latest_driver_location.pt,
+    //                     )
+    //                     .floor() as u32
+    //             })
+    //             .unwrap_or(0),
+    //     )
+    // } else {
+    //     Meters(0)
+    // };
 
     let set_driver_last_location_update = async {
         set_driver_last_location_update(
@@ -255,7 +255,7 @@ async fn process_driver_locations(
             &merchant_id,
             &latest_driver_location.pt,
             &latest_driver_location_ts,
-            Meters(0), // travelled_distance.to_owned(),
+            // travelled_distance.to_owned(),
         )
         .await?;
         Ok(())
@@ -420,7 +420,7 @@ async fn process_driver_locations(
             driver_mode,
             &driver_id,
             vehicle_type,
-            travelled_distance,
+            // travelled_distance,
         )
         .await;
     });

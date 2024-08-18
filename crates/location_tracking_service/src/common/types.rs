@@ -173,7 +173,7 @@ pub struct DriverLastKnownLocation {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct DriverAllDetails {
     pub driver_last_known_location: DriverLastKnownLocation,
-    pub travelled_distance: Option<Meters>,
+    // pub travelled_distance: Option<Meters>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
