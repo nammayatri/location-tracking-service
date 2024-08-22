@@ -19,6 +19,7 @@ use actix_web::{
     Error, HttpRequest,
 };
 use futures::future::LocalBoxFuture;
+use regex::Regex;
 use tokio::time::{timeout, Instant};
 use tracing::Span;
 use tracing::{error, info, warn};
@@ -310,6 +311,13 @@ fn get_path(request: &HttpRequest) -> String {
         .for_each(|(path_name, path_val)| {
             path = path.replace(path_val, format!(":{path_name}").as_str());
         });
+
+    if let Ok(re) =
+        Regex::new(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+    {
+        path = re.replace_all(&path, ":id").to_string()
+    }
+
     path
 }
 
