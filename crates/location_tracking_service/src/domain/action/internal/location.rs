@@ -117,18 +117,29 @@ pub async fn get_nearby_drivers(
 
             Ok(resp)
         }
-        Some(vehicle) => {
-            let resp = search_nearby_drivers_with_vehicle(
-                &data.redis,
-                &data.nearby_bucket_threshold,
-                &merchant_id,
-                &city,
-                &vehicle,
-                &current_bucket,
-                Point { lat, lon },
-                &radius,
-            )
-            .await?;
+        Some(vehicles) => {
+            let mut resp: Vec<DriverLocation> = Vec::new();
+            for vehicle in vehicles {
+                let nearby_drivers = search_nearby_drivers_with_vehicle(
+                    &data.redis,
+                    &data.nearby_bucket_threshold,
+                    &merchant_id,
+                    &city,
+                    &vehicle,
+                    &current_bucket,
+                    Point { lat, lon },
+                    &radius,
+                )
+                .await;
+                match nearby_drivers {
+                    Ok(nearby_drivers) => {
+                        resp.extend(nearby_drivers);
+                    }
+                    Err(err) => {
+                        error!(tag="[Nearby Drivers For Specific Vehicle Types]", vehicle = %vehicle, "{:?}", err)
+                    }
+                }
+            }
             Ok(resp)
         }
     }
