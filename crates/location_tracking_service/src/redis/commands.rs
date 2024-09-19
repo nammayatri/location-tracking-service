@@ -11,7 +11,7 @@ use crate::tools::error::AppError;
 use fred::types::{GeoPosition, GeoUnit, SortOrder};
 use futures::Future;
 use rustc_hash::FxHashSet;
-use shared::redis::types::RedisConnectionPool;
+use shared::redis::types::{RedisConnectionPool, Ttl};
 use tracing::{error, info};
 
 /// Sets the ride details (i.e, rideId and rideStatus) to the Redis store.
@@ -530,29 +530,39 @@ where
     Args: Send + 'static,
     Fut: Future<Output = Result<(), AppError>>,
 {
+    // TODO :: This lock can be made optimistic by using counter approach
     match redis
-        .setnx_with_expiry(&key, true, expiry)
+        .ttl(&key)
         .await
-        .map_err(|err| AppError::InternalError(err.to_string()))
+        .map_err(|err| AppError::InternalError(err.to_string()))?
     {
-        Ok(true) => {
-            info!("Got lock : {}", &key);
-            let resp = callback(args).await;
-            redis
-                .delete_key(&key)
-                .await
-                .map_err(|err| AppError::InternalError(err.to_string()))?;
-            info!("Released lock : {}", &key);
-            resp
-        }
-        Ok(false) => Err(AppError::UnderProcessing(key)),
-        Err(err) => {
-            error!("[Error] setnx_with_expiry : {:?}", err);
-            redis
-                .delete_key(&key)
+        Ttl::NoExpiry | Ttl::NoKeyFound => {
+            match redis
+                .setnx_with_expiry(&key, true, expiry)
                 .await
                 .map_err(|err| AppError::InternalError(err.to_string()))
+            {
+                Ok(true) => {
+                    info!("Got lock : {}", &key);
+                    let resp = callback(args).await;
+                    redis
+                        .delete_key(&key)
+                        .await
+                        .map_err(|err| AppError::InternalError(err.to_string()))?;
+                    info!("Released lock : {}", &key);
+                    resp
+                }
+                Ok(false) => Err(AppError::UnderProcessing(key)),
+                Err(err) => {
+                    error!("[Error] setnx_with_expiry : {:?}", err);
+                    redis
+                        .delete_key(&key)
+                        .await
+                        .map_err(|err| AppError::InternalError(err.to_string()))
+                }
+            }
         }
+        Ttl::TtlValue(_) => Err(AppError::UnderProcessing(key)),
     }
 }
 

@@ -31,8 +31,13 @@ pub static QUEUE_DRAINER_LATENCY: once_cell::sync::Lazy<HistogramVec> =
 pub static TOTAL_LOCATION_UPDATES: once_cell::sync::Lazy<IntCounter> =
     once_cell::sync::Lazy::new(|| {
         register_int_counter!("total_location_updates", "Total Location Updates")
-            .expect("Failed to register total locatio updates metrics")
+            .expect("Failed to register total location updates metrics")
     });
+
+pub static TOTAL_PANIC: once_cell::sync::Lazy<IntCounter> = once_cell::sync::Lazy::new(|| {
+    register_int_counter!("total_panic", "Total Panic")
+        .expect("Failed to register total panic updates metrics")
+});
 
 /// Macro that observes the duration of incoming API requests and logs metrics related to the request.
 ///
@@ -117,6 +122,11 @@ pub fn prometheus_metrics() -> PrometheusMetrics {
         .registry
         .register(Box::new(TOTAL_LOCATION_UPDATES.to_owned()))
         .expect("Failed to register total location updates metrics");
+
+    prometheus
+        .registry
+        .register(Box::new(TOTAL_PANIC.to_owned()))
+        .expect("Failed to register total panic metrics");
 
     prometheus
 }

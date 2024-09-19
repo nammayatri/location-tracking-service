@@ -13,7 +13,10 @@ use location_tracking_service::{
     drainer::run_drainer,
     environment::{AppConfig, AppState},
     middleware::*,
-    tools::{error::AppError, prometheus::prometheus_metrics},
+    tools::{
+        error::AppError,
+        prometheus::{prometheus_metrics, TOTAL_PANIC},
+    },
 };
 use shared::tools::logger::setup_tracing;
 use std::{
@@ -73,6 +76,7 @@ async fn start_server() -> std::io::Result<()> {
     let _guard = setup_tracing(app_config.logger_cfg);
 
     std::panic::set_hook(Box::new(|panic_info| {
+        TOTAL_PANIC.inc();
         error!("Panic Occured : {:?}", panic_info);
     }));
 
