@@ -12,7 +12,7 @@ use fred::types::{GeoPosition, GeoUnit, SortOrder};
 use futures::Future;
 use rustc_hash::FxHashSet;
 use shared::redis::types::RedisConnectionPool;
-use tracing::info;
+use tracing::{error, info};
 
 /// Sets the ride details (i.e, rideId and rideStatus) to the Redis store.
 ///
@@ -530,21 +530,29 @@ where
     Args: Send + 'static,
     Fut: Future<Output = Result<(), AppError>>,
 {
-    if redis
+    match redis
         .setnx_with_expiry(&key, true, expiry)
         .await
-        .map_err(|err| AppError::InternalError(err.to_string()))?
+        .map_err(|err| AppError::InternalError(err.to_string()))
     {
-        info!("Got lock : {}", &key);
-        let resp = callback(args).await;
-        redis
-            .delete_key(&key)
-            .await
-            .map_err(|err| AppError::InternalError(err.to_string()))?;
-        info!("Released lock : {}", &key);
-        resp
-    } else {
-        Err(AppError::UnderProcessing(key))
+        Ok(true) => {
+            info!("Got lock : {}", &key);
+            let resp = callback(args).await;
+            redis
+                .delete_key(&key)
+                .await
+                .map_err(|err| AppError::InternalError(err.to_string()))?;
+            info!("Released lock : {}", &key);
+            resp
+        }
+        Ok(false) => Err(AppError::UnderProcessing(key)),
+        Err(err) => {
+            error!("[Error] setnx_with_expiry : {:?}", err);
+            redis
+                .delete_key(&key)
+                .await
+                .map_err(|err| AppError::InternalError(err.to_string()))
+        }
     }
 }
 
