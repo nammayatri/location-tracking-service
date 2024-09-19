@@ -5,10 +5,6 @@
     or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more details. You should have received a copy of
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-use actix_web::web::Data;
-use chrono::Utc;
-use strum::IntoEnumIterator;
-
 use crate::tools::error::AppError;
 use crate::{
     common::{
@@ -18,9 +14,14 @@ use crate::{
     domain::types::internal::location::*,
     environment::AppState,
     redis::commands::*,
+    tools::prometheus::MEASURE_DURATION,
 };
+use actix_web::web::Data;
+use chrono::Utc;
+use shared::measure_latency_duration;
 use shared::redis::types::RedisConnectionPool;
 use shared::tools::logger::*;
+use strum::IntoEnumIterator;
 
 #[macros::measure_duration]
 #[allow(clippy::too_many_arguments)]

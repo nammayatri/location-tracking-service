@@ -18,14 +18,16 @@ use crate::outbound::external::{
 };
 use crate::redis::{commands::*, keys::*};
 use crate::tools::error::AppError;
+use crate::tools::prometheus::MEASURE_DURATION;
 use actix::Arbiter;
 use actix_web::{web::Data, HttpResponse};
 use chrono::Utc;
 use futures::future::join_all;
 use futures::Future;
 use reqwest::Url;
+use shared::measure_latency_duration;
 use shared::redis::types::RedisConnectionPool;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 #[macros::measure_duration]
 async fn get_driver_id_from_authentication(
