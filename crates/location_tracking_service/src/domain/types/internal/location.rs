@@ -40,3 +40,11 @@ pub struct DriverLocation {
     pub updated_at: TimeStamp,
     pub merchant_id: MerchantId,
 }
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct DriverBlockTillRequest {
+    pub merchant_id: MerchantId,
+    pub driver_id: DriverId,
+    pub block_till: TimeStamp,
+}

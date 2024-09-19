@@ -6,13 +6,14 @@
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 use actix_web::{
-    get,
+    get, post,
     web::{Data, Json},
     HttpRequest,
 };
 
 use crate::tools::error::AppError;
 use crate::{
+    common::types::*,
     domain::{action::internal::*, types::internal::location::*},
     environment::AppState,
 };
@@ -41,4 +42,14 @@ async fn get_drivers_location(
     Ok(Json(
         location::get_drivers_location(data, request_body.driver_ids).await?,
     ))
+}
+
+#[post("/internal/driver/blockTill")]
+async fn driver_block_till(
+    data: Data<AppState>,
+    param_obj: Json<DriverBlockTillRequest>,
+) -> Result<Json<APISuccess>, AppError> {
+    let request_body = param_obj.into_inner();
+
+    Ok(Json(location::driver_block_till(data, request_body).await?))
 }

@@ -116,12 +116,20 @@ pub async fn update_driver_location(
 
     let last_known_location = get_driver_location(&data.redis, &driver_id).await?;
 
+    if let Some((_, Some(timestamp), _)) = last_known_location {
+        let curr_time = TimeStamp(Utc::now());
+
+        if timestamp > curr_time {
+            return Err(AppError::DriverBlocked);
+        }
+    }
+
     let locations: Vec<UpdateDriverLocationRequest> = locations
         .into_iter()
         .filter(|location| {
             last_known_location
                 .as_ref()
-                .map(|(last_known_location, _)| location.ts > last_known_location.timestamp)
+                .map(|(last_known_location, _, _)| location.ts > last_known_location.timestamp)
                 .unwrap_or(true)
         })
         .collect();
@@ -179,7 +187,7 @@ async fn process_driver_locations(
         Data<AppState>,
         Vec<UpdateDriverLocationRequest>,
         UpdateDriverLocationRequest,
-        Option<(DriverLastKnownLocation, Option<Meters>)>,
+        Option<(DriverLastKnownLocation, Option<TimeStamp>, Option<Meters>)>,
         DriverId,
         MerchantId,
         MerchantOperatingCityId,
@@ -255,6 +263,7 @@ async fn process_driver_locations(
             &merchant_id,
             &latest_driver_location.pt,
             &latest_driver_location_ts,
+            &None::<TimeStamp>,
             // travelled_distance.to_owned(),
         )
         .await?;
@@ -301,7 +310,7 @@ async fn process_driver_locations(
     let locations = if let Some(RideStatus::INPROGRESS) = driver_ride_status.as_ref() {
         let locations = get_filtered_driver_locations(
             last_known_location
-                .map(|(last_known_location, _)| last_known_location)
+                .map(|(last_known_location, _, _)| last_known_location)
                 .as_ref(),
             locations,
             data.min_location_accuracy,
@@ -442,7 +451,7 @@ pub async fn track_driver_location(
                 "COMPLETED".to_string(),
             ))?;
 
-    let (driver_last_known_location_details, _) =
+    let (driver_last_known_location_details, _, _) =
         get_driver_location(&data.redis, &driver_details.driver_id)
             .await?
             .ok_or(AppError::DriverLastKnownLocationNotFound)?;

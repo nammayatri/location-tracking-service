@@ -44,6 +44,7 @@ pub enum AppError {
     KafkaPushFailed(String),
     DrainerPushFailed(String),
     DriverSendingFCMFailed(String),
+    DriverBlocked,
 }
 
 impl AppError {
@@ -111,6 +112,7 @@ impl AppError {
             AppError::KafkaPushFailed(_) => "KAFKA_PUSH_FAILED",
             AppError::DrainerPushFailed(_) => "DRAINER_PUSH_FAILED",
             AppError::DriverSendingFCMFailed(_) => "DOBPP_SENDING_FCM_FAILED",
+            AppError::DriverBlocked => "DRIVER_BLOCKED",
         }
         .to_string()
     }
@@ -147,6 +149,7 @@ impl ResponseError for AppError {
             AppError::InvalidConfiguration(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::RequestTimeout => StatusCode::REQUEST_TIMEOUT,
             AppError::DriverSendingFCMFailed(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            AppError::DriverBlocked => StatusCode::FORBIDDEN,
         }
     }
 }
