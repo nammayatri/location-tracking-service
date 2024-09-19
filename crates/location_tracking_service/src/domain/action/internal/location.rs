@@ -183,3 +183,27 @@ pub async fn get_drivers_location(
 
     Ok(driver_locations)
 }
+
+pub async fn driver_block_till(
+    data: Data<AppState>,
+    request_body: DriverBlockTillRequest,
+) -> Result<APISuccess, AppError> {
+    let (driver_last_known_location_details, _, _) =
+        get_driver_location(&data.redis, &request_body.driver_id)
+            .await?
+            .ok_or(AppError::DriverLastKnownLocationNotFound)?;
+
+    set_driver_last_location_update(
+        &data.redis,
+        &data.last_location_timstamp_expiry,
+        &request_body.driver_id,
+        &request_body.merchant_id,
+        &driver_last_known_location_details.location,
+        &driver_last_known_location_details.timestamp,
+        &Some(request_body.block_till),
+        // travelled_distance.to_owned(),
+    )
+    .await?;
+
+    Ok(APISuccess::default())
+}

@@ -110,7 +110,7 @@ pub async fn get_driver_locations(
 
     Ok(DriverLocationResponse {
         loc: on_ride_driver_locations,
-        timestamp: last_known_location.map(|(location, _)| location.timestamp),
+        timestamp: last_known_location.map(|(location, _, _)| location.timestamp),
     })
 }
 
