@@ -27,6 +27,7 @@ use reqwest::Url;
 use shared::redis::types::RedisConnectionPool;
 use tracing::{info, warn};
 
+#[macros::measure_duration]
 async fn get_driver_id_from_authentication(
     redis: &RedisConnectionPool,
     auth_url: &Url,
@@ -60,6 +61,7 @@ async fn get_driver_id_from_authentication(
     }
 }
 
+#[macros::measure_duration]
 fn get_filtered_driver_locations(
     last_known_location: Option<&DriverLastKnownLocation>,
     mut locations: Vec<UpdateDriverLocationRequest>,
@@ -84,6 +86,7 @@ fn get_filtered_driver_locations(
     locations
 }
 
+#[macros::measure_duration]
 pub async fn update_driver_location(
     token: Token,
     vehicle_type: VehicleType,
@@ -428,6 +431,7 @@ async fn process_driver_locations(
     Ok(())
 }
 
+#[macros::measure_duration]
 pub async fn track_driver_location(
     data: Data<AppState>,
     ride_id: RideId,

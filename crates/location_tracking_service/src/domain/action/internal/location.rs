@@ -22,6 +22,7 @@ use crate::{
 use shared::redis::types::RedisConnectionPool;
 use shared::tools::logger::*;
 
+#[macros::measure_duration]
 #[allow(clippy::too_many_arguments)]
 async fn search_nearby_drivers_with_vehicle(
     redis: &RedisConnectionPool,
@@ -75,6 +76,7 @@ async fn search_nearby_drivers_with_vehicle(
     Ok(resp)
 }
 
+#[macros::measure_duration]
 pub async fn get_nearby_drivers(
     data: Data<AppState>,
     NearbyDriversRequest {
@@ -145,6 +147,7 @@ pub async fn get_nearby_drivers(
     }
 }
 
+#[macros::measure_duration]
 pub async fn get_drivers_location(
     data: Data<AppState>,
     driver_ids: Vec<DriverId>,
