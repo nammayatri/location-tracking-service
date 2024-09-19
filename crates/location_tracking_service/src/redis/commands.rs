@@ -544,7 +544,7 @@ where
         info!("Released lock : {}", &key);
         resp
     } else {
-        Err(AppError::HitsLimitExceeded(key))
+        Err(AppError::UnderProcessing(key))
     }
 }
 

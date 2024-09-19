@@ -36,6 +36,7 @@ pub enum AppError {
     DeserializationError(String),
     Unserviceable(f64, f64),
     HitsLimitExceeded(String),
+    UnderProcessing(String),
     DriverBulkLocationUpdateFailed(String),
     InvalidConfiguration(String),
     RequestTimeout,
@@ -66,6 +67,7 @@ impl AppError {
             AppError::SerializationError(err) => err.to_string(),
             AppError::DeserializationError(err) => err.to_string(),
             AppError::HitsLimitExceeded(err) => err.to_string(),
+            AppError::UnderProcessing(err) => err.to_string(),
             AppError::LargePayloadSize(length, limit) => {
                 format!("Content length ({length} Bytes) greater than allowed maximum limit : ({limit} Bytes)")
             }
@@ -105,6 +107,7 @@ impl AppError {
             AppError::Unserviceable(_, _) => "LOCATION_NOT_SERVICEABLE",
             AppError::LargePayloadSize(_, _) => "LARGE_PAYLOAD_SIZE",
             AppError::HitsLimitExceeded(_) => "HITS_LIMIT_EXCEED",
+            AppError::UnderProcessing(_) => "UNDER_PROCESSING",
             AppError::DriverBulkLocationUpdateFailed(_) => "DOBPP_BULK_LOCATION_UPDATE_FAILED",
             AppError::InvalidConfiguration(_) => "INVALID_REDIS_CONFIGURATION",
             AppError::RequestTimeout => "REQUEST_TIMEOUT",
@@ -140,6 +143,7 @@ impl ResponseError for AppError {
             AppError::DriverAppAuthFailed => StatusCode::BAD_REQUEST,
             AppError::Unserviceable(_, _) => StatusCode::BAD_REQUEST,
             AppError::HitsLimitExceeded(_) => StatusCode::TOO_MANY_REQUESTS,
+            AppError::UnderProcessing(_) => StatusCode::TOO_MANY_REQUESTS,
             AppError::LargePayloadSize(_, _) => StatusCode::PAYLOAD_TOO_LARGE,
             AppError::DriverBulkLocationUpdateFailed(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::KafkaPushFailed(_) => StatusCode::INTERNAL_SERVER_ERROR,
