@@ -5,7 +5,7 @@
     or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more details. You should have received a copy of
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-
+#![allow(clippy::all)]
 use std::pin::Pin;
 
 use crate::common::utils::{distance_between_in_meters, get_city, is_blacklist_for_special_zone};
@@ -178,6 +178,7 @@ pub async fn update_driver_location(
     Ok(HttpResponse::Ok().finish())
 }
 
+#[macros::measure_duration]
 #[allow(clippy::type_complexity)]
 async fn process_driver_locations(
     args: (
