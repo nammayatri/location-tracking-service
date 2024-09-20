@@ -34,9 +34,12 @@ pub static TOTAL_LOCATION_UPDATES: once_cell::sync::Lazy<IntCounter> =
             .expect("Failed to register total location updates metrics")
     });
 
-pub static TOTAL_PANIC: once_cell::sync::Lazy<IntCounter> = once_cell::sync::Lazy::new(|| {
-    register_int_counter!("total_panic", "Total Panic")
-        .expect("Failed to register total panic updates metrics")
+pub static TERMINATION: once_cell::sync::Lazy<HistogramVec> = once_cell::sync::Lazy::new(|| {
+    register_histogram_vec!(
+        opts!("termination", "Terminations").into(),
+        &["type", "version"]
+    )
+    .expect("Failed to register termination metrics")
 });
 
 /// Macro that observes the duration of incoming API requests and logs metrics related to the request.
@@ -58,6 +61,17 @@ macro_rules! incoming_api {
         let version = std::env::var("DEPLOYMENT_VERSION").unwrap_or("DEV".to_string());
         INCOMING_API
             .with_label_values(&[$method, $endpoint, $status, $code, version.as_str()])
+            .observe(duration);
+    };
+}
+
+#[macro_export]
+macro_rules! termination {
+    ($type_:expr, $start:expr) => {
+        let duration = $start.elapsed().as_secs_f64();
+        let version = std::env::var("DEPLOYMENT_VERSION").unwrap_or("DEV".to_string());
+        TERMINATION
+            .with_label_values(&[$type_, version.as_str()])
             .observe(duration);
     };
 }
@@ -125,8 +139,8 @@ pub fn prometheus_metrics() -> PrometheusMetrics {
 
     prometheus
         .registry
-        .register(Box::new(TOTAL_PANIC.to_owned()))
-        .expect("Failed to register total panic metrics");
+        .register(Box::new(TERMINATION.to_owned()))
+        .expect("Failed to register termination metrics");
 
     prometheus
 }

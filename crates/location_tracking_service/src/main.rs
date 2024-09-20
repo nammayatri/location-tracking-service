@@ -13,9 +13,10 @@ use location_tracking_service::{
     drainer::run_drainer,
     environment::{AppConfig, AppState},
     middleware::*,
+    termination,
     tools::{
         error::AppError,
-        prometheus::{prometheus_metrics, TOTAL_PANIC},
+        prometheus::{prometheus_metrics, TERMINATION},
     },
 };
 use shared::tools::logger::setup_tracing;
@@ -25,6 +26,7 @@ use std::{
 };
 use std::{net::Ipv4Addr, sync::Arc};
 use tokio::signal::unix::SignalKind;
+use tokio::time::Instant;
 use tokio::{
     signal::unix::signal,
     sync::mpsc::{self, Receiver, Sender},
@@ -76,7 +78,7 @@ async fn start_server() -> std::io::Result<()> {
     let _guard = setup_tracing(app_config.logger_cfg);
 
     std::panic::set_hook(Box::new(|panic_info| {
-        TOTAL_PANIC.inc();
+        termination!("panic", Instant::now());
         error!("Panic Occured : {:?}", panic_info);
     }));
 

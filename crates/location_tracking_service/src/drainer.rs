@@ -5,8 +5,7 @@
     or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more details. You should have received a copy of
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-use crate::queue_drainer_latency;
-use crate::tools::prometheus::{QUEUE_DRAINER_LATENCY, TOTAL_LOCATION_UPDATES};
+use crate::tools::prometheus::{QUEUE_DRAINER_LATENCY, TERMINATION, TOTAL_LOCATION_UPDATES};
 use crate::{
     common::{
         types::*,
@@ -14,6 +13,7 @@ use crate::{
     },
     redis::{commands::push_drainer_driver_location, keys::driver_loc_bucket_key},
 };
+use crate::{queue_drainer_latency, termination};
 use chrono::{DateTime, Utc};
 use fred::types::{GeoPosition, GeoValue};
 use rustc_hash::FxHashMap;
@@ -26,6 +26,7 @@ use std::{
 use std::{sync::Arc, time::Duration};
 use tokio::sync::mpsc;
 use tokio::time::interval;
+use tokio::time::Instant;
 use tracing::{error, info};
 
 /// Asynchronously drains driver locations to a Redis server.
@@ -126,6 +127,7 @@ pub async fn run_drainer(
 
     loop {
         if graceful_termination_requested.load(Ordering::Relaxed) {
+            termination!("graceful-termination", Instant::now());
             info!(tag = "[Graceful Shutting Down]", length = %drainer_size);
             if drainer_size > 0 {
                 info!(tag = "[Force Draining Queue]", length = %drainer_size);
