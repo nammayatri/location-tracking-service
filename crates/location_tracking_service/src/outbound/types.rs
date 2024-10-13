@@ -37,6 +37,14 @@ pub struct TriggerFcmReq {
     pub driver_id: DriverId,
 }
 
+// Trigger Stop Detection Event
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct StopDetectionReq {
+    pub location: Point,
+    pub total_locations: usize,
+}
+
 // Live activity notification trigger for IOS
 #[derive(Serialize, Debug)]
 pub struct TriggerApnsReq {

@@ -6,15 +6,15 @@
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 #![allow(clippy::all)]
-use std::pin::Pin;
-
 use crate::common::utils::{distance_between_in_meters, get_city, is_blacklist_for_special_zone};
-use crate::common::{sliding_window_rate_limiter::sliding_window_limiter, types::*};
+use crate::common::{
+    sliding_window_rate_limiter::sliding_window_limiter, stop_detection::detect_stop, types::*,
+};
 use crate::domain::types::ui::location::*;
 use crate::environment::AppState;
 use crate::kafka::producers::kafka_stream_updates;
 use crate::outbound::external::{
-    authenticate_dobpp, bulk_location_update_dobpp, trigger_fcm_dobpp,
+    authenticate_dobpp, bulk_location_update_dobpp, trigger_fcm_dobpp, trigger_stop_detection_event,
 };
 use crate::redis::{commands::*, keys::*};
 use crate::tools::error::AppError;
@@ -27,6 +27,8 @@ use futures::Future;
 use reqwest::Url;
 use shared::measure_latency_duration;
 use shared::redis::types::RedisConnectionPool;
+use std::env::var;
+use std::pin::Pin;
 use tracing::{debug, info, warn};
 
 #[macros::measure_duration]
@@ -96,14 +98,22 @@ pub async fn update_driver_location(
     mut locations: Vec<UpdateDriverLocationRequest>,
     driver_mode: DriverMode,
 ) -> Result<HttpResponse, AppError> {
-    let (driver_id, merchant_id, merchant_operating_city_id) = get_driver_id_from_authentication(
-        &data.redis,
-        &data.auth_url,
-        &data.auth_api_key,
-        &data.auth_token_expiry,
-        &token,
-    )
-    .await?;
+    let (driver_id, merchant_id, merchant_operating_city_id) = if var("DEV").is_ok() {
+        (
+            DriverId(token.to_owned().inner()),
+            MerchantId(token.to_owned().inner()),
+            MerchantOperatingCityId(token.to_owned().inner()),
+        )
+    } else {
+        get_driver_id_from_authentication(
+            &data.redis,
+            &data.auth_url,
+            &data.auth_api_key,
+            &data.auth_token_expiry,
+            &token,
+        )
+        .await?
+    };
 
     if locations.len() > data.batch_size as usize {
         warn!(
@@ -119,12 +129,12 @@ pub async fn update_driver_location(
         (a_ts).cmp(&b_ts)
     });
 
-    let last_known_location = get_driver_location(&data.redis, &driver_id).await?;
+    let driver_location_details = get_driver_location(&data.redis, &driver_id).await?;
 
-    if let Some((_, Some(timestamp), _)) = last_known_location {
+    if let Some(driver_location_details) = driver_location_details.as_ref() {
         let curr_time = TimeStamp(Utc::now());
 
-        if timestamp > curr_time {
+        if driver_location_details.blocked_till > Some(curr_time) {
             return Err(AppError::DriverBlocked);
         }
     }
@@ -132,9 +142,11 @@ pub async fn update_driver_location(
     let locations: Vec<UpdateDriverLocationRequest> = locations
         .into_iter()
         .filter(|location| {
-            last_known_location
+            driver_location_details
                 .as_ref()
-                .map(|(last_known_location, _, _)| location.ts > last_known_location.timestamp)
+                .map(|driver_location_details| {
+                    location.ts > driver_location_details.driver_last_known_location.timestamp
+                })
                 .unwrap_or(true)
         })
         .collect();
@@ -173,7 +185,7 @@ pub async fn update_driver_location(
             data.clone(),
             locations,
             latest_driver_location,
-            last_known_location,
+            driver_location_details,
             driver_id,
             merchant_id,
             merchant_operating_city_id,
@@ -193,7 +205,7 @@ async fn process_driver_locations(
         Data<AppState>,
         Vec<UpdateDriverLocationRequest>,
         UpdateDriverLocationRequest,
-        Option<(DriverLastKnownLocation, Option<TimeStamp>, Option<Meters>)>,
+        Option<DriverAllDetails>,
         DriverId,
         MerchantId,
         MerchantOperatingCityId,
@@ -206,7 +218,7 @@ async fn process_driver_locations(
         data,
         locations,
         latest_driver_location,
-        last_known_location,
+        driver_location_details,
         driver_id,
         merchant_id,
         merchant_operating_city_id,
@@ -261,6 +273,17 @@ async fn process_driver_locations(
     //     Meters(0)
     // };
 
+    let (stop_detected, stop_detection) = detect_stop(
+        driver_ride_status.as_ref(),
+        driver_location_details
+            .as_ref()
+            .map(|driver_location_details| driver_location_details.stop_detection.to_owned())
+            .flatten(),
+        &locations,
+        &latest_driver_location,
+        &data.stop_detection,
+    );
+
     let set_driver_last_location_update = async {
         set_driver_last_location_update(
             &data.redis,
@@ -270,6 +293,7 @@ async fn process_driver_locations(
             &latest_driver_location.pt,
             &latest_driver_location_ts,
             &None::<TimeStamp>,
+            stop_detection,
             // travelled_distance.to_owned(),
         )
         .await?;
@@ -315,8 +339,8 @@ async fn process_driver_locations(
 
     let locations = if let Some(RideStatus::INPROGRESS) = driver_ride_status.as_ref() {
         let locations = get_filtered_driver_locations(
-            last_known_location
-                .map(|(last_known_location, _, _)| last_known_location)
+            driver_location_details
+                .map(|driver_location_details| driver_location_details.driver_last_known_location)
                 .as_ref(),
             locations,
             data.min_location_accuracy,
@@ -424,6 +448,15 @@ async fn process_driver_locations(
         //         }
         //     }
         // }
+        if let Some((location, total_points)) = stop_detected.as_ref() {
+            let _ = trigger_stop_detection_event(
+                &data.stop_detection.stop_detection_update_callback_url,
+                location,
+                total_points,
+            )
+            .await;
+        }
+
         kafka_stream_updates(
             &data.producer,
             &data.driver_location_update_topic,
@@ -435,6 +468,7 @@ async fn process_driver_locations(
             driver_mode,
             &driver_id,
             vehicle_type,
+            stop_detected,
             // travelled_distance,
         )
         .await;
@@ -458,13 +492,13 @@ pub async fn track_driver_location(
                 "COMPLETED".to_string(),
             ))?;
 
-    let (driver_last_known_location_details, _, _) =
-        get_driver_location(&data.redis, &driver_details.driver_id)
-            .await?
-            .ok_or(AppError::DriverLastKnownLocationNotFound)?;
+    let driver_location_details = get_driver_location(&data.redis, &driver_details.driver_id)
+        .await?
+        .ok_or(AppError::DriverLastKnownLocationNotFound)?;
 
     let delay_time = Utc::now().timestamp() - data.driver_location_delay_in_sec;
-    let TimeStamp(driver_update_time) = driver_last_known_location_details.timestamp;
+    let TimeStamp(driver_update_time) =
+        driver_location_details.driver_last_known_location.timestamp;
     if driver_update_time.timestamp() < delay_time {
         Arbiter::current().spawn(async move {
             let _ = trigger_fcm_dobpp(
@@ -478,7 +512,7 @@ pub async fn track_driver_location(
     }
 
     Ok(DriverLocationResponse {
-        curr_point: driver_last_known_location_details.location,
-        last_update: driver_last_known_location_details.timestamp,
+        curr_point: driver_location_details.driver_last_known_location.location,
+        last_update: driver_location_details.driver_last_known_location.timestamp,
     })
 }

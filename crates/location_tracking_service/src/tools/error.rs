@@ -84,6 +84,9 @@ impl AppError {
             AppError::PanicOccured(reason) => {
                 format!("Panic occured : {reason}")
             }
+            AppError::KafkaPushFailed(reason) => {
+                format!("Kafka Push Failed : {reason}")
+            }
             _ => "Some Error Occured".to_string(),
         }
     }
