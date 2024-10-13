@@ -36,5 +36,9 @@ pub struct LocationUpdate {
     pub on_ride: bool,
     pub mode: DriverMode,
     pub vehicle_variant: VehicleType,
+    pub is_stop_detected: Option<bool>,
+    pub stop_lat: Option<Latitude>,
+    pub stop_lon: Option<Longitude>,
+    pub stop_points: Option<usize>,
     // pub travelled_distance: Meters,
 }

@@ -11,7 +11,7 @@ use crate::{
     domain::types::ui::location::UpdateDriverLocationRequest,
 };
 use chrono::Utc;
-use log::error;
+use log::*;
 use rdkafka::producer::FutureProducer;
 
 /// Streams location updates for drivers to a Kafka topic.
@@ -45,6 +45,7 @@ pub async fn kafka_stream_updates(
     driver_mode: DriverMode,
     DriverId(key): &DriverId,
     vehicle_type: VehicleType,
+    stop_detected: Option<(Point, usize)>,
     // travelled_distance: Meters,
 ) {
     let ride_status = match ride_status {
@@ -52,6 +53,18 @@ pub async fn kafka_stream_updates(
         Some(RideStatus::INPROGRESS) => DriverRideStatus::OnRide,
         _ => DriverRideStatus::IDLE,
     };
+
+    let (is_stop_detected, stop_lat, stop_lon, stop_points) =
+        if let Some((stop_mean_location, stop_total_points)) = stop_detected {
+            (
+                Some(true),
+                Some(stop_mean_location.lat),
+                Some(stop_mean_location.lon),
+                Some(stop_total_points),
+            )
+        } else {
+            (None, None, None, None)
+        };
 
     for loc in locations {
         let message = LocationUpdate {
@@ -75,6 +88,10 @@ pub async fn kafka_stream_updates(
             active: true,
             mode: driver_mode.to_owned(),
             vehicle_variant: vehicle_type.to_owned(),
+            is_stop_detected,
+            stop_lat,
+            stop_lon,
+            stop_points,
             // travelled_distance: travelled_distance.to_owned(),
         };
         if let Err(err) = push_to_kafka(producer, topic, key.as_str(), message).await {

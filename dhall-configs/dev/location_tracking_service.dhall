@@ -24,7 +24,7 @@ let replica_redis_cfg = {
 
 let kafka_cfg = {
     kafka_key = "bootstrap.servers",
-    kafka_host = "0.0.0.0:29092"
+    kafka_host = "0.0.0.0:9092"
 }
 
 let LogLevel = < TRACE | DEBUG | INFO | WARN | ERROR | OFF >
@@ -33,6 +33,14 @@ let logger_cfg = {
     level = LogLevel.INFO,
     log_to_file = False
 }
+
+let stop_detection_config = {
+    stop_detection_update_callback_url = "http://127.0.0.1:8016/internal/stopDetection",
+    duration_threshold_seconds = 60,
+    radius_threshold_meters = 25,
+    min_points_within_radius_threshold = 5,
+}
+
 -- drainer_delay :: 4 * 1024KB * 1024MB * 1024GB / 100 Bytes = 41943040
 in {
     logger_cfg = logger_cfg,
@@ -46,6 +54,7 @@ in {
     auth_url = "http://127.0.0.1:8016/internal/auth",
     auth_api_key = "ae288466-2add-11ee-be56-0242ac120002",
     bulk_location_callback_url = "http://127.0.0.1:8016/internal/bulkLocUpdate",
+    stop_detection = stop_detection_config,
     auth_token_expiry = 86400,
     min_location_accuracy = 50.0,
     driver_location_accuracy_buffer = 25.0,

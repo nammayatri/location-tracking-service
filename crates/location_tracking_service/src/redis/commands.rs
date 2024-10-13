@@ -266,19 +266,11 @@ pub async fn get_drivers_within_radius(
 pub async fn get_driver_location(
     redis: &RedisConnectionPool,
     driver_id: &DriverId,
-) -> Result<Option<(DriverLastKnownLocation, Option<TimeStamp>, Option<Meters>)>, AppError> {
-    let driver_last_known_location = redis
+) -> Result<Option<DriverAllDetails>, AppError> {
+    redis
         .get_key::<DriverAllDetails>(&driver_details_key(driver_id))
         .await
-        .map_err(|err| AppError::InternalError(err.to_string()))?
-        .map(|details| {
-            (
-                details.driver_last_known_location,
-                details.blocked_till,
-                None, // details.travelled_distance,
-            )
-        });
-    Ok(driver_last_known_location)
+        .map_err(|err| AppError::InternalError(err.to_string()))
 }
 
 /// Updates and stores the last known location of a driver.
@@ -299,6 +291,7 @@ pub async fn get_driver_location(
 ///
 /// A `Result` wrapping the driver's updated last known location (`DriverLastKnownLocation`),
 /// or an `AppError` in case of serialization failure.
+#[allow(clippy::too_many_arguments)]
 pub async fn set_driver_last_location_update(
     redis: &RedisConnectionPool,
     last_location_timstamp_expiry: &u32,
@@ -307,7 +300,7 @@ pub async fn set_driver_last_location_update(
     last_location_pt: &Point,
     last_location_ts: &TimeStamp,
     blocked_till: &Option<TimeStamp>,
-    // travelled_distance: Meters,
+    stop_detection: Option<StopDetection>,
 ) -> Result<DriverLastKnownLocation, AppError> {
     let last_known_location = DriverLastKnownLocation {
         location: Point {
@@ -321,6 +314,7 @@ pub async fn set_driver_last_location_update(
     let value = DriverAllDetails {
         driver_last_known_location: last_known_location.to_owned(),
         blocked_till: blocked_till.to_owned(),
+        stop_detection,
         // travelled_distance: Some(travelled_distance),
     };
 

@@ -26,10 +26,8 @@ use std::f64::consts::PI;
 ///
 /// # Returns
 ///
-/// * `Ok(CityName)` - If an intersection is found, returns the name of the city or region
-/// inside a `CityName` wrapper as a result.
-/// * `Err(AppError)` - If no intersection is found, returns an error with the type `AppError::Unserviceable`,
-/// including the latitude and longitude that were checked.
+/// * `Ok(CityName)` - If an intersection is found, returns the name of the city or region inside a `CityName` wrapper as a result.
+/// * `Err(AppError)` - If no intersection is found, returns an error with the type `AppError::Unserviceable`, including the latitude and longitude that were checked.
 pub fn get_city(
     lat: &Latitude,
     lon: &Longitude,
@@ -134,11 +132,8 @@ pub fn is_blacklist_for_special_zone(
 /// # Notes
 ///
 /// The function assumes that the timestamp is represented in seconds since the Unix epoch.
-pub fn get_bucket_from_timestamp(
-    location_expiry_in_seconds: &u64,
-    TimeStamp(ts): TimeStamp,
-) -> u64 {
-    ts.timestamp() as u64 / location_expiry_in_seconds
+pub fn get_bucket_from_timestamp(bucket_expiry_in_seconds: &u64, TimeStamp(ts): TimeStamp) -> u64 {
+    ts.timestamp() as u64 / bucket_expiry_in_seconds
 }
 
 /// Calculates the distance between two geographical points in meters.

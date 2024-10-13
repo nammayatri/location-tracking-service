@@ -13,28 +13,40 @@ use serde::{Deserialize, Serialize};
 use strum_macros::{Display, EnumIter, EnumString};
 
 #[derive(Deserialize, Serialize, Clone, Debug, Eq, PartialEq)]
+#[macros::impl_getter]
 pub struct RideId(pub String);
 #[derive(Deserialize, Serialize, Clone, Debug, Eq, Hash, PartialEq)]
+#[macros::impl_getter]
 pub struct DriverId(pub String);
 #[derive(Deserialize, Serialize, Clone, Debug, Eq, Hash, PartialEq)]
+#[macros::impl_getter]
 pub struct MerchantId(pub String);
 #[derive(Deserialize, Serialize, Clone, Debug, Eq, Hash, PartialEq)]
+#[macros::impl_getter]
 pub struct MerchantOperatingCityId(pub String);
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Copy)]
+#[macros::impl_getter]
 pub struct Latitude(pub f64);
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Copy)]
+#[macros::impl_getter]
 pub struct Longitude(pub f64);
 #[derive(Deserialize, Serialize, Clone, Debug, Eq, Hash, PartialEq)]
+#[macros::impl_getter]
 pub struct CityName(pub String);
 #[derive(Deserialize, Serialize, Clone, Copy, Debug, Eq, PartialEq, PartialOrd)]
+#[macros::impl_getter]
 pub struct TimeStamp(pub DateTime<Utc>);
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Copy)]
+#[macros::impl_getter]
 pub struct Radius(pub f64);
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq, PartialOrd, Copy)]
+#[macros::impl_getter]
 pub struct Accuracy(pub f64);
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq, PartialOrd, Copy)]
+#[macros::impl_getter]
 pub struct SpeedInMeterPerSecond(pub f64);
 #[derive(Deserialize, Serialize, Clone, Debug, Eq, PartialEq)]
+#[macros::impl_getter]
 pub struct Token(pub String);
 #[derive(Deserialize, Serialize, Clone, Debug, Eq, PartialEq, Copy)]
 #[macros::impl_getter]
@@ -174,9 +186,17 @@ pub struct DriverLastKnownLocation {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct StopDetection {
+    pub location_sum: Point,
+    pub duration_bucket: u64,
+    pub total_points_in_bucket: usize,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct DriverAllDetails {
     pub driver_last_known_location: DriverLastKnownLocation,
     pub blocked_till: Option<TimeStamp>,
+    pub stop_detection: Option<StopDetection>,
     // pub travelled_distance: Option<Meters>,
 }
 

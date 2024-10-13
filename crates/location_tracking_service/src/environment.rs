@@ -38,6 +38,7 @@ pub struct AppConfig {
     pub last_location_timstamp_expiry: u32,
     pub location_update_limit: usize,
     pub location_update_interval: u64,
+    pub stop_detection: StopDetectionConfig,
     pub kafka_cfg: KafkaConfig,
     pub driver_location_update_topic: String,
     pub batch_size: i64,
@@ -72,6 +73,23 @@ pub struct RedisConfig {
     pub stream_read_count: u64,
 }
 
+#[derive(Debug, Deserialize, Clone)]
+pub struct StopDetectionConfig {
+    #[serde(deserialize_with = "deserialize_url")]
+    pub stop_detection_update_callback_url: Url,
+    pub duration_threshold_seconds: u64,
+    pub radius_threshold_meters: u64,
+    pub min_points_within_radius_threshold: usize,
+}
+
+fn deserialize_url<'de, D>(deserializer: D) -> Result<Url, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s: String = Deserialize::deserialize(deserializer)?;
+    Url::parse(&s).map_err(serde::de::Error::custom)
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub redis: Arc<RedisConnectionPool>,
@@ -86,6 +104,7 @@ pub struct AppState {
     pub auth_token_expiry: u32,
     pub redis_expiry: u32,
     pub min_location_accuracy: Accuracy,
+    pub stop_detection: StopDetectionConfig,
     pub last_location_timstamp_expiry: u32,
     pub location_update_limit: usize,
     pub location_update_interval: u64,
@@ -204,6 +223,7 @@ impl AppState {
             log_unprocessible_req_body: app_config.log_unprocessible_req_body,
             request_timeout: app_config.request_timeout,
             blacklist_merchants,
+            stop_detection: app_config.stop_detection,
             driver_location_delay_in_sec: app_config.driver_location_delay_in_sec,
             trigger_fcm_callback_url: Url::parse(app_config.trigger_fcm_callback_url.as_str())
                 .expect("Failed to parse fcm_callback_url."),

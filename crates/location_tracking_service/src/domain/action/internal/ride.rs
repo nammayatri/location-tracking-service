@@ -106,11 +106,13 @@ pub async fn get_driver_locations(
     )
     .await?;
 
-    let last_known_location = get_driver_location(&data.redis, &request_body.driver_id).await?;
+    let driver_location_details = get_driver_location(&data.redis, &request_body.driver_id).await?;
 
     Ok(DriverLocationResponse {
         loc: on_ride_driver_locations,
-        timestamp: last_known_location.map(|(location, _, _)| location.timestamp),
+        timestamp: driver_location_details.map(|driver_location_details| {
+            driver_location_details.driver_last_known_location.timestamp
+        }),
     })
 }
 
