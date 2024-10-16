@@ -39,7 +39,7 @@ jobs:
           echo "image_name=$(nix eval --raw .#dockerImage.imageName):$(nix eval --raw .#dockerImage.imageTag)" >> $GITHUB_OUTPUT
 
       - name: Upload Docker image tarball
-        if: (github.ref == 'refs/heads/main')
+        # if: (github.ref == 'refs/heads/main')
         uses: actions/upload-artifact@v4
         with:
           name: docker-image
