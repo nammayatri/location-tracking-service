@@ -1,5 +1,9 @@
 name: CI
 
+permissions:
+  contents: read       # Grants read access to the repository content
+  packages: write 
+
 on:
   push:
     branches: ["main"]
