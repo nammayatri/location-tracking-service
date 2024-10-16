@@ -24,9 +24,9 @@ jobs:
         run: om ci
 
       # Push and pin whitelisted paths to cachix
-      - name: Push to cachix
-        if: github.ref == 'refs/heads/main'
-        run: nix run .#cachix-push
+      # - name: Push to cachix
+      #   if: github.ref == 'refs/heads/main'
+      #   run: nix run .#cachix-push
 
       - name: Docker tasks
         id: docker
