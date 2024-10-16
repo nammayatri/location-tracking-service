@@ -139,8 +139,8 @@ pub fn get_bucket_from_timestamp(bucket_expiry_in_seconds: &u64, TimeStamp(ts): 
 pub fn get_bucket_weightage_from_timestamp(
     bucket_expiry_in_seconds: &u64,
     TimeStamp(ts): TimeStamp,
-) -> f64 {
-    ts.timestamp() as f64 % *bucket_expiry_in_seconds as f64 / *bucket_expiry_in_seconds as f64
+) -> u64 {
+    ts.timestamp() as u64 % *bucket_expiry_in_seconds / *bucket_expiry_in_seconds
 }
 
 /// Calculates the distance between two geographical points in meters.

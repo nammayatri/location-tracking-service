@@ -170,7 +170,7 @@ pub fn detect_stop(
     );
 
     let curr_bucket_max_points_to_consider =
-        (curr_bucket_weightage * config.min_points_within_radius_threshold as f64).round() as u64;
+        curr_bucket_weightage * config.min_points_within_radius_threshold as u64;
 
     if let Some(stop_detection) = stop_detection {
         let mut locations = filter_locations_based_on_bucket_weightage(
