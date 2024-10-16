@@ -186,10 +186,14 @@ pub struct DriverLastKnownLocation {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct DriverLocation {
+    pub location: Point,
+    pub timestamp: TimeStamp,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct StopDetection {
-    pub location_sum: Point,
-    pub duration_bucket: u64,
-    pub total_points_in_bucket: usize,
+    pub locations: Vec<DriverLocation>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

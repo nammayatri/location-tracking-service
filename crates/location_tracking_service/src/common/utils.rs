@@ -136,6 +136,13 @@ pub fn get_bucket_from_timestamp(bucket_expiry_in_seconds: &u64, TimeStamp(ts): 
     ts.timestamp() as u64 / bucket_expiry_in_seconds
 }
 
+pub fn get_bucket_weightage_from_timestamp(
+    bucket_expiry_in_seconds: &u64,
+    TimeStamp(ts): TimeStamp,
+) -> f64 {
+    ts.timestamp() as f64 % *bucket_expiry_in_seconds as f64 / *bucket_expiry_in_seconds as f64
+}
+
 /// Calculates the distance between two geographical points in meters.
 ///
 /// The function utilizes the haversine formula to compute the great-circle

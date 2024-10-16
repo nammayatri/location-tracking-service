@@ -10,7 +10,7 @@ use crate::common::utils::{distance_between_in_meters, get_city, is_blacklist_fo
 use crate::common::{
     sliding_window_rate_limiter::sliding_window_limiter, stop_detection::detect_stop, types::*,
 };
-use crate::domain::types::ui::location::*;
+use crate::domain::types::ui::location::{DriverLocationResponse, UpdateDriverLocationRequest};
 use crate::environment::AppState;
 use crate::kafka::producers::kafka_stream_updates;
 use crate::outbound::external::{
@@ -279,27 +279,12 @@ async fn process_driver_locations(
             .as_ref()
             .map(|driver_location_details| driver_location_details.stop_detection.to_owned())
             .flatten(),
-        &locations,
-        &latest_driver_location,
+        DriverLocation {
+            location: latest_driver_location.pt.to_owned(),
+            timestamp: latest_driver_location.ts,
+        },
         &data.stop_detection,
     );
-
-    let set_driver_last_location_update = async {
-        set_driver_last_location_update(
-            &data.redis,
-            &data.last_location_timstamp_expiry,
-            &driver_id,
-            &merchant_id,
-            &latest_driver_location.pt,
-            &latest_driver_location_ts,
-            &None::<TimeStamp>,
-            stop_detection,
-            // travelled_distance.to_owned(),
-        )
-        .await?;
-        Ok(())
-    };
-    all_tasks.push(Box::pin(set_driver_last_location_update));
 
     let is_blacklist_for_special_zone = is_blacklist_for_special_zone(
         &merchant_id,
@@ -365,6 +350,23 @@ async fn process_driver_locations(
     } else {
         locations
     };
+
+    let set_driver_last_location_update = async {
+        set_driver_last_location_update(
+            &data.redis,
+            &data.last_location_timstamp_expiry,
+            &driver_id,
+            &merchant_id,
+            &latest_driver_location.pt,
+            &latest_driver_location_ts,
+            &None::<TimeStamp>,
+            stop_detection,
+            // travelled_distance.to_owned(),
+        )
+        .await?;
+        Ok(())
+    };
+    all_tasks.push(Box::pin(set_driver_last_location_update));
 
     if let (Some(RideStatus::INPROGRESS), Some(ride_id)) =
         (driver_ride_status.as_ref(), driver_ride_id.as_ref())
@@ -448,11 +450,10 @@ async fn process_driver_locations(
         //         }
         //     }
         // }
-        if let Some((location, total_points)) = stop_detected.as_ref() {
+        if let Some(location) = stop_detected.as_ref() {
             let _ = trigger_stop_detection_event(
                 &data.stop_detection.stop_detection_update_callback_url,
                 location,
-                total_points,
             )
             .await;
         }

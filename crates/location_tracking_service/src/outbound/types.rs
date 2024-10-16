@@ -42,7 +42,6 @@ pub struct TriggerFcmReq {
 #[serde(rename_all = "camelCase")]
 pub struct StopDetectionReq {
     pub location: Point,
-    pub total_locations: usize,
 }
 
 // Live activity notification trigger for IOS
