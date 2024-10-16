@@ -35,7 +35,7 @@ async fn search_nearby_drivers_with_vehicle(
     bucket: &u64,
     location: Point,
     radius: &Radius,
-) -> Result<Vec<DriverLocation>, AppError> {
+) -> Result<Vec<DriverLocationDetail>, AppError> {
     let nearby_drivers = get_drivers_within_radius(
         redis,
         nearby_bucket_threshold,
@@ -63,7 +63,7 @@ async fn search_nearby_drivers_with_vehicle(
                 .as_ref()
                 .map(|driver_last_known_location| driver_last_known_location.timestamp)
                 .unwrap_or(TimeStamp(Utc::now()));
-            DriverLocation {
+            DriverLocationDetail {
                 driver_id: driver.driver_id.to_owned(),
                 lat: driver.location.lat,
                 lon: driver.location.lon,
@@ -73,7 +73,7 @@ async fn search_nearby_drivers_with_vehicle(
                 merchant_id: merchant_id.to_owned(),
             }
         })
-        .collect::<Vec<DriverLocation>>();
+        .collect::<Vec<DriverLocationDetail>>();
 
     Ok(resp)
 }
@@ -95,7 +95,7 @@ pub async fn get_nearby_drivers(
 
     match vehicle_type {
         None => {
-            let mut resp: Vec<DriverLocation> = Vec::new();
+            let mut resp: Vec<DriverLocationDetail> = Vec::new();
 
             for vehicle in VehicleType::iter() {
                 let nearby_drivers = search_nearby_drivers_with_vehicle(
@@ -122,7 +122,7 @@ pub async fn get_nearby_drivers(
             Ok(resp)
         }
         Some(vehicles) => {
-            let mut resp: Vec<DriverLocation> = Vec::new();
+            let mut resp: Vec<DriverLocationDetail> = Vec::new();
             for vehicle in vehicles {
                 let nearby_drivers = search_nearby_drivers_with_vehicle(
                     &data.redis,
@@ -153,7 +153,7 @@ pub async fn get_nearby_drivers(
 pub async fn get_drivers_location(
     data: Data<AppState>,
     driver_ids: Vec<DriverId>,
-) -> Result<Vec<DriverLocation>, AppError> {
+) -> Result<Vec<DriverLocationDetail>, AppError> {
     let mut driver_locations = Vec::with_capacity(driver_ids.len());
 
     let driver_last_known_location =
@@ -163,7 +163,7 @@ pub async fn get_drivers_location(
         driver_ids.iter().zip(driver_last_known_location.iter())
     {
         if let Some(driver_last_known_location) = driver_last_known_location {
-            let driver_location = DriverLocation {
+            let driver_location = DriverLocationDetail {
                 driver_id: driver_id.to_owned(),
                 lat: driver_last_known_location.location.lat,
                 lon: driver_last_known_location.location.lon,

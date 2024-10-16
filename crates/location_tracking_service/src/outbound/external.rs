@@ -109,7 +109,6 @@ pub async fn trigger_fcm_dobpp(
 pub async fn trigger_stop_detection_event(
     stop_detection_callback_url: &Url,
     location: &Point,
-    total_points: &usize,
 ) -> Result<APISuccess, AppError> {
     call_api::<APISuccess, StopDetectionReq>(
         Protocol::Http1,
@@ -118,7 +117,6 @@ pub async fn trigger_stop_detection_event(
         vec![("content-type", "application/json")],
         Some(StopDetectionReq {
             location: location.to_owned(),
-            total_locations: *total_points,
         }),
     )
     .await

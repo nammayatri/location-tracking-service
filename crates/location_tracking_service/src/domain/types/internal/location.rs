@@ -19,7 +19,7 @@ pub struct NearbyDriversRequest {
     pub merchant_id: MerchantId,
 }
 
-pub type NearbyDriverResponse = Vec<DriverLocation>;
+pub type NearbyDriverResponse = Vec<DriverLocationDetail>;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -27,11 +27,11 @@ pub struct GetDriversLocationRequest {
     pub driver_ids: Vec<DriverId>,
 }
 
-pub type GetDriversLocationResponse = Vec<DriverLocation>;
+pub type GetDriversLocationResponse = Vec<DriverLocationDetail>;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
-pub struct DriverLocation {
+pub struct DriverLocationDetail {
     pub driver_id: DriverId,
     pub lat: Latitude,
     pub lon: Longitude,

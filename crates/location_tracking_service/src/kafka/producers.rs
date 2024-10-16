@@ -45,7 +45,7 @@ pub async fn kafka_stream_updates(
     driver_mode: DriverMode,
     DriverId(key): &DriverId,
     vehicle_type: VehicleType,
-    stop_detected: Option<(Point, usize)>,
+    stop_location: Option<Point>,
     // travelled_distance: Meters,
 ) {
     let ride_status = match ride_status {
@@ -54,17 +54,11 @@ pub async fn kafka_stream_updates(
         _ => DriverRideStatus::IDLE,
     };
 
-    let (is_stop_detected, stop_lat, stop_lon, stop_points) =
-        if let Some((stop_mean_location, stop_total_points)) = stop_detected {
-            (
-                Some(true),
-                Some(stop_mean_location.lat),
-                Some(stop_mean_location.lon),
-                Some(stop_total_points),
-            )
-        } else {
-            (None, None, None, None)
-        };
+    let (is_stop_detected, stop_lat, stop_lon) = if let Some(stop_location) = stop_location {
+        (Some(true), Some(stop_location.lat), Some(stop_location.lon))
+    } else {
+        (None, None, None)
+    };
 
     for loc in locations {
         let message = LocationUpdate {
@@ -91,7 +85,6 @@ pub async fn kafka_stream_updates(
             is_stop_detected,
             stop_lat,
             stop_lon,
-            stop_points,
             // travelled_distance: travelled_distance.to_owned(),
         };
         if let Err(err) = push_to_kafka(producer, topic, key.as_str(), message).await {
