@@ -33,7 +33,7 @@ jobs:
 
       - name: Docker tasks
         id: docker
-        if: (github.ref == 'refs/heads/main')
+        # if: (github.ref == 'refs/heads/main')
         run: |
           nix build .#dockerImage -o docker-image.tgz
           echo "image_name=$(nix eval --raw .#dockerImage.imageName):$(nix eval --raw .#dockerImage.imageTag)" >> $GITHUB_OUTPUT
@@ -48,7 +48,7 @@ jobs:
   push-docker:
     needs: build
     runs-on: ubuntu-latest
-    if: (github.ref == 'refs/heads/main')
+    # if: (github.ref == 'refs/heads/main')
     steps:
       - name: Download Docker image tarball
         uses: actions/download-artifact@v4
