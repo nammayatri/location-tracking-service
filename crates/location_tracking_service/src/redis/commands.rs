@@ -301,6 +301,7 @@ pub async fn set_driver_last_location_update(
     last_location_ts: &TimeStamp,
     blocked_till: &Option<TimeStamp>,
     stop_detection: Option<StopDetection>,
+    ride_status: &Option<RideStatus>,
 ) -> Result<DriverLastKnownLocation, AppError> {
     let last_known_location = DriverLastKnownLocation {
         location: Point {
@@ -315,6 +316,7 @@ pub async fn set_driver_last_location_update(
         driver_last_known_location: last_known_location.to_owned(),
         blocked_till: blocked_till.to_owned(),
         stop_detection,
+        ride_status: ride_status.to_owned(),
         // travelled_distance: Some(travelled_distance),
     };
 

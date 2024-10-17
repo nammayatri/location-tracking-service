@@ -50,6 +50,7 @@ pub struct AppConfig {
     pub log_unprocessible_req_body: Vec<String>,
     pub max_allowed_req_size: usize,
     pub driver_location_delay_in_sec: i64,
+    pub driver_location_delay_for_new_ride_sec: i64,
     pub trigger_fcm_callback_url: String,
     pub apns_url: String,
 }
@@ -119,6 +120,7 @@ pub struct AppState {
     pub log_unprocessible_req_body: Vec<String>,
     pub request_timeout: u64,
     pub driver_location_delay_in_sec: i64,
+    pub driver_location_delay_for_new_ride_sec: i64,
     pub trigger_fcm_callback_url: Url,
     pub apns_url: Url,
 }
@@ -225,6 +227,8 @@ impl AppState {
             blacklist_merchants,
             stop_detection: app_config.stop_detection,
             driver_location_delay_in_sec: app_config.driver_location_delay_in_sec,
+            driver_location_delay_for_new_ride_sec: app_config
+                .driver_location_delay_for_new_ride_sec,
             trigger_fcm_callback_url: Url::parse(app_config.trigger_fcm_callback_url.as_str())
                 .expect("Failed to parse fcm_callback_url."),
             apns_url: Url::parse(app_config.apns_url.as_str()).expect("Failed to parse apns_url."),

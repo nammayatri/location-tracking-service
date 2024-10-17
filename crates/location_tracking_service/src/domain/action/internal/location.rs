@@ -200,6 +200,7 @@ pub async fn driver_block_till(
             &details.driver_last_known_location.timestamp,
             &Some(request_body.block_till),
             details.stop_detection,
+            &None::<RideStatus>,
             // travelled_distance.to_owned(),
         )
         .await?;
