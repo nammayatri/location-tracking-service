@@ -201,6 +201,7 @@ pub struct DriverAllDetails {
     pub driver_last_known_location: DriverLastKnownLocation,
     pub blocked_till: Option<TimeStamp>,
     pub stop_detection: Option<StopDetection>,
+    pub ride_status: Option<RideStatus>,
     // pub travelled_distance: Option<Meters>,
 }
 

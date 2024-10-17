@@ -361,6 +361,7 @@ async fn process_driver_locations(
             &latest_driver_location_ts,
             &None::<TimeStamp>,
             stop_detection,
+            &driver_ride_status,
             // travelled_distance.to_owned(),
         )
         .await?;
@@ -497,7 +498,13 @@ pub async fn track_driver_location(
         .await?
         .ok_or(AppError::DriverLastKnownLocationNotFound)?;
 
-    let delay_time = Utc::now().timestamp() - data.driver_location_delay_in_sec;
+    let delay_time = match driver_location_details.ride_status {
+        Some(RideStatus::NEW) => {
+            Utc::now().timestamp() - data.driver_location_delay_for_new_ride_sec
+        }
+        _ => Utc::now().timestamp() - data.driver_location_delay_in_sec,
+    };
+
     let TimeStamp(driver_update_time) =
         driver_location_details.driver_last_known_location.timestamp;
     if driver_update_time.timestamp() < delay_time {
