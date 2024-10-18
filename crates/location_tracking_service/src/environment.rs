@@ -78,7 +78,7 @@ pub struct RedisConfig {
 pub struct StopDetectionConfig {
     #[serde(deserialize_with = "deserialize_url")]
     pub stop_detection_update_callback_url: Url,
-    pub duration_threshold_seconds: u64,
+    pub max_eligible_stop_speed_threshold: f64,
     pub radius_threshold_meters: u64,
     pub min_points_within_radius_threshold: usize,
 }

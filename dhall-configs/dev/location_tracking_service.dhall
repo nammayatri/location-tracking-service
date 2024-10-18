@@ -36,7 +36,7 @@ let logger_cfg = {
 
 let stop_detection_config = {
     stop_detection_update_callback_url = "http://127.0.0.1:8016/internal/stopDetection",
-    duration_threshold_seconds = 60,
+    max_eligible_stop_speed_threshold = 2,
     radius_threshold_meters = 25,
     min_points_within_radius_threshold = 5,
 }

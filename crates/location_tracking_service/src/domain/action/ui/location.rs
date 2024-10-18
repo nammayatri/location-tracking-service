@@ -283,6 +283,7 @@ async fn process_driver_locations(
             location: latest_driver_location.pt.to_owned(),
             timestamp: latest_driver_location.ts,
         },
+        latest_driver_location.v,
         &data.stop_detection,
     );
 
