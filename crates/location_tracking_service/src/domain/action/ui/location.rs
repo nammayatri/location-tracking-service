@@ -452,10 +452,12 @@ async fn process_driver_locations(
         //         }
         //     }
         // }
-        if let Some(location) = stop_detected.as_ref() {
+        if let (Some(location), Some(ride_id)) = (stop_detected.as_ref(), driver_ride_id.as_ref()) {
             let _ = trigger_stop_detection_event(
                 &data.stop_detection.stop_detection_update_callback_url,
                 location,
+                ride_id.to_owned(),
+                driver_id.to_owned(),
             )
             .await;
         }
