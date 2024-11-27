@@ -30,7 +30,7 @@ let kafka_cfg = {
 let LogLevel = < TRACE | DEBUG | INFO | WARN | ERROR | OFF >
 
 let logger_cfg = {
-    level = LogLevel.INFO,
+    level = LogLevel.DEBUG,
     log_to_file = False
 }
 
@@ -64,7 +64,7 @@ in {
     location_update_interval = 60,
     driver_location_update_topic = "location-updates",
     batch_size = 100,
-    bucket_size = 30,
+    bucket_size = 300,
     nearby_bucket_threshold = 4,
     blacklist_merchants = ["favorit0-0000-0000-0000-00000favorit"],
     request_timeout = 9000,

@@ -1,5 +1,3 @@
-use std::collections::VecDeque;
-
 /*  Copyright 2022-23, Juspay India Pvt Ltd
     This program is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License
     as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. This program
@@ -12,6 +10,7 @@ use fred::types::GeoValue;
 use geo::MultiPolygon;
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::VecDeque;
 use strum_macros::{Display, EnumIter, EnumString};
 
 #[derive(Deserialize, Serialize, Clone, Debug, Eq, PartialEq)]
@@ -99,6 +98,22 @@ pub enum VehicleType {
     #[strum(serialize = "AMBULANCE_VENTILATOR")]
     #[serde(rename = "AMBULANCE_VENTILATOR")]
     AmbulanceVentilator,
+    #[strum(serialize = "BUS_AC")]
+    #[serde(rename = "BUS_AC")]
+    BusAc,
+    #[strum(serialize = "BUS_NON_AC")]
+    #[serde(rename = "BUS_NON_AC")]
+    BusNonAc,
+}
+
+#[derive(Deserialize, Serialize, Clone, Debug, Display, Eq, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub enum RideInfo {
+    #[serde(rename_all = "camelCase")]
+    Bus {
+        route_code: String,
+        bus_number: String,
+    },
 }
 
 #[derive(Debug, Clone, EnumString, Display, Serialize, Deserialize, Eq, Hash, PartialEq)]
@@ -150,9 +165,7 @@ pub struct MultiPolygonBody {
 pub struct RideDetails {
     pub ride_id: RideId,
     pub ride_status: RideStatus,
-    pub vehicle_number: Option<String>,
-    pub ride_start_otp: Option<u32>,
-    pub estimated_pickup_distance: Option<Meters>,
+    pub ride_info: Option<RideInfo>,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug, Eq, PartialEq)]
@@ -210,4 +223,16 @@ pub struct DriverAllDetails {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct RideBookingDetails {
     pub driver_last_known_location: DriverLastKnownLocation,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct VehicleTrackingInfo {
+    pub start_time: Option<TimeStamp>,
+    pub schedule_relationship: Option<String>,
+    pub trip_id: Option<String>,
+    pub latitude: Latitude,
+    pub longitude: Longitude,
+    pub speed: Option<SpeedInMeterPerSecond>,
+    pub timestamp: TimeStamp,
 }
