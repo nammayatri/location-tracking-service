@@ -25,9 +25,7 @@ pub async fn ride_create(
             &request_body.driver_id,
             ride_id.to_owned(),
             RideStatus::NEW,
-            Some(request_body.vehicle_number),
-            Some(request_body.ride_start_otp),
-            Some(request_body.estimated_pickup_distance),
+            request_body.ride_info,
         )
         .await?;
     }
@@ -53,9 +51,7 @@ pub async fn ride_start(
         &request_body.driver_id,
         ride_id,
         RideStatus::INPROGRESS,
-        None,
-        None,
-        None,
+        request_body.ride_info,
     )
     .await?;
 
@@ -97,6 +93,7 @@ pub async fn ride_end(
             driver_id: request_body.driver_id.clone(),
             lat: request_body.lat,
             lon: request_body.lon,
+            ride_info: None,
         };
         ride_details(data, ride_details_request).await?;
     }
@@ -144,31 +141,15 @@ pub async fn ride_details(
             &request_body.ride_id,
         )
         .await?;
-    } else {
-        if let Some(false) | None = request_body.is_future_ride {
-            set_ride_details_for_driver(
-                &data.redis,
-                &data.redis_expiry,
-                &request_body.merchant_id,
-                &request_body.driver_id,
-                request_body.ride_id.to_owned(),
-                request_body.ride_status,
-                None,
-                None,
-                None,
-            )
-            .await?;
-        }
-
-        let driver_details = DriverDetails {
-            driver_id: request_body.driver_id,
-        };
-
-        set_on_ride_driver_details(
+    } else if let Some(false) | None = request_body.is_future_ride {
+        set_ride_details_for_driver(
             &data.redis,
             &data.redis_expiry,
-            &request_body.ride_id,
-            driver_details,
+            &request_body.merchant_id,
+            &request_body.driver_id,
+            request_body.ride_id.to_owned(),
+            request_body.ride_status,
+            request_body.ride_info,
         )
         .await?;
     }

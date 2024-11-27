@@ -46,6 +46,16 @@ pub struct StopDetectionReq {
     pub driver_id: DriverId,
 }
 
+// Trigger Stop Detection Event
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct DriverReachedDestinationReq {
+    pub location: Point,
+    pub ride_id: RideId,
+    pub driver_id: DriverId,
+    pub vehicle_type: VehicleType,
+}
+
 // Live activity notification trigger for IOS
 #[derive(Serialize, Debug)]
 pub struct TriggerApnsReq {

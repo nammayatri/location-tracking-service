@@ -19,7 +19,7 @@ serde_dhall = "0.12.1"
 chrono = { version = "0.4", features = ["serde"] }
 log = "0.4.14"
 tokio = "1.29.1"
-fred = { version = "6.0.0", features = ["metrics", "partial-tracing"] }
+fred = { version = "9.4.0", features = ["metrics", "partial-tracing", "i-geo", "i-cluster", "i-client"] }
 reqwest = {version = "0.11.18", features = ["json"]}
 futures = "0.3.28"
 rand = "0.8.5"
@@ -43,8 +43,9 @@ tracing-appender = "0.2.2"
 tracing-subscriber = { version = "0.3.16", features = ["env-filter", "registry", "json"] }
 prometheus = { version = "0.13.3", features = ["process"] }
 
-shared = { git = "https://github.com/nammayatri/shared-kernel-rs", rev = "2d6cf2e" }
-macros = { git = "https://github.com/nammayatri/shared-kernel-rs", rev = "2d6cf2e" }
+shared = { git = "https://github.com/nammayatri/shared-kernel-rs", rev = "f8d80ea" }
+# shared = { version = "0.1.0", path = "/Users/khuzema.khomosi/Documents/shared-kernel-rs/crates/shared" }
+macros = { git = "https://github.com/nammayatri/shared-kernel-rs", rev = "f8d80ea" }
 
 [dev-dependencies]
 pprof = { version = "0.12", features = ["flamegraph"] }

@@ -172,3 +172,11 @@ pub fn driver_loc_bucket_key(
 ) -> String {
     format!("lts:dl:off_ride:loc:{merchant_id}:{vehicle_type}:{city}:{bucket}")
 }
+
+pub fn driver_loc_based_on_route_key(route_code: &str) -> String {
+    format!("route:{route_code}")
+}
+
+pub fn driver_loc_based_on_trip_key(trip_id: &str) -> String {
+    format!("trip:{trip_id}")
+}

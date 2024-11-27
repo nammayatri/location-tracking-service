@@ -5,13 +5,14 @@
     or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more details. You should have received a copy of
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-use crate::common::{types::*, utils::cat_maybes};
+use crate::common::types::*;
 use crate::redis::keys::*;
 use crate::tools::error::AppError;
 use fred::types::{GeoPosition, GeoUnit, SortOrder};
 use futures::Future;
 use rustc_hash::FxHashSet;
 use shared::redis::types::{RedisConnectionPool, Ttl};
+use std::collections::HashMap;
 use tracing::{error, info};
 
 /// Sets the ride details (i.e, rideId and rideStatus) to the Redis store.
@@ -26,9 +27,7 @@ use tracing::{error, info};
 /// * `driver_id` - The ID of the driver.
 /// * `ride_id` - The ID of the ride.
 /// * `ride_status` - The current status of the ride.
-/// * `vehicle_number` - Driver's vehicle number.
-/// * `ride_start_otp` - The otp to start the ride.
-/// * `estimated_pickup_distance` - The estimated pickup distance from driver's current location to customer's pickup location.
+/// * `ride_info` - Ride related details based on vehicle category.
 ///
 /// # Returns
 /// * A Result indicating the success or failure of the operation.
@@ -40,16 +39,12 @@ pub async fn set_ride_details_for_driver(
     driver_id: &DriverId,
     ride_id: RideId,
     ride_status: RideStatus,
-    vehicle_number: Option<String>,
-    ride_start_otp: Option<u32>,
-    estimated_pickup_distance: Option<Meters>,
+    ride_info: Option<RideInfo>,
 ) -> Result<(), AppError> {
     let ride_details = RideDetails {
         ride_id,
         ride_status,
-        vehicle_number,
-        ride_start_otp,
-        estimated_pickup_distance,
+        ride_info,
     };
     redis
         .set_key(
@@ -208,7 +203,7 @@ pub async fn get_drivers_within_radius(
         .map(|bucket_idx| driver_loc_bucket_key(merchant_id, city, vehicle, &(bucket - bucket_idx)))
         .collect();
 
-    let nearby_drivers = redis
+    let nearby_drivers: Vec<(DriverId, Point)> = redis
         .mgeo_search(
             bucket_keys,
             GeoPosition::from((lon, lat)),
@@ -216,9 +211,7 @@ pub async fn get_drivers_within_radius(
             SortOrder::Asc,
         )
         .await
-        .map_err(|err| AppError::InternalError(err.to_string()))?;
-
-    let nearby_drivers: Vec<(DriverId, Point)> = cat_maybes(nearby_drivers)
+        .map_err(|err| AppError::InternalError(err.to_string()))?
         .into_iter()
         .map(|(driver_id, point)| {
             (
@@ -637,6 +630,55 @@ pub async fn push_drainer_driver_location(
 ) -> Result<(), AppError> {
     redis
         .mgeo_add_with_expiry(geo_entries, None, false, *bucket_expiry)
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
+pub async fn set_route_location(
+    redis: &RedisConnectionPool,
+    route_code: &str,
+    vehicle_number: &String,
+    location: &Point,
+    speed: &Option<SpeedInMeterPerSecond>,
+    timestamp: &TimeStamp,
+    ride_status: Option<RideStatus>,
+) -> Result<(), AppError> {
+    let vehicle_tracking_info = VehicleTrackingInfo {
+        schedule_relationship: None,
+        start_time: None,
+        trip_id: None,
+        latitude: location.lat,
+        longitude: location.lon,
+        speed: *speed,
+        timestamp: *timestamp,
+        ride_status,
+    };
+    redis
+        .set_hash_fields_with_hashmap_expiry(
+            &driver_loc_based_on_route_key(route_code),
+            vec![(vehicle_number.to_owned(), vehicle_tracking_info)],
+            86400,
+        )
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
+pub async fn get_route_location(
+    redis: &RedisConnectionPool,
+    route_code: &str,
+) -> Result<HashMap<String, VehicleTrackingInfo>, AppError> {
+    redis
+        .get_all_hash_fields(&driver_loc_based_on_route_key(route_code))
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
+pub async fn get_trip_location(
+    redis: &RedisConnectionPool,
+    trip_code: &str,
+) -> Result<HashMap<String, VehicleTrackingInfo>, AppError> {
+    redis
+        .get_all_hash_fields(&driver_loc_based_on_trip_key(trip_code))
         .await
         .map_err(|err| AppError::InternalError(err.to_string()))
 }

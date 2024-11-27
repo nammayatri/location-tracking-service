@@ -14,10 +14,8 @@ use crate::common::types::*;
 pub struct RideCreateRequest {
     pub merchant_id: MerchantId,
     pub driver_id: DriverId,
-    pub vehicle_number: String,
-    pub ride_start_otp: u32,
-    pub estimated_pickup_distance: Meters,
     pub is_future_ride: Option<bool>,
+    pub ride_info: Option<RideInfo>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -25,6 +23,7 @@ pub struct RideCreateRequest {
 pub struct RideStartRequest {
     pub merchant_id: MerchantId,
     pub driver_id: DriverId,
+    pub ride_info: Option<RideInfo>,
 }
 
 #[derive(Serialize, Debug)]
@@ -75,4 +74,5 @@ pub struct RideDetailsRequest {
     pub driver_id: DriverId,
     pub lat: Latitude,
     pub lon: Longitude,
+    pub ride_info: Option<RideInfo>,
 }

@@ -127,6 +127,29 @@ pub async fn trigger_stop_detection_event(
     .map_err(|e| e.into())
 }
 
+pub async fn driver_reached_destination(
+    driver_reached_destination_callback_url: &Url,
+    location: &Point,
+    ride_id: RideId,
+    driver_id: DriverId,
+    vehicle_type: VehicleType,
+) -> Result<APISuccess, AppError> {
+    call_api::<APISuccess, DriverReachedDestinationReq>(
+        Protocol::Http1,
+        Method::POST,
+        driver_reached_destination_callback_url,
+        vec![("content-type", "application/json")],
+        Some(DriverReachedDestinationReq {
+            location: location.to_owned(),
+            ride_id,
+            driver_id,
+            vehicle_type,
+        }),
+    )
+    .await
+    .map_err(|e| e.into())
+}
+
 /**
  * vehicleServiceTier
  * vehicleNumber
