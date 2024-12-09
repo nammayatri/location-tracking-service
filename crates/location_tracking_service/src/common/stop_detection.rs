@@ -62,7 +62,7 @@ fn is_stop_detected(
     distance < config.radius_threshold_meters as f64
         && total_points >= config.min_points_within_radius_threshold
         && speed.map_or(false, |speed| {
-            speed >= SpeedInMeterPerSecond(config.max_eligible_stop_speed_threshold)
+            speed <= SpeedInMeterPerSecond(config.max_eligible_stop_speed_threshold)
         })
 }
 
