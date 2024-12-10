@@ -24,9 +24,7 @@ pub async fn ride_create(
         &request_body.driver_id,
         ride_id.to_owned(),
         RideStatus::NEW,
-        Some(request_body.vehicle_number),
-        Some(request_body.ride_start_otp),
-        Some(request_body.estimated_pickup_distance),
+        None,
     )
     .await?;
 
@@ -51,9 +49,7 @@ pub async fn ride_start(
         &request_body.driver_id,
         ride_id,
         RideStatus::INPROGRESS,
-        None,
-        None,
-        None,
+        request_body.ride_info,
     )
     .await?;
 
@@ -137,8 +133,6 @@ pub async fn ride_details(
             &request_body.driver_id,
             request_body.ride_id.to_owned(),
             request_body.ride_status,
-            None,
-            None,
             None,
         )
         .await?;

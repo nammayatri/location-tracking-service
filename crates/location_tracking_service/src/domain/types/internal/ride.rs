@@ -24,6 +24,7 @@ pub struct RideCreateRequest {
 pub struct RideStartRequest {
     pub merchant_id: MerchantId,
     pub driver_id: DriverId,
+    pub ride_info: Option<RideInfo>,
 }
 
 #[derive(Serialize, Debug)]
