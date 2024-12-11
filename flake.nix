@@ -7,7 +7,6 @@
     # Rust
     rust-overlay.url = "github:oxalica/rust-overlay";
     crane.url = "github:ipetkov/crane";
-    crane.inputs.nixpkgs.follows = "nixpkgs";
 
     # Dev tools
     treefmt-nix.url = "github:numtide/treefmt-nix";
