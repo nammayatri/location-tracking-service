@@ -17,6 +17,7 @@ pub struct RideCreateRequest {
     pub vehicle_number: String,
     pub ride_start_otp: u32,
     pub estimated_pickup_distance: Meters,
+    pub is_future_ride: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -38,6 +39,7 @@ pub struct RideEndRequest {
     pub lon: Longitude,
     pub driver_id: DriverId,
     pub merchant_id: MerchantId,
+    pub next_ride_id: Option<RideId>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -68,6 +70,7 @@ pub struct RideEndResponse {
 pub struct RideDetailsRequest {
     pub ride_id: RideId,
     pub ride_status: RideStatus,
+    pub is_future_ride: Option<bool>,
     pub merchant_id: MerchantId,
     pub driver_id: DriverId,
     pub lat: Latitude,

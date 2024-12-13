@@ -17,24 +17,26 @@ pub async fn ride_create(
     data: Data<AppState>,
     request_body: RideCreateRequest,
 ) -> Result<APISuccess, AppError> {
-    set_ride_details(
-        &data.redis,
-        &data.redis_expiry,
-        &request_body.merchant_id,
-        &request_body.driver_id,
-        ride_id.to_owned(),
-        RideStatus::NEW,
-        Some(request_body.vehicle_number),
-        Some(request_body.ride_start_otp),
-        Some(request_body.estimated_pickup_distance),
-    )
-    .await?;
+    if let Some(false) | None = request_body.is_future_ride {
+        set_ride_details_for_driver(
+            &data.redis,
+            &data.redis_expiry,
+            &request_body.merchant_id,
+            &request_body.driver_id,
+            ride_id.to_owned(),
+            RideStatus::NEW,
+            Some(request_body.vehicle_number),
+            Some(request_body.ride_start_otp),
+            Some(request_body.estimated_pickup_distance),
+        )
+        .await?;
+    }
 
     let driver_details = DriverDetails {
         driver_id: request_body.driver_id,
     };
 
-    set_driver_details(&data.redis, &data.redis_expiry, &ride_id, driver_details).await?;
+    set_on_ride_driver_details(&data.redis, &data.redis_expiry, &ride_id, driver_details).await?;
 
     Ok(APISuccess::default())
 }
@@ -44,7 +46,7 @@ pub async fn ride_start(
     data: Data<AppState>,
     request_body: RideStartRequest,
 ) -> Result<APISuccess, AppError> {
-    set_ride_details(
+    set_ride_details_for_driver(
         &data.redis,
         &data.redis_expiry,
         &request_body.merchant_id,
@@ -86,6 +88,19 @@ pub async fn ride_end(
     )
     .await?;
 
+    if let Some(next_ride_id) = request_body.next_ride_id {
+        let ride_details_request = RideDetailsRequest {
+            ride_id: next_ride_id,
+            ride_status: RideStatus::NEW,
+            is_future_ride: Some(false),
+            merchant_id: request_body.merchant_id,
+            driver_id: request_body.driver_id.clone(),
+            lat: request_body.lat,
+            lon: request_body.lon,
+        };
+        ride_details(data, ride_details_request).await?;
+    }
+
     Ok(RideEndResponse {
         ride_id,
         driver_id: request_body.driver_id,
@@ -116,7 +131,7 @@ pub async fn get_driver_locations(
     })
 }
 
-// TODO :: To be deprecated...
+// TODO :: To be deprecated...but is currently being used
 pub async fn ride_details(
     data: Data<AppState>,
     request_body: RideDetailsRequest,
@@ -130,24 +145,26 @@ pub async fn ride_details(
         )
         .await?;
     } else {
-        set_ride_details(
-            &data.redis,
-            &data.redis_expiry,
-            &request_body.merchant_id,
-            &request_body.driver_id,
-            request_body.ride_id.to_owned(),
-            request_body.ride_status,
-            None,
-            None,
-            None,
-        )
-        .await?;
+        if let Some(false) | None = request_body.is_future_ride {
+            set_ride_details_for_driver(
+                &data.redis,
+                &data.redis_expiry,
+                &request_body.merchant_id,
+                &request_body.driver_id,
+                request_body.ride_id.to_owned(),
+                request_body.ride_status,
+                None,
+                None,
+                None,
+            )
+            .await?;
+        }
 
         let driver_details = DriverDetails {
             driver_id: request_body.driver_id,
         };
 
-        set_driver_details(
+        set_on_ride_driver_details(
             &data.redis,
             &data.redis_expiry,
             &request_body.ride_id,

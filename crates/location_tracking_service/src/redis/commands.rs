@@ -33,7 +33,7 @@ use tracing::{error, info};
 /// # Returns
 /// * A Result indicating the success or failure of the operation.
 #[allow(clippy::too_many_arguments)]
-pub async fn set_ride_details(
+pub async fn set_ride_details_for_driver(
     redis: &RedisConnectionPool,
     redis_expiry: &u32,
     merchant_id: &MerchantId,
@@ -151,7 +151,7 @@ pub async fn ride_cleanup(
 ///
 /// * `Ok(())` if the driver details are successfully stored.
 /// * `Err(AppError::SerializationError)` if there's an error during serialization.
-pub async fn set_driver_details(
+pub async fn set_on_ride_driver_details(
     redis: &RedisConnectionPool,
     redis_expiry: &u32,
     ride_id: &RideId,
