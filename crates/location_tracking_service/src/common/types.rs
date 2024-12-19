@@ -135,6 +135,7 @@ pub struct AuthData {
     pub merchant_operating_city_id: MerchantOperatingCityId,
 }
 
+#[derive(Debug, Deserialize, Serialize)]
 pub struct DriverLocationPoint {
     pub driver_id: DriverId,
     pub location: Point,

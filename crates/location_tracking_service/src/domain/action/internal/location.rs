@@ -48,6 +48,8 @@ async fn search_nearby_drivers_with_vehicle(
     )
     .await?;
 
+    info!("Drivers in nearby {:?}", nearby_drivers);
+
     let driver_ids: Vec<DriverId> = nearby_drivers
         .iter()
         .map(|driver| driver.driver_id.to_owned())
@@ -75,6 +77,8 @@ async fn search_nearby_drivers_with_vehicle(
         })
         .collect::<Vec<DriverLocationDetail>>();
 
+    info!("Final resp {:?}", resp);
+
     Ok(resp)
 }
 
@@ -93,8 +97,22 @@ pub async fn get_nearby_drivers(
 
     let current_bucket = get_bucket_from_timestamp(&data.bucket_size, TimeStamp(Utc::now()));
 
+    info!("lat type before {:?}", lat);
+    info!("lon type before {:?}", lon);
+    info!("type type before {:?}", vehicle_type);
+    info!("radius type before {:?}", radius);
+    info!("mid type before {:?}", merchant_id);
+
+    let vehicle_type = match vehicle_type {
+        Some(ref vec) if vec.is_empty() => None,
+        _ => vehicle_type,
+    };
+
+    info!("Vehicle type after {:?}", vehicle_type);
+
     match vehicle_type {
         None => {
+            info!("Woohoo 3");
             let mut resp: Vec<DriverLocationDetail> = Vec::new();
 
             for vehicle in VehicleType::iter() {
@@ -122,6 +140,7 @@ pub async fn get_nearby_drivers(
             Ok(resp)
         }
         Some(vehicles) => {
+            info!("Woohoo 1");
             let mut resp: Vec<DriverLocationDetail> = Vec::new();
             for vehicle in vehicles {
                 let nearby_drivers = search_nearby_drivers_with_vehicle(
