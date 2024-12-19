@@ -204,9 +204,13 @@ pub async fn get_drivers_within_radius(
     let Latitude(lat) = location.lat;
     let Longitude(lon) = location.lon;
 
+    info!("Bucket value {:?}", bucket);
+
     let bucket_keys: Vec<String> = (0..*nearby_bucket_threshold)
         .map(|bucket_idx| driver_loc_bucket_key(merchant_id, city, vehicle, &(bucket - bucket_idx)))
         .collect();
+
+    info!("BucketKeys {:?}", bucket_keys);
 
     let nearby_drivers = redis
         .mgeo_search(
@@ -217,6 +221,8 @@ pub async fn get_drivers_within_radius(
         )
         .await
         .map_err(|err| AppError::InternalError(err.to_string()))?;
+
+    info!("Get Nearby Drivers 1 {:?}", nearby_drivers);
 
     let nearby_drivers: Vec<(DriverId, Point)> = cat_maybes(nearby_drivers)
         .into_iter()
