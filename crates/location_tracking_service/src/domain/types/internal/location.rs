@@ -48,3 +48,19 @@ pub struct DriverBlockTillRequest {
     pub driver_id: DriverId,
     pub block_till: TimeStamp,
 }
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub enum TrackVehicleRequest {
+    RouteCode(String),
+    TripCodes(Vec<String>),
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackVehicleResponse {
+    pub vehicle_number: String,
+    pub vehicle_info: VehicleTrackingInfo,
+}
+
+pub type TrackVehiclesResponse = Vec<TrackVehicleResponse>;

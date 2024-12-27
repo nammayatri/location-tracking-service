@@ -53,3 +53,13 @@ async fn driver_block_till(
 
     Ok(Json(location::driver_block_till(data, request_body).await?))
 }
+
+#[get("/internal/trackVehicles")]
+async fn track_vehicles(
+    data: Data<AppState>,
+    param_obj: Json<TrackVehicleRequest>,
+) -> Result<Json<TrackVehiclesResponse>, AppError> {
+    let request_body = param_obj.into_inner();
+
+    Ok(Json(location::track_vehicles(data, request_body).await?))
+}

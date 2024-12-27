@@ -30,7 +30,7 @@ let kafka_cfg = {
 let LogLevel = < TRACE | DEBUG | INFO | WARN | ERROR | OFF >
 
 let logger_cfg = {
-    level = LogLevel.INFO,
+    level = LogLevel.DEBUG,
     log_to_file = False
 }
 
@@ -58,13 +58,15 @@ in {
     auth_token_expiry = 86400,
     min_location_accuracy = 50.0,
     driver_location_accuracy_buffer = 25.0,
+    driver_reached_destination_buffer = 25.0,
+    driver_reached_destination_callback_url = "http://127.0.0.1:8016/internal/destinationReached",
     redis_expiry = 86400,
     last_location_timstamp_expiry = 86400,
     location_update_limit = 6000000000,
     location_update_interval = 60,
     driver_location_update_topic = "location-updates",
     batch_size = 100,
-    bucket_size = 30,
+    bucket_size = 300,
     nearby_bucket_threshold = 4,
     blacklist_merchants = ["favorit0-0000-0000-0000-00000favorit"],
     request_timeout = 9000,

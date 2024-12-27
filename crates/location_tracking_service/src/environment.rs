@@ -45,6 +45,9 @@ pub struct AppConfig {
     pub bucket_size: u64,
     pub nearby_bucket_threshold: u64,
     pub driver_location_accuracy_buffer: f64,
+    pub driver_reached_destination_buffer: f64,
+    #[serde(deserialize_with = "deserialize_url")]
+    pub driver_reached_destination_callback_url: Url,
     pub blacklist_merchants: Vec<String>,
     pub request_timeout: u64,
     pub log_unprocessible_req_body: Vec<String>,
@@ -115,6 +118,8 @@ pub struct AppState {
     pub bucket_size: u64,
     pub nearby_bucket_threshold: u64,
     pub driver_location_accuracy_buffer: f64,
+    pub driver_reached_destination_buffer: f64,
+    pub driver_reached_destination_callback_url: Url,
     pub blacklist_merchants: Vec<MerchantId>,
     pub max_allowed_req_size: usize,
     pub log_unprocessible_req_body: Vec<String>,
@@ -221,6 +226,9 @@ impl AppState {
             bucket_size: app_config.bucket_size,
             nearby_bucket_threshold: app_config.nearby_bucket_threshold,
             driver_location_accuracy_buffer: app_config.driver_location_accuracy_buffer,
+            driver_reached_destination_buffer: app_config.driver_reached_destination_buffer,
+            driver_reached_destination_callback_url: app_config
+                .driver_reached_destination_callback_url,
             max_allowed_req_size: app_config.max_allowed_req_size,
             log_unprocessible_req_body: app_config.log_unprocessible_req_body,
             request_timeout: app_config.request_timeout,

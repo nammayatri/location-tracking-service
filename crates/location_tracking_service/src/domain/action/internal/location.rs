@@ -6,6 +6,8 @@
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 #![allow(clippy::all)]
+use std::collections::HashMap;
+
 use crate::tools::error::AppError;
 use crate::{
     common::{
@@ -206,4 +208,34 @@ pub async fn driver_block_till(
         .await?;
     };
     Ok(APISuccess::default())
+}
+
+#[macros::measure_duration]
+pub async fn track_vehicles(
+    data: Data<AppState>,
+    request_body: TrackVehicleRequest,
+) -> Result<Vec<TrackVehicleResponse>, AppError> {
+    let track_vehicle_info = match request_body {
+        TrackVehicleRequest::RouteCode(route_code) => {
+            get_route_location(&data.redis, &route_code).await?
+        }
+        TrackVehicleRequest::TripCodes(trip_codes) => {
+            let mut track_vehicles_info = HashMap::new();
+            for trip_code in trip_codes {
+                let location = get_trip_location(&data.redis, &trip_code).await?;
+                for (vehicle_number, vehicle_info) in location.into_iter() {
+                    track_vehicles_info.insert(vehicle_number, vehicle_info);
+                }
+            }
+            track_vehicles_info
+        }
+    };
+
+    Ok(track_vehicle_info
+        .into_iter()
+        .map(|(vehicle_number, vehicle_info)| TrackVehicleResponse {
+            vehicle_number,
+            vehicle_info,
+        })
+        .collect())
 }
