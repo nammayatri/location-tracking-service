@@ -152,6 +152,18 @@ pub async fn ride_details(
             request_body.ride_info,
         )
         .await?;
+
+        let driver_details = DriverDetails {
+            driver_id: request_body.driver_id,
+        };
+
+        set_on_ride_driver_details(
+            &data.redis,
+            &data.redis_expiry,
+            &request_body.ride_id,
+            driver_details,
+        )
+        .await?;
     }
 
     Ok(APISuccess::default())
