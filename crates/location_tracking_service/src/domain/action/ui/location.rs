@@ -291,7 +291,7 @@ async fn process_driver_locations(
         &data.stop_detection,
     );
 
-    let (locations, stop_detected) = match driver_ride_info.as_ref() {
+    let locations = match driver_ride_info.as_ref() {
         Some(RideInfo::Bus {
             route_code,
             bus_number,
@@ -324,7 +324,7 @@ async fn process_driver_locations(
                     &latest_driver_location.pt,
                     &latest_driver_location_ts,
                     &None,
-                    None,
+                    stop_detection,
                     &driver_ride_status,
                 )
                 .await?;
@@ -337,7 +337,7 @@ async fn process_driver_locations(
                 .into_iter()
                 .try_for_each(Result::from)?;
 
-            (locations, None)
+            locations
         }
         None => {
             let mut all_tasks: Vec<Pin<Box<dyn Future<Output = Result<(), AppError>>>>> =
@@ -489,7 +489,7 @@ async fn process_driver_locations(
                 .into_iter()
                 .try_for_each(Result::from)?;
 
-            (locations, stop_detected)
+            locations
         }
     };
 
