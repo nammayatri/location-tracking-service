@@ -277,19 +277,24 @@ async fn process_driver_locations(
     //     Meters(0)
     // };
 
-    let (stop_detected, stop_detection) = detect_stop(
-        driver_ride_status.as_ref(),
-        driver_location_details
-            .as_ref()
-            .map(|driver_location_details| driver_location_details.stop_detection.to_owned())
-            .flatten(),
-        DriverLocation {
-            location: latest_driver_location.pt.to_owned(),
-            timestamp: latest_driver_location.ts,
-        },
-        latest_driver_location.v,
-        &data.stop_detection,
-    );
+    let (stop_detected, stop_detection) = if driver_ride_status == Some(RideStatus::NEW)
+        || (driver_ride_info.is_some() && driver_ride_status == Some(RideStatus::INPROGRESS))
+    {
+        detect_stop(
+            driver_location_details
+                .as_ref()
+                .map(|driver_location_details| driver_location_details.stop_detection.to_owned())
+                .flatten(),
+            DriverLocation {
+                location: latest_driver_location.pt.to_owned(),
+                timestamp: latest_driver_location.ts,
+            },
+            latest_driver_location.v,
+            &data.stop_detection,
+        )
+    } else {
+        (None, None)
+    };
 
     let locations = match driver_ride_info.as_ref() {
         Some(RideInfo::Bus {

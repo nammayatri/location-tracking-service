@@ -70,7 +70,6 @@ fn is_stop_detected(
 ///
 /// # Arguments
 ///
-/// * `driver_ride_status` - The current ride status of the driver (must be `NEW` to process).
 /// * `stop_detection` - Optional stop detection data from previous checks, if any.
 /// * `latest_driver_location` - The latest known driver location.
 /// * `config` - Configuration parameters for stop detection.
@@ -81,16 +80,11 @@ fn is_stop_detected(
 /// * `Option<Point>` - The detected stop location, if a stop has been identified.
 /// * `Option<StopDetection>` - Updated stop detection data to be used for further checks.
 pub fn detect_stop(
-    driver_ride_status: Option<&RideStatus>,
     stop_detection: Option<StopDetection>,
     latest_driver_location: DriverLocation,
     speed: Option<SpeedInMeterPerSecond>,
     config: &StopDetectionConfig,
 ) -> (Option<Point>, Option<StopDetection>) {
-    if driver_ride_status != Some(&RideStatus::NEW) {
-        return (None, None);
-    }
-
     if let Some(mut stop_detection) = stop_detection {
         let mean_location =
             calculate_mean_location(&stop_detection.locations, stop_detection.locations.len());
