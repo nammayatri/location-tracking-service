@@ -104,6 +104,12 @@ pub enum VehicleType {
     #[strum(serialize = "BUS_NON_AC")]
     #[serde(rename = "BUS_NON_AC")]
     BusNonAc,
+    #[strum(serialize = "EV_AUTO_RICKSHAW")]
+    #[serde(rename = "EV_AUTO_RICKSHAW")]
+    EvAutoRickshaw,
+    #[strum(serialize = "HERITAGE_CAB")]
+    #[serde(rename = "HERITAGE_CAB")]
+    HeritageCab,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug, Display, PartialEq)]
