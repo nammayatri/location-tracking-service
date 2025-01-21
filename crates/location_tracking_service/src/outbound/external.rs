@@ -143,7 +143,7 @@ pub async fn driver_reached_destination(
             location: location.to_owned(),
             ride_id,
             driver_id,
-            vehicle_type,
+            vehicle_variant: vehicle_type,
         }),
     )
     .await

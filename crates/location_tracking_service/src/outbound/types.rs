@@ -53,7 +53,7 @@ pub struct DriverReachedDestinationReq {
     pub location: Point,
     pub ride_id: RideId,
     pub driver_id: DriverId,
-    pub vehicle_type: VehicleType,
+    pub vehicle_variant: VehicleType,
 }
 
 // Live activity notification trigger for IOS
