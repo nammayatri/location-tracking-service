@@ -110,6 +110,21 @@ pub enum VehicleType {
     #[strum(serialize = "HERITAGE_CAB")]
     #[serde(rename = "HERITAGE_CAB")]
     HeritageCab,
+    #[strum(serialize = "DELIVERY_TRUCK_MINI")]
+    #[serde(rename = "DELIVERY_TRUCK_MINI")]
+    DeliveryTruckMini,
+    #[strum(serialize = "DELIVERY_TRUCK_SMALL")]
+    #[serde(rename = "DELIVERY_TRUCK_SMALL")]
+    DeliveryTruckSmall,
+    #[strum(serialize = "DELIVERY_TRUCK_MEDIUM")]
+    #[serde(rename = "DELIVERY_TRUCK_MEDIUM")]
+    DeliveryTruckMedium,
+    #[strum(serialize = "DELIVERY_TRUCK_LARGE")]
+    #[serde(rename = "DELIVERY_TRUCK_LARGE")]
+    DeliveryTruckLarge,
+    #[strum(serialize = "DELIVERY_TRUCK_ULTRA_LARGE")]
+    #[serde(rename = "DELIVERY_TRUCK_ULTRA_LARGE")]
+    DeliveryTruckUltraLarge,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug, Display, PartialEq)]
