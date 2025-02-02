@@ -2741,6 +2741,7 @@ dependencies = [
  "anyhow",
  "futures",
  "location_tracking_service",
+ "rand",
  "serde_dhall",
  "shared",
  "tokio",

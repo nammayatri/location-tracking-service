@@ -140,6 +140,7 @@ pub async fn run_drainer(
             }
             break;
         }
+        // TODO :: When drainer is ticked that time all locations coming to reciever could get dropped and vice versa.
         tokio::select! {
             item = rx.recv() => {
                 info!(tag = "[Recieved Entries For Queuing]");
