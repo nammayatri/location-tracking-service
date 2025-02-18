@@ -11,6 +11,15 @@ fn test_read_geo_polygon() {
     print!("helloworld!");
 }
 
+#[test]
+fn test_deserialize() {
+    use location_tracking_service::common::types::VehicleTrackingInfo;
+
+    let value1 = serde_json::from_str::<VehicleTrackingInfo>("{\"latitude\": 12.872488, \"longitude\": 80.07988, \"tripId\": \"-OJPM202S08gJSTitmQv\", \"speed\": 0.5}").unwrap();
+    let value2 = serde_json::from_str::<VehicleTrackingInfo>("{\"latitude\": 12.872488, \"longitude\": 80.07988, \"tripId\": \"-OJPM202S08gJSTitmQv\", \"speed\": \"0.5\"}").unwrap();
+    print!("{:?}, {:?}", value1, value2);
+}
+
 #[tokio::test]
 async fn test_set_key() {
     use shared::redis::types::{RedisConnectionPool, RedisSettings};

@@ -9,7 +9,7 @@ use chrono::{DateTime, Utc};
 use fred::types::GeoValue;
 use geo::MultiPolygon;
 use rustc_hash::FxHashMap;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::VecDeque;
 use strum_macros::{Display, EnumIter, EnumString};
 
@@ -43,9 +43,47 @@ pub struct Radius(pub f64);
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq, PartialOrd, Copy)]
 #[macros::impl_getter]
 pub struct Accuracy(pub f64);
-#[derive(Deserialize, Serialize, Clone, Debug, PartialEq, PartialOrd, Copy)]
+#[derive(Serialize, Clone, Debug, PartialEq, PartialOrd, Copy)]
 #[macros::impl_getter]
 pub struct SpeedInMeterPerSecond(pub f64);
+impl<'de> Deserialize<'de> for SpeedInMeterPerSecond {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        use serde::de::{Error, Unexpected};
+
+        struct SpeedVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for SpeedVisitor {
+            type Value = SpeedInMeterPerSecond;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a number or a string containing a floating-point number")
+            }
+
+            fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E>
+            where
+                E: Error,
+            {
+                Ok(SpeedInMeterPerSecond(value))
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+            where
+                E: Error,
+            {
+                value
+                    .parse::<f64>()
+                    .map(SpeedInMeterPerSecond)
+                    .map_err(|_| Error::invalid_value(Unexpected::Str(value), &self))
+            }
+        }
+
+        deserializer.deserialize_any(SpeedVisitor)
+    }
+}
+
 #[derive(Deserialize, Serialize, Clone, Debug, Eq, PartialEq)]
 #[macros::impl_getter]
 pub struct Token(pub String);

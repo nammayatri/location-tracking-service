@@ -2743,6 +2743,7 @@ dependencies = [
  "location_tracking_service",
  "rand",
  "serde_dhall",
+ "serde_json",
  "shared",
  "tokio",
  "tokio-stream",
