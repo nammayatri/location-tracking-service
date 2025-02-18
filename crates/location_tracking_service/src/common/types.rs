@@ -256,6 +256,6 @@ pub struct VehicleTrackingInfo {
     pub latitude: Latitude,
     pub longitude: Longitude,
     pub speed: Option<SpeedInMeterPerSecond>,
-    pub timestamp: TimeStamp,
+    pub timestamp: Option<TimeStamp>,
     pub ride_status: Option<RideStatus>,
 }
