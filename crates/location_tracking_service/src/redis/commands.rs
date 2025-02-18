@@ -650,7 +650,7 @@ pub async fn set_route_location(
         latitude: location.lat,
         longitude: location.lon,
         speed: *speed,
-        timestamp: *timestamp,
+        timestamp: Some(*timestamp),
         ride_status,
     };
     redis
