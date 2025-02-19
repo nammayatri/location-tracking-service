@@ -17,7 +17,8 @@ fn test_deserialize() {
 
     let value1 = serde_json::from_str::<VehicleTrackingInfo>("{\"latitude\": 12.872488, \"longitude\": 80.07988, \"tripId\": \"-OJPM202S08gJSTitmQv\", \"speed\": 0.5}").unwrap();
     let value2 = serde_json::from_str::<VehicleTrackingInfo>("{\"latitude\": 12.872488, \"longitude\": 80.07988, \"tripId\": \"-OJPM202S08gJSTitmQv\", \"speed\": \"0.5\"}").unwrap();
-    print!("{:?}, {:?}", value1, value2);
+    let value3 = serde_json::from_str::<VehicleTrackingInfo>("{\"latitude\": 12.872488, \"longitude\": 80.07988, \"tripId\": \"-OJPM202S08gJSTitmQv\", \"speed\": 5}").unwrap();
+    print!("{:?}, {:?}, {:?}", value1, value2, value3);
 }
 
 #[tokio::test]
