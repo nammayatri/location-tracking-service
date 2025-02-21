@@ -16,6 +16,7 @@ pub struct RideCreateRequest {
     pub driver_id: DriverId,
     pub is_future_ride: Option<bool>,
     pub ride_info: Option<RideInfo>,
+    pub ride_pickup_location: Option<Point>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -75,4 +76,5 @@ pub struct RideDetailsRequest {
     pub lat: Latitude,
     pub lon: Longitude,
     pub ride_info: Option<RideInfo>,
+    pub ride_pickup_location: Option<Point>,
 }

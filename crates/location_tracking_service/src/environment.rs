@@ -46,6 +46,8 @@ pub struct AppConfig {
     pub nearby_bucket_threshold: u64,
     pub driver_location_accuracy_buffer: f64,
     pub driver_reached_destination_buffer: f64,
+    pub pickup_notification_threshold: f64,
+    pub arriving_notification_threshold: f64,
     #[serde(deserialize_with = "deserialize_url")]
     pub driver_reached_destination_callback_url: Url,
     pub blacklist_merchants: Vec<String>,
@@ -55,6 +57,7 @@ pub struct AppConfig {
     pub driver_location_delay_in_sec: i64,
     pub driver_location_delay_for_new_ride_sec: i64,
     pub trigger_fcm_callback_url: String,
+    pub trigger_fcm_callback_url_bap: String,
     pub apns_url: String,
 }
 
@@ -127,7 +130,10 @@ pub struct AppState {
     pub driver_location_delay_in_sec: i64,
     pub driver_location_delay_for_new_ride_sec: i64,
     pub trigger_fcm_callback_url: Url,
+    pub trigger_fcm_callback_url_bap: Url,
     pub apns_url: Url,
+    pub pickup_notification_threshold: f64,
+    pub arriving_notification_threshold: f64,
 }
 
 impl AppState {
@@ -239,7 +245,13 @@ impl AppState {
                 .driver_location_delay_for_new_ride_sec,
             trigger_fcm_callback_url: Url::parse(app_config.trigger_fcm_callback_url.as_str())
                 .expect("Failed to parse fcm_callback_url."),
+            trigger_fcm_callback_url_bap: Url::parse(
+                app_config.trigger_fcm_callback_url_bap.as_str(),
+            )
+            .expect("Failed to parse fcm_callback_url_bap."),
             apns_url: Url::parse(app_config.apns_url.as_str()).expect("Failed to parse apns_url."),
+            pickup_notification_threshold: app_config.pickup_notification_threshold,
+            arriving_notification_threshold: app_config.arriving_notification_threshold,
         }
     }
 }

@@ -40,11 +40,13 @@ pub async fn set_ride_details_for_driver(
     ride_id: RideId,
     ride_status: RideStatus,
     ride_info: Option<RideInfo>,
+    ride_pickup_location: Option<Point>,
 ) -> Result<(), AppError> {
     let ride_details = RideDetails {
         ride_id,
         ride_status,
         ride_info,
+        ride_pickup_location,
     };
     redis
         .set_key(
@@ -295,6 +297,8 @@ pub async fn set_driver_last_location_update(
     blocked_till: &Option<TimeStamp>,
     stop_detection: Option<StopDetection>,
     ride_status: &Option<RideStatus>,
+    ride_notification_status: &Option<RideNotificationStatus>,
+    ride_start_distance: &Option<Meters>,
 ) -> Result<DriverLastKnownLocation, AppError> {
     let last_known_location = DriverLastKnownLocation {
         location: Point {
@@ -310,6 +314,8 @@ pub async fn set_driver_last_location_update(
         blocked_till: blocked_till.to_owned(),
         stop_detection,
         ride_status: ride_status.to_owned(),
+        ride_notification_status: *ride_notification_status,
+        ride_start_distance: *ride_start_distance,
         // travelled_distance: Some(travelled_distance),
     };
 

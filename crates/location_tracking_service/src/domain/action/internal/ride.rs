@@ -26,6 +26,7 @@ pub async fn ride_create(
             ride_id.to_owned(),
             RideStatus::NEW,
             request_body.ride_info,
+            request_body.ride_pickup_location,
         )
         .await?;
     }
@@ -52,6 +53,7 @@ pub async fn ride_start(
         ride_id,
         RideStatus::INPROGRESS,
         request_body.ride_info,
+        None,
     )
     .await?;
 
@@ -94,6 +96,7 @@ pub async fn ride_end(
             lat: request_body.lat,
             lon: request_body.lon,
             ride_info: None,
+            ride_pickup_location: None,
         };
         ride_details(data, ride_details_request).await?;
     }
@@ -150,6 +153,7 @@ pub async fn ride_details(
             request_body.ride_id.to_owned(),
             request_body.ride_status,
             request_body.ride_info,
+            request_body.ride_pickup_location,
         )
         .await?;
 

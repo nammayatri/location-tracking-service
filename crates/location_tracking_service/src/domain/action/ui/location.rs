@@ -14,8 +14,8 @@ use crate::domain::types::ui::location::{DriverLocationResponse, UpdateDriverLoc
 use crate::environment::AppState;
 use crate::kafka::producers::kafka_stream_updates;
 use crate::outbound::external::{
-    authenticate_dobpp, bulk_location_update_dobpp, driver_reached_destination, trigger_fcm_dobpp,
-    trigger_stop_detection_event,
+    authenticate_dobpp, bulk_location_update_dobpp, driver_reached_destination, trigger_fcm_bap,
+    trigger_fcm_dobpp, trigger_stop_detection_event,
 };
 use crate::redis::{commands::*, keys::*};
 use crate::tools::error::AppError;
@@ -243,6 +243,21 @@ async fn process_driver_locations(
         .map(|ride_details| ride_details.ride_info.to_owned())
         .flatten();
 
+    let mut driver_ride_notification_status = driver_location_details
+        .as_ref()
+        .map(|ride_details| ride_details.ride_notification_status)
+        .flatten();
+
+    let pickup_location = driver_ride_details
+        .as_ref()
+        .map(|ride_details| ride_details.ride_pickup_location.clone())
+        .flatten();
+
+    let start_distance = driver_location_details
+        .as_ref()
+        .map(|ride_details| ride_details.ride_start_distance)
+        .flatten();
+
     let TimeStamp(latest_driver_location_ts) = latest_driver_location.ts;
     let current_ts = Utc::now();
     let latest_driver_location_ts = if latest_driver_location_ts > current_ts {
@@ -295,7 +310,7 @@ async fn process_driver_locations(
     } else {
         (None, None)
     };
-
+    let mut did_status_change = false;
     let locations = match driver_ride_info.as_ref() {
         Some(RideInfo::Bus {
             route_code,
@@ -331,6 +346,8 @@ async fn process_driver_locations(
                     &None,
                     stop_detection,
                     &driver_ride_status,
+                    &None,
+                    &None,
                 )
                 .await?;
                 Ok(())
@@ -415,6 +432,33 @@ async fn process_driver_locations(
                 locations
             };
 
+            if let (Some(ride_notification_status), Some(pickup_location)) =
+                (driver_ride_notification_status.as_mut(), pickup_location)
+            {
+                let distance =
+                    distance_between_in_meters(&pickup_location, &latest_driver_location.pt);
+                if let Some(start_distance) = start_distance {
+                    if (start_distance.0 as f64 - 50.0) > distance {
+                        if distance <= data.pickup_notification_threshold
+                            && RideNotificationStatus::DriverReached > *ride_notification_status
+                        {
+                            *ride_notification_status = RideNotificationStatus::DriverReached;
+                            did_status_change = true;
+                        } else if distance <= data.arriving_notification_threshold
+                            && RideNotificationStatus::DriverReaching > *ride_notification_status
+                        {
+                            *ride_notification_status = RideNotificationStatus::DriverReaching;
+                            did_status_change = true;
+                        } else {
+                            if RideNotificationStatus::DriverOnTheWay > *ride_notification_status {
+                                *ride_notification_status = RideNotificationStatus::DriverOnTheWay;
+                                did_status_change = true;
+                            }
+                        }
+                    }
+                }
+            }
+
             let set_driver_last_location_update = async {
                 set_driver_last_location_update(
                     &data.redis,
@@ -426,6 +470,8 @@ async fn process_driver_locations(
                     &None::<TimeStamp>,
                     stop_detection,
                     &driver_ride_status,
+                    &driver_ride_notification_status,
+                    &start_distance,
                     // travelled_distance.to_owned(),
                 )
                 .await?;
@@ -552,6 +598,22 @@ async fn process_driver_locations(
                         driver_id.to_owned(),
                     )
                     .await;
+                }
+
+                if did_status_change {
+                    if let (Some(status), Some(driver_ride_id)) =
+                        (driver_ride_notification_status, driver_ride_id.clone())
+                    {
+                        let _ = trigger_fcm_bap(
+                            &data.trigger_fcm_callback_url_bap,
+                            driver_ride_id,
+                            driver_id.clone(),
+                            status,
+                            &data.auth_api_key,
+                        )
+                        .await
+                        .map_err(|err| AppError::DriverSendingFCMFailed(err.message()));
+                    }
                 }
             }
         }
