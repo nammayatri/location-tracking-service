@@ -106,6 +106,29 @@ pub async fn trigger_fcm_dobpp(
     .map_err(|e| e.into())
 }
 
+pub async fn trigger_fcm_bap(
+    trigger_fcm_callback_url_bap: &Url,
+    ride_id: RideId,
+    driver_id: DriverId,
+    ride_notification_status: RideNotificationStatus,
+    auth_key: &str,
+) -> Result<APISuccess, AppError> {
+    call_api::<APISuccess, TriggerStatusFcmReq>(
+        Protocol::Http1,
+        Method::POST,
+        trigger_fcm_callback_url_bap,
+        vec![("content-type", "application/json")],
+        Some(TriggerStatusFcmReq {
+            ride_id,
+            driver_id,
+            ride_notification_status,
+            auth_key: auth_key.to_owned(),
+        }),
+    )
+    .await
+    .map_err(|e| e.into())
+}
+
 pub async fn trigger_stop_detection_event(
     stop_detection_callback_url: &Url,
     location: &Point,

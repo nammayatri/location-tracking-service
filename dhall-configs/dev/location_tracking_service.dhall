@@ -75,5 +75,8 @@ in {
     driver_location_delay_in_sec = 60,
     driver_location_delay_for_new_ride_sec = 10,
     trigger_fcm_callback_url = "http://127.0.0.1:8016/internal/driverInactiveFCM",
+    trigger_fcm_callback_url_bap = "http://127.0.0.1:8013/internal/driverArrivalNotification",
     apns_url = "https://api.sandbox.push.apple.com:443",
+    pickup_notification_threshold = 40.0,
+    arriving_notification_threshold = 100.0,
 }

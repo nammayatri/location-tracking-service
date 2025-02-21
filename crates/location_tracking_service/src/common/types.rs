@@ -236,6 +236,7 @@ pub struct RideDetails {
     pub ride_id: RideId,
     pub ride_status: RideStatus,
     pub ride_info: Option<RideInfo>,
+    pub ride_pickup_location: Option<Point>,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug, Eq, PartialEq)]
@@ -287,7 +288,38 @@ pub struct DriverAllDetails {
     pub blocked_till: Option<TimeStamp>,
     pub stop_detection: Option<StopDetection>,
     pub ride_status: Option<RideStatus>,
+    pub ride_notification_status: Option<RideNotificationStatus>,
+    pub ride_start_distance: Option<Meters>,
     // pub travelled_distance: Option<Meters>,
+}
+
+#[derive(
+    Serialize,
+    Deserialize,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Clone,
+    Copy,
+    EnumIter,
+    EnumString,
+    Display,
+)]
+pub enum RideNotificationStatus {
+    #[strum(serialize = "IDLE")]
+    #[serde(rename = "IDLE")]
+    Idle = 0,
+    #[strum(serialize = "DRIVER_ON_THE_WAY")]
+    #[serde(rename = "DRIVER_ON_THE_WAY")]
+    DriverOnTheWay = 1,
+    #[strum(serialize = "DRIVER_REACHING")]
+    #[serde(rename = "DRIVER_REACHING")]
+    DriverReaching = 2,
+    #[strum(serialize = "DRIVER_REACHED")]
+    #[serde(rename = "DRIVER_REACHED")]
+    DriverReached = 3,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
