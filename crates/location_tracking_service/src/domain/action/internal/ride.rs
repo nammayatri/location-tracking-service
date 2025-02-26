@@ -96,7 +96,6 @@ pub async fn ride_end(
             lat: request_body.lat,
             lon: request_body.lon,
             ride_info: None,
-            ride_pickup_location: None,
         };
         ride_details(data, ride_details_request).await?;
     }
@@ -145,6 +144,10 @@ pub async fn ride_details(
         )
         .await?;
     } else if let Some(false) | None = request_body.is_future_ride {
+        let ride_pickup_location = Some(Point {
+            lat: request_body.lat,
+            lon: request_body.lon,
+        });
         set_ride_details_for_driver(
             &data.redis,
             &data.redis_expiry,
@@ -153,7 +156,7 @@ pub async fn ride_details(
             request_body.ride_id.to_owned(),
             request_body.ride_status,
             request_body.ride_info,
-            request_body.ride_pickup_location,
+            ride_pickup_location,
         )
         .await?;
 

@@ -76,5 +76,4 @@ pub struct RideDetailsRequest {
     pub lat: Latitude,
     pub lon: Longitude,
     pub ride_info: Option<RideInfo>,
-    pub ride_pickup_location: Option<Point>,
 }
