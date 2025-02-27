@@ -21,6 +21,11 @@ let replica_redis_cfg = {
     default_hash_ttl = 3600,
     stream_read_count = 100,
 }
+let zone_to_redis_replica_mapping =
+        { ap-south-1a = "0.0.0.0"
+        , ap-south-1b = "0.0.0.0"
+        , ap-south-1c = "0.0.0.0"
+        }
 
 let kafka_cfg = {
     kafka_key = "bootstrap.servers",
@@ -46,6 +51,7 @@ in {
     logger_cfg = logger_cfg,
     redis_cfg = redis_cfg,
     replica_redis_cfg = Some replica_redis_cfg,
+    zone_to_redis_replica_mapping = Some zone_to_redis_replica_mapping,
     workers = 1,
     drainer_size = 10,
     drainer_delay = 20,
