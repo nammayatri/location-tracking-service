@@ -13,6 +13,7 @@ use rdkafka::{error::KafkaError, producer::FutureProducer, ClientConfig};
 use reqwest::Url;
 use serde::Deserialize;
 use shared::redis::types::{RedisConnectionPool, RedisSettings};
+use std::collections::HashMap;
 use tokio::sync::mpsc::Sender;
 use tracing::info;
 
@@ -26,6 +27,7 @@ pub struct AppConfig {
     pub logger_cfg: LoggerConfig,
     pub redis_cfg: RedisConfig,
     pub replica_redis_cfg: Option<RedisConfig>,
+    pub zone_to_redis_replica_mapping: Option<HashMap<String, String>>,
     pub workers: usize,
     pub drainer_delay: u64,
     pub drainer_size: usize,
@@ -141,6 +143,12 @@ impl AppState {
         app_config: AppConfig,
         sender: Sender<(Dimensions, Latitude, Longitude, TimeStamp, DriverId)>,
     ) -> AppState {
+        let pod_zone = var("POD_ZONE").ok();
+        let new_replica_host = pod_zone
+            .as_ref()
+            .and_then(|zone| app_config.zone_to_redis_replica_mapping.as_ref()?.get(zone))
+            .cloned();
+
         let redis = Arc::new(
             RedisConnectionPool::new(
                 RedisSettings::new(
@@ -154,7 +162,10 @@ impl AppState {
                     app_config.redis_cfg.default_hash_ttl,
                     app_config.redis_cfg.stream_read_count,
                 ),
-                app_config.replica_redis_cfg.map(|replica_redis_cfg| {
+                app_config.replica_redis_cfg.map(|mut replica_redis_cfg| {
+                    if let Some(host) = new_replica_host {
+                        replica_redis_cfg.redis_host = host;
+                    }
                     RedisSettings::new(
                         replica_redis_cfg.redis_host,
                         replica_redis_cfg.redis_port,
