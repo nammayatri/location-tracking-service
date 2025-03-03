@@ -254,14 +254,9 @@ async fn process_driver_locations(
         .map(|ride_details| ride_details.ride_info.to_owned())
         .flatten();
 
-    let mut driver_ride_notification_status = driver_location_details
+    let driver_ride_notification_status = driver_location_details
         .as_ref()
         .map(|ride_details| ride_details.ride_notification_status)
-        .flatten();
-
-    let pickup_location = driver_ride_details
-        .as_ref()
-        .map(|ride_details| ride_details.ride_pickup_location.clone())
         .flatten();
 
     let start_distance = driver_location_details
@@ -290,28 +285,6 @@ async fn process_driver_locations(
         TimeStamp(latest_driver_location_ts)
     };
 
-    // let travelled_distance = if driver_ride_status == Some(RideStatus::NEW)
-    //     || driver_ride_status == Some(RideStatus::INPROGRESS)
-    // {
-    //     Meters(
-    //         last_known_location
-    //             .to_owned()
-    //             .map(|(last_known_location, travelled_distance)| {
-    //                 travelled_distance
-    //                     .map(|travelled_distance| travelled_distance.inner())
-    //                     .unwrap_or(0)
-    //                     + distance_between_in_meters(
-    //                         &last_known_location.location,
-    //                         &latest_driver_location.pt,
-    //                     )
-    //                     .floor() as u32
-    //             })
-    //             .unwrap_or(0),
-    //     )
-    // } else {
-    //     Meters(0)
-    // };
-
     let (stop_detected, stop_detection) = if driver_ride_status == Some(RideStatus::NEW)
         || (data.stop_detection.enable_onride_stop_detection
             && driver_ride_status == Some(RideStatus::INPROGRESS))
@@ -331,7 +304,36 @@ async fn process_driver_locations(
     } else {
         (None, None)
     };
-    let mut did_status_change = false;
+
+    let (driver_ride_notification_status, is_driver_ride_notification_status_changed) = (|| {
+        if let Some(RideInfo::Cab { pickup_location }) = driver_ride_info.as_ref() {
+            if let Some(ride_notification_status) = driver_ride_notification_status {
+                let distance =
+                    distance_between_in_meters(pickup_location, &latest_driver_location.pt);
+
+                if let Some(start_distance) = start_distance {
+                    if (start_distance.inner() as f64 - 50.0) > distance {
+                        if distance <= data.pickup_notification_threshold
+                            && RideNotificationStatus::DriverReached > ride_notification_status
+                        {
+                            return (Some(RideNotificationStatus::DriverReached), true);
+                        } else if distance <= data.arriving_notification_threshold
+                            && RideNotificationStatus::DriverReaching > ride_notification_status
+                        {
+                            return (Some(RideNotificationStatus::DriverReaching), true);
+                        } else if RideNotificationStatus::DriverOnTheWay > ride_notification_status
+                        {
+                            return (Some(RideNotificationStatus::DriverOnTheWay), true);
+                        }
+                    }
+                }
+            }
+            (driver_ride_notification_status, false)
+        } else {
+            (driver_ride_notification_status, false)
+        }
+    })();
+
     let locations = match driver_ride_info.as_ref() {
         Some(RideInfo::Bus {
             route_code,
@@ -367,7 +369,7 @@ async fn process_driver_locations(
                     &None,
                     stop_detection,
                     &driver_ride_status,
-                    &None,
+                    &driver_ride_notification_status,
                     &None,
                 )
                 .await?;
@@ -385,7 +387,7 @@ async fn process_driver_locations(
                 .map(|loc| (loc, LocationType::UNFILTERED))
                 .collect()
         }
-        None => {
+        _ => {
             let mut all_tasks: Vec<Pin<Box<dyn Future<Output = Result<(), AppError>>>>> =
                 Vec::new();
 
@@ -459,78 +461,42 @@ async fn process_driver_locations(
                     )
                 };
 
-            if let (Some(ride_notification_status), Some(pickup_location)) =
-                (driver_ride_notification_status.as_mut(), pickup_location)
-            {
-                let distance =
-                    distance_between_in_meters(&pickup_location, &latest_driver_location.pt);
-                if let Some(start_distance) = start_distance {
-                    if (start_distance.0 as f64 - 50.0) > distance {
-                        if distance <= data.pickup_notification_threshold
-                            && RideNotificationStatus::DriverReached > *ride_notification_status
-                        {
-                            *ride_notification_status = RideNotificationStatus::DriverReached;
-                            did_status_change = true;
-                        } else if distance <= data.arriving_notification_threshold
-                            && RideNotificationStatus::DriverReaching > *ride_notification_status
-                        {
-                            *ride_notification_status = RideNotificationStatus::DriverReaching;
-                            did_status_change = true;
-                        } else {
-                            if RideNotificationStatus::DriverOnTheWay > *ride_notification_status {
-                                *ride_notification_status = RideNotificationStatus::DriverOnTheWay;
-                                did_status_change = true;
-                            }
-                        }
-                    }
-                }
-            }
-            if !any_location_unfiltered {
-                if let Some(driver_last_known_location) = driver_last_known_location.as_ref() {
-                    let driver_last_known_location_location = &driver_last_known_location.location;
-                    let driver_last_known_location_timestamp =
-                        &driver_last_known_location.timestamp;
-
-                    let set_driver_last_location_update = async {
-                        set_driver_last_location_update(
-                            &data.redis,
-                            &data.last_location_timstamp_expiry,
-                            &driver_id,
-                            &merchant_id,
-                            driver_last_known_location_location,
-                            driver_last_known_location_timestamp,
-                            &None::<TimeStamp>,
-                            stop_detection,
-                            &driver_ride_status,
-                            &driver_ride_notification_status,
-                            &start_distance,
-                        )
-                        .await?;
-                        Ok(())
-                    };
-                    all_tasks.push(Box::pin(set_driver_last_location_update));
-                }
+            let (driver_location, driver_location_timestamp) = if any_location_unfiltered {
+                // When few unfiltered locations are present
+                (&latest_driver_location.pt, &latest_driver_location_ts)
             } else {
-                let set_driver_last_location_update = async {
-                    set_driver_last_location_update(
-                        &data.redis,
-                        &data.last_location_timstamp_expiry,
-                        &driver_id,
-                        &merchant_id,
-                        &latest_driver_location.pt,
-                        &latest_driver_location_ts,
-                        &None::<TimeStamp>,
-                        stop_detection,
-                        &driver_ride_status,
-                        &driver_ride_notification_status,
-                        &start_distance,
-                        // travelled_distance.to_owned(),
+                // When all locations are filtered
+                if let Some(driver_last_known_location) = driver_last_known_location.as_ref() {
+                    (
+                        &driver_last_known_location.location,
+                        &driver_last_known_location.timestamp,
                     )
-                    .await?;
-                    Ok(())
-                };
-                all_tasks.push(Box::pin(set_driver_last_location_update));
+                } else {
+                    (&latest_driver_location.pt, &latest_driver_location_ts)
+                }
+            };
 
+            let set_driver_last_location_update = async {
+                set_driver_last_location_update(
+                    &data.redis,
+                    &data.last_location_timstamp_expiry,
+                    &driver_id,
+                    &merchant_id,
+                    driver_location,
+                    driver_location_timestamp,
+                    &None::<TimeStamp>,
+                    stop_detection,
+                    &driver_ride_status,
+                    &driver_ride_notification_status,
+                    &start_distance,
+                    // travelled_distance.to_owned(),
+                )
+                .await?;
+                Ok(())
+            };
+            all_tasks.push(Box::pin(set_driver_last_location_update));
+
+            if any_location_unfiltered {
                 if let (Some(RideStatus::INPROGRESS), Some(ride_id)) =
                     (driver_ride_status.as_ref(), driver_ride_id.as_ref())
                 {
@@ -603,29 +569,6 @@ async fn process_driver_locations(
     };
 
     Arbiter::current().spawn(async move {
-        // if driver_ride_status == Some(RideStatus::NEW) {
-        //     if let Some(driver_ride_details) = driver_ride_details {
-        //         if let (
-        //             Some(vehicle_number),
-        //             Some(ride_start_otp),
-        //             Some(estimated_pickup_distance),
-        //         ) = (
-        //             driver_ride_details.vehicle_number,
-        //             driver_ride_details.ride_start_otp,
-        //             driver_ride_details.estimated_pickup_distance,
-        //         ) {
-        //             let _ = trigger_liveactivity(
-        //                 &data.apns_url,
-        //                 vehicle_type.to_owned(),
-        //                 vehicle_number,
-        //                 ride_start_otp,
-        //                 estimated_pickup_distance,
-        //                 travelled_distance,
-        //             )
-        //             .await;
-        //         }
-        //     }
-        // }
         match driver_ride_info {
             Some(RideInfo::Bus { destination, .. }) => {
                 if let (Some(location), Some(ride_id)) =
@@ -645,7 +588,7 @@ async fn process_driver_locations(
                     }
                 }
             }
-            None => {
+            Some(RideInfo::Cab { pickup_location: _ }) => {
                 if let (Some(location), Some(ride_id)) =
                     (stop_detected.as_ref(), driver_ride_id.as_ref())
                 {
@@ -658,7 +601,7 @@ async fn process_driver_locations(
                     .await;
                 }
 
-                if did_status_change {
+                if is_driver_ride_notification_status_changed {
                     if let (Some(status), Some(driver_ride_id)) =
                         (driver_ride_notification_status, driver_ride_id.clone())
                     {
@@ -672,6 +615,19 @@ async fn process_driver_locations(
                         .await
                         .map_err(|err| AppError::DriverSendingFCMFailed(err.message()));
                     }
+                }
+            }
+            None => {
+                if let (Some(location), Some(ride_id)) =
+                    (stop_detected.as_ref(), driver_ride_id.as_ref())
+                {
+                    let _ = trigger_stop_detection_event(
+                        &data.stop_detection.stop_detection_update_callback_url,
+                        location,
+                        ride_id.to_owned(),
+                        driver_id.to_owned(),
+                    )
+                    .await;
                 }
             }
         }
