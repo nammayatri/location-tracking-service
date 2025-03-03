@@ -184,6 +184,8 @@ pub enum RideInfo {
         bus_number: String,
         destination: Point,
     },
+    #[serde(rename_all = "camelCase")]
+    Cab { pickup_location: Point },
 }
 
 #[derive(Debug, Clone, EnumString, Display, Serialize, Deserialize, Eq, Hash, PartialEq)]
@@ -242,7 +244,6 @@ pub struct RideDetails {
     pub ride_id: RideId,
     pub ride_status: RideStatus,
     pub ride_info: Option<RideInfo>,
-    pub ride_pickup_location: Option<Point>,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug, Eq, PartialEq)]
