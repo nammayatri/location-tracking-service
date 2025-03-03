@@ -37,7 +37,7 @@ use rdkafka::producer::FutureProducer;
 pub async fn kafka_stream_updates(
     producer: &Option<FutureProducer>,
     topic: &str,
-    locations: Vec<UpdateDriverLocationRequest>,
+    locations: Vec<(UpdateDriverLocationRequest, LocationType)>,
     merchant_id: MerchantId,
     merchant_operating_city_id: MerchantOperatingCityId,
     ride_id: Option<RideId>,
@@ -60,7 +60,7 @@ pub async fn kafka_stream_updates(
         (None, None, None)
     };
 
-    for loc in locations {
+    for (loc, location_type) in locations {
         let message = LocationUpdate {
             r_id: ride_id.to_owned(),
             m_id: merchant_id.to_owned(),
@@ -85,7 +85,7 @@ pub async fn kafka_stream_updates(
             is_stop_detected,
             stop_lat,
             stop_lon,
-            // travelled_distance: travelled_distance.to_owned(),
+            location_type, // travelled_distance: travelled_distance.to_owned(),
         };
         if let Err(err) = push_to_kafka(producer, topic, key.as_str(), message).await {
             error!("Error occured in push_to_kafka => {}", err.message())

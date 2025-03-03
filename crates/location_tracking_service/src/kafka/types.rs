@@ -39,5 +39,6 @@ pub struct LocationUpdate {
     pub is_stop_detected: Option<bool>,
     pub stop_lat: Option<Latitude>,
     pub stop_lon: Option<Longitude>,
+    pub location_type: LocationType,
     // pub travelled_distance: Meters,
 }

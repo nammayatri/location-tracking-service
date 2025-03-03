@@ -194,6 +194,12 @@ pub enum RideStatus {
 }
 
 #[derive(Debug, Clone, EnumString, Display, Serialize, Deserialize, Eq, Hash, PartialEq)]
+pub enum LocationType {
+    UNFILTERED,
+    FILTERED,
+}
+
+#[derive(Debug, Clone, EnumString, Display, Serialize, Deserialize, Eq, Hash, PartialEq)]
 pub enum DriverMode {
     ONLINE,
     OFFLINE,
