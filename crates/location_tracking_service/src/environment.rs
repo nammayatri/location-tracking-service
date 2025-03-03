@@ -87,6 +87,7 @@ pub struct StopDetectionConfig {
     pub max_eligible_stop_speed_threshold: f64,
     pub radius_threshold_meters: u64,
     pub min_points_within_radius_threshold: usize,
+    pub enable_onride_stop_detection: bool,
 }
 
 fn deserialize_url<'de, D>(deserializer: D) -> Result<Url, D::Error>

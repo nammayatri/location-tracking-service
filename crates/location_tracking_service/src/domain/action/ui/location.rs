@@ -72,23 +72,34 @@ fn get_filtered_driver_locations(
     mut locations: Vec<UpdateDriverLocationRequest>,
     min_location_accuracy: Accuracy,
     driver_location_accuracy_buffer: f64,
-) -> Vec<UpdateDriverLocationRequest> {
+) -> (Vec<(UpdateDriverLocationRequest, LocationType)>, bool) {
     locations.dedup_by(|a, b| a.pt.lat == b.pt.lat && a.pt.lon == b.pt.lon);
 
-    let locations: Vec<UpdateDriverLocationRequest> = locations
-        .into_iter()
-        .filter(|location| {
-            location.acc.or(Some(Accuracy(0.0))) <= Some(min_location_accuracy)
+    locations.into_iter().fold(
+        (Vec::new(), false),
+        |(mut acc_locations, mut any_location_unfiltered), location| {
+            let location_type = if location.acc.or(Some(Accuracy(0.0)))
+                <= Some(min_location_accuracy)
                 && last_known_location
                     .map(|last_known_location| {
                         distance_between_in_meters(&last_known_location.location, &location.pt)
                             > driver_location_accuracy_buffer
                     })
                     .unwrap_or(true)
-        })
-        .collect();
+            {
+                LocationType::UNFILTERED
+            } else {
+                LocationType::FILTERED
+            };
 
-    locations
+            any_location_unfiltered =
+                any_location_unfiltered || location_type == LocationType::UNFILTERED;
+
+            acc_locations.push((location, location_type));
+
+            (acc_locations, any_location_unfiltered)
+        },
+    )
 }
 
 #[macros::measure_duration]
@@ -258,6 +269,15 @@ async fn process_driver_locations(
         .map(|ride_details| ride_details.ride_start_distance)
         .flatten();
 
+    let driver_last_known_location =
+        driver_location_details
+            .as_ref()
+            .map(|driver_location_details| {
+                driver_location_details
+                    .driver_last_known_location
+                    .to_owned()
+            });
+
     let TimeStamp(latest_driver_location_ts) = latest_driver_location.ts;
     let current_ts = Utc::now();
     let latest_driver_location_ts = if latest_driver_location_ts > current_ts {
@@ -293,7 +313,8 @@ async fn process_driver_locations(
     // };
 
     let (stop_detected, stop_detection) = if driver_ride_status == Some(RideStatus::NEW)
-        || (driver_ride_info.is_some() && driver_ride_status == Some(RideStatus::INPROGRESS))
+        || (data.stop_detection.enable_onride_stop_detection
+            && driver_ride_status == Some(RideStatus::INPROGRESS))
     {
         detect_stop(
             driver_location_details
@@ -360,6 +381,9 @@ async fn process_driver_locations(
                 .try_for_each(Result::from)?;
 
             locations
+                .into_iter()
+                .map(|loc| (loc, LocationType::UNFILTERED))
+                .collect()
         }
         None => {
             let mut all_tasks: Vec<Pin<Box<dyn Future<Output = Result<(), AppError>>>>> =
@@ -401,36 +425,39 @@ async fn process_driver_locations(
                 );
             }
 
-            let locations = if let Some(RideStatus::INPROGRESS) = driver_ride_status.as_ref() {
-                let locations = get_filtered_driver_locations(
-                    driver_location_details
-                        .map(|driver_location_details| {
-                            driver_location_details.driver_last_known_location
-                        })
-                        .as_ref(),
-                    locations,
-                    data.min_location_accuracy,
-                    data.driver_location_accuracy_buffer,
-                );
-                if !locations.is_empty() {
-                    if locations.len() > data.batch_size as usize {
-                        warn!(
+            let (locations, any_location_unfiltered) =
+                if let Some(RideStatus::INPROGRESS) = driver_ride_status.as_ref() {
+                    let (locations, any_location_unfiltered) = get_filtered_driver_locations(
+                        driver_last_known_location.as_ref(),
+                        locations,
+                        data.min_location_accuracy,
+                        data.driver_location_accuracy_buffer,
+                    );
+                    if !locations.is_empty() {
+                        if locations.len() > data.batch_size as usize {
+                            warn!(
                             "On Ride Way points more than {} points after filtering => {} points",
                             data.batch_size,
                             locations.len()
                         );
+                        }
+                    } else {
+                        warn!(
+                        "All On Ride Way Points got filtered, batch size: {}, location_len: {} ",
+                        data.batch_size,
+                        locations.len()
+                    );
                     }
-                    locations
+                    (locations, any_location_unfiltered)
                 } else {
-                    join_all(all_tasks)
-                        .await
-                        .into_iter()
-                        .try_for_each(Result::from)?;
-                    return Ok(());
-                }
-            } else {
-                locations
-            };
+                    (
+                        locations
+                            .into_iter()
+                            .map(|loc| (loc, LocationType::UNFILTERED))
+                            .collect(),
+                        true,
+                    )
+                };
 
             if let (Some(ride_notification_status), Some(pickup_location)) =
                 (driver_ride_notification_status.as_mut(), pickup_location)
@@ -458,80 +485,111 @@ async fn process_driver_locations(
                     }
                 }
             }
+            if !any_location_unfiltered {
+                if let Some(driver_last_known_location) = driver_last_known_location.as_ref() {
+                    let driver_last_known_location_location = &driver_last_known_location.location;
+                    let driver_last_known_location_timestamp =
+                        &driver_last_known_location.timestamp;
 
-            let set_driver_last_location_update = async {
-                set_driver_last_location_update(
-                    &data.redis,
-                    &data.last_location_timstamp_expiry,
-                    &driver_id,
-                    &merchant_id,
-                    &latest_driver_location.pt,
-                    &latest_driver_location_ts,
-                    &None::<TimeStamp>,
-                    stop_detection,
-                    &driver_ride_status,
-                    &driver_ride_notification_status,
-                    &start_distance,
-                    // travelled_distance.to_owned(),
-                )
-                .await?;
-                Ok(())
-            };
-            all_tasks.push(Box::pin(set_driver_last_location_update));
-
-            if let (Some(RideStatus::INPROGRESS), Some(ride_id)) =
-                (driver_ride_status.as_ref(), driver_ride_id.as_ref())
-            {
-                let geo_entries = locations
-                    .iter()
-                    .map(|loc| Point {
-                        lat: loc.pt.lat,
-                        lon: loc.pt.lon,
-                    })
-                    .collect::<Vec<Point>>();
-
-                let on_ride_driver_locations_count = get_on_ride_driver_locations_count(
-                    &data.redis,
-                    &driver_id.clone(),
-                    &merchant_id,
-                )
-                .await?;
-
-                if on_ride_driver_locations_count + geo_entries.len() as i64 > data.batch_size {
-                    let mut on_ride_driver_locations = get_on_ride_driver_locations_and_delete(
-                        &data.redis,
-                        &driver_id,
-                        &merchant_id,
-                        on_ride_driver_locations_count,
-                    )
-                    .await?;
-                    on_ride_driver_locations.extend(geo_entries);
-
-                    let bulk_location_update_dobpp = async {
-                        bulk_location_update_dobpp(
-                            &data.bulk_location_callback_url,
-                            ride_id.to_owned(),
-                            driver_id.to_owned(),
-                            on_ride_driver_locations,
-                        )
-                        .await
-                        .map_err(|err| AppError::DriverBulkLocationUpdateFailed(err.message()))?;
-                        Ok(())
-                    };
-                    all_tasks.push(Box::pin(bulk_location_update_dobpp));
-                } else {
-                    let push_on_ride_driver_locations = async {
-                        push_on_ride_driver_locations(
+                    let set_driver_last_location_update = async {
+                        set_driver_last_location_update(
                             &data.redis,
+                            &data.last_location_timstamp_expiry,
                             &driver_id,
                             &merchant_id,
-                            geo_entries,
-                            &data.redis_expiry,
+                            driver_last_known_location_location,
+                            driver_last_known_location_timestamp,
+                            &None::<TimeStamp>,
+                            stop_detection,
+                            &driver_ride_status,
+                            &driver_ride_notification_status,
+                            &start_distance,
                         )
                         .await?;
                         Ok(())
                     };
-                    all_tasks.push(Box::pin(push_on_ride_driver_locations));
+                    all_tasks.push(Box::pin(set_driver_last_location_update));
+                }
+            } else {
+                let set_driver_last_location_update = async {
+                    set_driver_last_location_update(
+                        &data.redis,
+                        &data.last_location_timstamp_expiry,
+                        &driver_id,
+                        &merchant_id,
+                        &latest_driver_location.pt,
+                        &latest_driver_location_ts,
+                        &None::<TimeStamp>,
+                        stop_detection,
+                        &driver_ride_status,
+                        &driver_ride_notification_status,
+                        &start_distance,
+                        // travelled_distance.to_owned(),
+                    )
+                    .await?;
+                    Ok(())
+                };
+                all_tasks.push(Box::pin(set_driver_last_location_update));
+
+                if let (Some(RideStatus::INPROGRESS), Some(ride_id)) =
+                    (driver_ride_status.as_ref(), driver_ride_id.as_ref())
+                {
+                    let geo_entries = locations
+                        .iter()
+                        .filter_map(|(loc, location_type)| match location_type {
+                            LocationType::UNFILTERED => Some(Point {
+                                lat: loc.pt.lat,
+                                lon: loc.pt.lon,
+                            }),
+                            LocationType::FILTERED => None,
+                        })
+                        .collect::<Vec<Point>>();
+
+                    let on_ride_driver_locations_count = get_on_ride_driver_locations_count(
+                        &data.redis,
+                        &driver_id.clone(),
+                        &merchant_id,
+                    )
+                    .await?;
+
+                    if on_ride_driver_locations_count + geo_entries.len() as i64 > data.batch_size {
+                        let mut on_ride_driver_locations = get_on_ride_driver_locations_and_delete(
+                            &data.redis,
+                            &driver_id,
+                            &merchant_id,
+                            on_ride_driver_locations_count,
+                        )
+                        .await?;
+                        on_ride_driver_locations.extend(geo_entries);
+
+                        let bulk_location_update_dobpp = async {
+                            bulk_location_update_dobpp(
+                                &data.bulk_location_callback_url,
+                                ride_id.to_owned(),
+                                driver_id.to_owned(),
+                                on_ride_driver_locations,
+                            )
+                            .await
+                            .map_err(|err| {
+                                AppError::DriverBulkLocationUpdateFailed(err.message())
+                            })?;
+                            Ok(())
+                        };
+                        all_tasks.push(Box::pin(bulk_location_update_dobpp));
+                    } else {
+                        let push_on_ride_driver_locations = async {
+                            push_on_ride_driver_locations(
+                                &data.redis,
+                                &driver_id,
+                                &merchant_id,
+                                geo_entries,
+                                &data.redis_expiry,
+                            )
+                            .await?;
+                            Ok(())
+                        };
+                        all_tasks.push(Box::pin(push_on_ride_driver_locations));
+                    }
                 }
             }
 
@@ -578,7 +636,7 @@ async fn process_driver_locations(
                     {
                         let _ = driver_reached_destination(
                             &data.driver_reached_destination_callback_url,
-                            location,
+                            &location,
                             ride_id.to_owned(),
                             driver_id.to_owned(),
                             vehicle_type.to_owned(),
