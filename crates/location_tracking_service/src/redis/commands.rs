@@ -40,13 +40,11 @@ pub async fn set_ride_details_for_driver(
     ride_id: RideId,
     ride_status: RideStatus,
     ride_info: Option<RideInfo>,
-    ride_pickup_location: Option<Point>,
 ) -> Result<(), AppError> {
     let ride_details = RideDetails {
         ride_id,
         ride_status,
         ride_info,
-        ride_pickup_location,
     };
     redis
         .set_key(
