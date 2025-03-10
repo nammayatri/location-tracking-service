@@ -39,6 +39,7 @@ pub struct DriverLocationDetail {
     pub created_at: TimeStamp,
     pub updated_at: TimeStamp,
     pub merchant_id: MerchantId,
+    pub ride_details: Option<RideDetails>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

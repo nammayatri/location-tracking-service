@@ -133,8 +133,10 @@ pub enum RideInfo {
     #[serde(rename_all = "camelCase")]
     Bus {
         route_code: String,
+        route_long_name: Option<String>,
         bus_number: String,
         destination: Point,
+        driver_name: Option<String>,
     },
 }
 

@@ -88,6 +88,22 @@ pub async fn get_ride_details(
         .map_err(|err| AppError::InternalError(err.to_string()))
 }
 
+pub async fn get_all_driver_ride_details(
+    redis: &RedisConnectionPool,
+    driver_ids: &[DriverId],
+    merchant_id: &MerchantId,
+) -> Result<Vec<Option<RideDetails>>, AppError> {
+    let driver_ride_details_keys = driver_ids
+        .iter()
+        .map(|driver_id| on_ride_details_key(merchant_id, driver_id))
+        .collect::<Vec<String>>();
+
+    redis
+        .mget_keys::<RideDetails>(driver_ride_details_keys)
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
 /// Cleans up the ride details for a given merchant, driver, and ride from the Redis store.
 ///
 /// This function deletes several keys associated with the ride from the Redis store, including:

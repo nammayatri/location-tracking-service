@@ -337,6 +337,27 @@ async fn process_driver_locations(
             };
             all_tasks.push(Box::pin(set_driver_last_location_update));
 
+            let send_driver_location_to_drainer = async {
+                let _ = &data
+                    .sender
+                    .send((
+                        Dimensions {
+                            merchant_id: merchant_id.to_owned(),
+                            city: city.to_owned(),
+                            vehicle_type: vehicle_type.to_owned(),
+                            created_at: Utc::now(),
+                        },
+                        latest_driver_location.pt.lat,
+                        latest_driver_location.pt.lon,
+                        latest_driver_location_ts.to_owned(),
+                        driver_id.to_owned(),
+                    ))
+                    .await
+                    .map_err(|err| AppError::DrainerPushFailed(err.to_string()))?;
+                Ok(())
+            };
+            all_tasks.push(Box::pin(send_driver_location_to_drainer));
+
             join_all(all_tasks)
                 .await
                 .into_iter()
