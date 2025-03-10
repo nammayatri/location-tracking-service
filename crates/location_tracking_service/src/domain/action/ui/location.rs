@@ -344,12 +344,12 @@ async fn process_driver_locations(
                 }
             }
             (
-                driver_ride_notification_status,
+                Some(RideNotificationStatus::Idle),
                 false,
                 Some(Meters(pickup_distance as u32)),
             )
         } else {
-            (driver_ride_notification_status, false, None)
+            (None, false, None)
         }
     })();
 
