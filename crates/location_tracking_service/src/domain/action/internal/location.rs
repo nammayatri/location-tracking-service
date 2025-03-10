@@ -57,25 +57,60 @@ async fn search_nearby_drivers_with_vehicle(
 
     let driver_last_known_location = get_all_driver_last_locations(redis, &driver_ids).await?;
 
-    let resp = nearby_drivers
+    let resp = if [VehicleType::BusAc, VehicleType::BusNonAc]
         .iter()
-        .zip(driver_last_known_location.iter())
-        .map(|(driver, driver_last_known_location)| {
-            let last_location_update_ts = driver_last_known_location
-                .as_ref()
-                .map(|driver_last_known_location| driver_last_known_location.timestamp)
-                .unwrap_or(TimeStamp(Utc::now()));
-            DriverLocationDetail {
-                driver_id: driver.driver_id.to_owned(),
-                lat: driver.location.lat,
-                lon: driver.location.lon,
-                coordinates_calculated_at: last_location_update_ts,
-                created_at: last_location_update_ts,
-                updated_at: last_location_update_ts,
-                merchant_id: merchant_id.to_owned(),
-            }
-        })
-        .collect::<Vec<DriverLocationDetail>>();
+        .any(|vehicle_type| vehicle_type == vehicle)
+    {
+        let driver_ride_details =
+            get_all_driver_ride_details(redis, &driver_ids, merchant_id).await?;
+
+        let resp = nearby_drivers
+            .iter()
+            .zip(driver_last_known_location.iter())
+            .zip(driver_ride_details.iter())
+            .map(
+                |((driver, driver_last_known_location), driver_ride_detail)| {
+                    let last_location_update_ts = driver_last_known_location
+                        .as_ref()
+                        .map(|driver_last_known_location| driver_last_known_location.timestamp)
+                        .unwrap_or(TimeStamp(Utc::now()));
+                    DriverLocationDetail {
+                        driver_id: driver.driver_id.to_owned(),
+                        lat: driver.location.lat,
+                        lon: driver.location.lon,
+                        coordinates_calculated_at: last_location_update_ts,
+                        created_at: last_location_update_ts,
+                        updated_at: last_location_update_ts,
+                        merchant_id: merchant_id.to_owned(),
+                        ride_details: driver_ride_detail.clone(),
+                    }
+                },
+            )
+            .collect::<Vec<DriverLocationDetail>>();
+        resp
+    } else {
+        let resp = nearby_drivers
+            .iter()
+            .zip(driver_last_known_location.iter())
+            .map(|(driver, driver_last_known_location)| {
+                let last_location_update_ts = driver_last_known_location
+                    .as_ref()
+                    .map(|driver_last_known_location| driver_last_known_location.timestamp)
+                    .unwrap_or(TimeStamp(Utc::now()));
+                DriverLocationDetail {
+                    driver_id: driver.driver_id.to_owned(),
+                    lat: driver.location.lat,
+                    lon: driver.location.lon,
+                    coordinates_calculated_at: last_location_update_ts,
+                    created_at: last_location_update_ts,
+                    updated_at: last_location_update_ts,
+                    merchant_id: merchant_id.to_owned(),
+                    ride_details: None,
+                }
+            })
+            .collect::<Vec<DriverLocationDetail>>();
+        resp
+    };
 
     Ok(resp)
 }
@@ -173,6 +208,7 @@ pub async fn get_drivers_location(
                 created_at: driver_last_known_location.timestamp,
                 updated_at: driver_last_known_location.timestamp,
                 merchant_id: driver_last_known_location.merchant_id.to_owned(),
+                ride_details: None,
             };
             driver_locations.push(driver_location);
         } else {

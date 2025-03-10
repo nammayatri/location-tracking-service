@@ -88,6 +88,22 @@ pub async fn get_ride_details(
         .map_err(|err| AppError::InternalError(err.to_string()))
 }
 
+pub async fn get_all_driver_ride_details(
+    redis: &RedisConnectionPool,
+    driver_ids: &[DriverId],
+    merchant_id: &MerchantId,
+) -> Result<Vec<Option<RideDetails>>, AppError> {
+    let driver_ride_details_keys = driver_ids
+        .iter()
+        .map(|driver_id| on_ride_details_key(merchant_id, driver_id))
+        .collect::<Vec<String>>();
+
+    redis
+        .mget_keys::<RideDetails>(driver_ride_details_keys)
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
 /// Cleans up the ride details for a given merchant, driver, and ride from the Redis store.
 ///
 /// This function deletes several keys associated with the ride from the Redis store, including:
@@ -296,7 +312,7 @@ pub async fn set_driver_last_location_update(
     stop_detection: Option<StopDetection>,
     ride_status: &Option<RideStatus>,
     ride_notification_status: &Option<RideNotificationStatus>,
-    ride_start_distance: &Option<Meters>,
+    driver_pickup_distance: &Option<Meters>,
 ) -> Result<DriverLastKnownLocation, AppError> {
     let last_known_location = DriverLastKnownLocation {
         location: Point {
@@ -314,7 +330,7 @@ pub async fn set_driver_last_location_update(
         ride_status: ride_status.to_owned(),
         ride_notification_status: (*ride_notification_status)
             .or(Some(RideNotificationStatus::Idle)),
-        ride_start_distance: *ride_start_distance,
+        driver_pickup_distance: *driver_pickup_distance,
         // travelled_distance: Some(travelled_distance),
     };
 
