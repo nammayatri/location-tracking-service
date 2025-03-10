@@ -185,7 +185,7 @@ pub enum RideInfo {
         destination: Point,
     },
     #[serde(rename_all = "camelCase")]
-    Cab { pickup_location: Point },
+    Car { pickup_location: Point },
 }
 
 #[derive(Debug, Clone, EnumString, Display, Serialize, Deserialize, Eq, Hash, PartialEq)]

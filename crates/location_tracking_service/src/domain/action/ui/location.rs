@@ -306,7 +306,7 @@ async fn process_driver_locations(
     };
 
     let (driver_ride_notification_status, is_driver_ride_notification_status_changed) = (|| {
-        if let Some(RideInfo::Cab { pickup_location }) = driver_ride_info.as_ref() {
+        if let Some(RideInfo::Car { pickup_location }) = driver_ride_info.as_ref() {
             if let Some(ride_notification_status) = driver_ride_notification_status {
                 let distance =
                     distance_between_in_meters(pickup_location, &latest_driver_location.pt);
@@ -588,7 +588,7 @@ async fn process_driver_locations(
                     }
                 }
             }
-            Some(RideInfo::Cab { pickup_location: _ }) => {
+            Some(RideInfo::Car { pickup_location: _ }) => {
                 if let (Some(location), Some(ride_id)) =
                     (stop_detected.as_ref(), driver_ride_id.as_ref())
                 {
