@@ -259,9 +259,9 @@ async fn process_driver_locations(
         .map(|ride_details| ride_details.ride_notification_status)
         .flatten();
 
-    let start_distance = driver_location_details
+    let driver_pickup_distance = driver_location_details
         .as_ref()
-        .map(|ride_details| ride_details.ride_start_distance)
+        .map(|ride_details| ride_details.driver_pickup_distance)
         .flatten();
 
     let driver_last_known_location =
@@ -305,32 +305,51 @@ async fn process_driver_locations(
         (None, None)
     };
 
-    let (driver_ride_notification_status, is_driver_ride_notification_status_changed) = (|| {
+    let (
+        driver_ride_notification_status,
+        is_driver_ride_notification_status_changed,
+        driver_pickup_distance,
+    ) = (|| {
         if let Some(RideInfo::Car { pickup_location }) = driver_ride_info.as_ref() {
+            let pickup_distance =
+                distance_between_in_meters(pickup_location, &latest_driver_location.pt);
             if let Some(ride_notification_status) = driver_ride_notification_status {
-                let distance =
-                    distance_between_in_meters(pickup_location, &latest_driver_location.pt);
-
-                if let Some(start_distance) = start_distance {
-                    if (start_distance.inner() as f64 - 50.0) > distance {
-                        if distance <= data.pickup_notification_threshold
+                if let Some(driver_pickup_distance) = driver_pickup_distance {
+                    if (driver_pickup_distance.inner() as f64 - 50.0) > pickup_distance {
+                        if pickup_distance <= data.pickup_notification_threshold
                             && RideNotificationStatus::DriverReached > ride_notification_status
                         {
-                            return (Some(RideNotificationStatus::DriverReached), true);
-                        } else if distance <= data.arriving_notification_threshold
+                            return (
+                                Some(RideNotificationStatus::DriverReached),
+                                true,
+                                Some(driver_pickup_distance),
+                            );
+                        } else if pickup_distance <= data.arriving_notification_threshold
                             && RideNotificationStatus::DriverReaching > ride_notification_status
                         {
-                            return (Some(RideNotificationStatus::DriverReaching), true);
+                            return (
+                                Some(RideNotificationStatus::DriverReaching),
+                                true,
+                                Some(driver_pickup_distance),
+                            );
                         } else if RideNotificationStatus::DriverOnTheWay > ride_notification_status
                         {
-                            return (Some(RideNotificationStatus::DriverOnTheWay), true);
+                            return (
+                                Some(RideNotificationStatus::DriverOnTheWay),
+                                true,
+                                Some(driver_pickup_distance),
+                            );
                         }
                     }
                 }
             }
-            (driver_ride_notification_status, false)
+            (
+                driver_ride_notification_status,
+                false,
+                Some(Meters(pickup_distance as u32)),
+            )
         } else {
-            (driver_ride_notification_status, false)
+            (driver_ride_notification_status, false, None)
         }
     })();
 
@@ -370,12 +389,33 @@ async fn process_driver_locations(
                     stop_detection,
                     &driver_ride_status,
                     &driver_ride_notification_status,
-                    &None,
+                    &driver_pickup_distance,
                 )
                 .await?;
                 Ok(())
             };
             all_tasks.push(Box::pin(set_driver_last_location_update));
+
+            let send_driver_location_to_drainer = async {
+                let _ = &data
+                    .sender
+                    .send((
+                        Dimensions {
+                            merchant_id: merchant_id.to_owned(),
+                            city: city.to_owned(),
+                            vehicle_type: vehicle_type.to_owned(),
+                            created_at: Utc::now(),
+                        },
+                        latest_driver_location.pt.lat,
+                        latest_driver_location.pt.lon,
+                        latest_driver_location_ts.to_owned(),
+                        driver_id.to_owned(),
+                    ))
+                    .await
+                    .map_err(|err| AppError::DrainerPushFailed(err.to_string()))?;
+                Ok(())
+            };
+            all_tasks.push(Box::pin(send_driver_location_to_drainer));
 
             join_all(all_tasks)
                 .await
@@ -488,7 +528,7 @@ async fn process_driver_locations(
                     stop_detection,
                     &driver_ride_status,
                     &driver_ride_notification_status,
-                    &start_distance,
+                    &driver_pickup_distance,
                     // travelled_distance.to_owned(),
                 )
                 .await?;

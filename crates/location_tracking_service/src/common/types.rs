@@ -181,8 +181,10 @@ pub enum RideInfo {
     #[serde(rename_all = "camelCase")]
     Bus {
         route_code: String,
+        route_long_name: Option<String>,
         bus_number: String,
         destination: Point,
+        driver_name: Option<String>,
     },
     #[serde(rename_all = "camelCase")]
     Car { pickup_location: Point },
@@ -296,7 +298,7 @@ pub struct DriverAllDetails {
     pub stop_detection: Option<StopDetection>,
     pub ride_status: Option<RideStatus>,
     pub ride_notification_status: Option<RideNotificationStatus>,
-    pub ride_start_distance: Option<Meters>,
+    pub driver_pickup_distance: Option<Meters>,
     // pub travelled_distance: Option<Meters>,
 }
 
