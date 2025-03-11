@@ -43,7 +43,7 @@ pub struct TriggerStatusFcmReq {
     pub ride_id: RideId,
     pub driver_id: DriverId,
     pub ride_notification_status: RideNotificationStatus,
-    pub auth_key: String,
+    pub api_key: String,
 }
 
 // Trigger Stop Detection Event
