@@ -328,8 +328,7 @@ pub async fn set_driver_last_location_update(
         blocked_till: blocked_till.to_owned(),
         stop_detection,
         ride_status: ride_status.to_owned(),
-        ride_notification_status: (*ride_notification_status)
-            .or(Some(RideNotificationStatus::Idle)),
+        ride_notification_status: *ride_notification_status,
         driver_pickup_distance: *driver_pickup_distance,
         // travelled_distance: Some(travelled_distance),
     };
