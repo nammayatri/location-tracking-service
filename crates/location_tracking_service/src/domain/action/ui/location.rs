@@ -650,7 +650,6 @@ async fn process_driver_locations(
                             driver_ride_id,
                             driver_id.clone(),
                             status,
-                            &data.auth_api_key,
                         )
                         .await
                         .map_err(|err| AppError::DriverSendingFCMFailed(err.message()));

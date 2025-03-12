@@ -111,7 +111,6 @@ pub async fn trigger_fcm_bap(
     ride_id: RideId,
     driver_id: DriverId,
     ride_notification_status: RideNotificationStatus,
-    api_key: &str,
 ) -> Result<APISuccess, AppError> {
     call_api::<APISuccess, TriggerStatusFcmReq>(
         Protocol::Http1,
@@ -122,7 +121,6 @@ pub async fn trigger_fcm_bap(
             ride_id,
             driver_id,
             ride_notification_status,
-            api_key: api_key.to_owned(),
         }),
     )
     .await
