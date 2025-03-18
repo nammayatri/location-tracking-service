@@ -30,6 +30,9 @@ pub struct MerchantOperatingCityId(pub String);
 pub struct Latitude(pub f64);
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Copy)]
 #[macros::impl_getter]
+pub struct Direction(pub f64);
+#[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Copy)]
+#[macros::impl_getter]
 pub struct Longitude(pub f64);
 #[derive(Deserialize, Serialize, Clone, Debug, Eq, Hash, PartialEq)]
 #[macros::impl_getter]
@@ -180,6 +183,7 @@ pub enum VehicleType {
 pub enum RideInfo {
     #[serde(rename_all = "camelCase")]
     Bus {
+        started_at: Option<TimeStamp>,
         route_code: String,
         route_long_name: Option<String>,
         bus_number: String,
@@ -242,6 +246,7 @@ pub struct MultiPolygonBody {
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct RideDetails {
     pub ride_id: RideId,
     pub ride_status: RideStatus,
@@ -278,6 +283,7 @@ pub struct DriverLastKnownLocation {
     pub location: Point,
     pub timestamp: TimeStamp,
     pub merchant_id: MerchantId,
+    pub bear: Option<Direction>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

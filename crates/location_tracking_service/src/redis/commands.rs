@@ -313,6 +313,7 @@ pub async fn set_driver_last_location_update(
     ride_status: &Option<RideStatus>,
     ride_notification_status: &Option<RideNotificationStatus>,
     driver_pickup_distance: &Option<Meters>,
+    bear: &Option<Direction>,
 ) -> Result<DriverLastKnownLocation, AppError> {
     let last_known_location = DriverLastKnownLocation {
         location: Point {
@@ -321,6 +322,7 @@ pub async fn set_driver_last_location_update(
         },
         timestamp: *last_location_ts,
         merchant_id: merchant_id.to_owned(),
+        bear: *bear,
     };
 
     let value = DriverAllDetails {

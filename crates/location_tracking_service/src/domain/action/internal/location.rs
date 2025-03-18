@@ -70,10 +70,15 @@ async fn search_nearby_drivers_with_vehicle(
             .zip(driver_ride_details.iter())
             .map(
                 |((driver, driver_last_known_location), driver_ride_detail)| {
-                    let last_location_update_ts = driver_last_known_location
+                    let (last_location_update_ts, bear) = driver_last_known_location
                         .as_ref()
-                        .map(|driver_last_known_location| driver_last_known_location.timestamp)
-                        .unwrap_or(TimeStamp(Utc::now()));
+                        .map(|driver_last_known_location| {
+                            (
+                                driver_last_known_location.timestamp,
+                                driver_last_known_location.bear,
+                            )
+                        })
+                        .unwrap_or((TimeStamp(Utc::now()), None));
                     DriverLocationDetail {
                         driver_id: driver.driver_id.to_owned(),
                         lat: driver.location.lat,
@@ -83,6 +88,7 @@ async fn search_nearby_drivers_with_vehicle(
                         updated_at: last_location_update_ts,
                         merchant_id: merchant_id.to_owned(),
                         ride_details: driver_ride_detail.clone(),
+                        bear,
                     }
                 },
             )
@@ -93,10 +99,15 @@ async fn search_nearby_drivers_with_vehicle(
             .iter()
             .zip(driver_last_known_location.iter())
             .map(|(driver, driver_last_known_location)| {
-                let last_location_update_ts = driver_last_known_location
+                let (last_location_update_ts, bear) = driver_last_known_location
                     .as_ref()
-                    .map(|driver_last_known_location| driver_last_known_location.timestamp)
-                    .unwrap_or(TimeStamp(Utc::now()));
+                    .map(|driver_last_known_location| {
+                        (
+                            driver_last_known_location.timestamp,
+                            driver_last_known_location.bear,
+                        )
+                    })
+                    .unwrap_or((TimeStamp(Utc::now()), None));
                 DriverLocationDetail {
                     driver_id: driver.driver_id.to_owned(),
                     lat: driver.location.lat,
@@ -106,6 +117,7 @@ async fn search_nearby_drivers_with_vehicle(
                     updated_at: last_location_update_ts,
                     merchant_id: merchant_id.to_owned(),
                     ride_details: None,
+                    bear,
                 }
             })
             .collect::<Vec<DriverLocationDetail>>();
@@ -209,6 +221,7 @@ pub async fn get_drivers_location(
                 updated_at: driver_last_known_location.timestamp,
                 merchant_id: driver_last_known_location.merchant_id.to_owned(),
                 ride_details: None,
+                bear: driver_last_known_location.bear,
             };
             driver_locations.push(driver_location);
         } else {
@@ -241,6 +254,7 @@ pub async fn driver_block_till(
             &None::<RideStatus>,
             &None,
             &None,
+            &details.driver_last_known_location.bear,
             // travelled_distance.to_owned(),
         )
         .await?;
