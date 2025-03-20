@@ -391,6 +391,7 @@ async fn process_driver_locations(
                     &driver_ride_notification_status,
                     &driver_pickup_distance,
                     &None,
+                    &vehicle_type,
                 )
                 .await?;
                 Ok(())
@@ -532,6 +533,7 @@ async fn process_driver_locations(
                     &driver_pickup_distance,
                     &driver_last_known_location.as_ref().and_then(|loc| loc.bear),
                     // travelled_distance.to_owned(),
+                    &vehicle_type,
                 )
                 .await?;
                 Ok(())

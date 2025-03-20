@@ -89,6 +89,7 @@ async fn search_nearby_drivers_with_vehicle(
                         merchant_id: merchant_id.to_owned(),
                         ride_details: driver_ride_detail.clone(),
                         bear,
+                        vehicle_type: vehicle.clone(),
                     }
                 },
             )
@@ -118,6 +119,7 @@ async fn search_nearby_drivers_with_vehicle(
                     merchant_id: merchant_id.to_owned(),
                     ride_details: None,
                     bear,
+                    vehicle_type: vehicle.clone(),
                 }
             })
             .collect::<Vec<DriverLocationDetail>>();
@@ -222,6 +224,7 @@ pub async fn get_drivers_location(
                 merchant_id: driver_last_known_location.merchant_id.to_owned(),
                 ride_details: None,
                 bear: driver_last_known_location.bear,
+                vehicle_type: driver_last_known_location.vehicle_type.clone(),
             };
             driver_locations.push(driver_location);
         } else {
@@ -256,6 +259,7 @@ pub async fn driver_block_till(
             &None,
             &details.driver_last_known_location.bear,
             // travelled_distance.to_owned(),
+            &details.driver_last_known_location.vehicle_type,
         )
         .await?;
     };

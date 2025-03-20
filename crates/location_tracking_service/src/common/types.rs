@@ -284,6 +284,7 @@ pub struct DriverLastKnownLocation {
     pub timestamp: TimeStamp,
     pub merchant_id: MerchantId,
     pub bear: Option<Direction>,
+    pub vehicle_type: VehicleType,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
