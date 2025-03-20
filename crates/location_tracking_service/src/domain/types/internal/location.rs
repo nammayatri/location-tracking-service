@@ -41,7 +41,7 @@ pub struct DriverLocationDetail {
     pub merchant_id: MerchantId,
     pub bear: Option<Direction>,
     pub ride_details: Option<RideDetails>,
-    pub vehicle_type: VehicleType,
+    pub vehicle_type: Option<VehicleType>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
