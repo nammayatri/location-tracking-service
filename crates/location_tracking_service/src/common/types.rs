@@ -107,7 +107,7 @@ pub struct Meters(pub u32);
 pub type DriversLocationMap = FxHashMap<String, Vec<GeoValue>>;
 
 #[derive(
-    Debug, Clone, EnumString, EnumIter, Display, Serialize, Deserialize, Eq, Hash, PartialEq,
+    Debug, Clone, EnumString, EnumIter, Display, Serialize, Deserialize, Eq, Hash, PartialEq, Copy,
 )]
 pub enum VehicleType {
     #[strum(serialize = "AUTO_RICKSHAW")]
@@ -284,7 +284,7 @@ pub struct DriverLastKnownLocation {
     pub timestamp: TimeStamp,
     pub merchant_id: MerchantId,
     pub bear: Option<Direction>,
-    pub vehicle_type: VehicleType,
+    pub vehicle_type: Option<VehicleType>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
