@@ -157,7 +157,7 @@ pub async fn update_driver_location(
             driver_location_details
                 .as_ref()
                 .map(|driver_location_details| {
-                    location.ts > driver_location_details.driver_last_known_location.timestamp
+                    location.ts >= driver_location_details.driver_last_known_location.timestamp
                 })
                 .unwrap_or(true)
         })
