@@ -128,25 +128,45 @@ pub async fn get_driver_locations(
     })
 }
 
-// TODO :: To be deprecated...but is currently being used
 pub async fn ride_details(
     data: Data<AppState>,
     request_body: RideDetailsRequest,
 ) -> Result<APISuccess, AppError> {
+    let driver_id = request_body.driver_id.clone();
+
     if let RideStatus::CANCELLED = request_body.ride_status {
         ride_cleanup(
             &data.redis,
             &request_body.merchant_id,
-            &request_body.driver_id,
+            &driver_id,
             &request_body.ride_id,
         )
         .await?;
+
+        if let Some(driver_location) = get_driver_location(&data.redis, &driver_id).await? {
+            set_driver_last_location_update(
+                &data.redis,
+                &data.redis_expiry,
+                &driver_id,
+                &request_body.merchant_id,
+                &driver_location.driver_last_known_location.location,
+                &driver_location.driver_last_known_location.timestamp,
+                &driver_location.blocked_till,
+                driver_location.stop_detection,
+                &driver_location.ride_status,
+                &None,
+                &driver_location.driver_pickup_distance,
+                &driver_location.driver_last_known_location.bear,
+                &driver_location.driver_last_known_location.vehicle_type,
+            )
+            .await?;
+        }
     } else if let Some(false) | None = request_body.is_future_ride {
         set_ride_details_for_driver(
             &data.redis,
             &data.redis_expiry,
             &request_body.merchant_id,
-            &request_body.driver_id,
+            &driver_id,
             request_body.ride_id.to_owned(),
             request_body.ride_status,
             request_body.ride_info,
@@ -154,7 +174,7 @@ pub async fn ride_details(
         .await?;
 
         let driver_details = DriverDetails {
-            driver_id: request_body.driver_id,
+            driver_id: driver_id.clone(),
         };
 
         set_on_ride_driver_details(
@@ -164,6 +184,25 @@ pub async fn ride_details(
             driver_details,
         )
         .await?;
+
+        if let Some(driver_location) = get_driver_location(&data.redis, &driver_id).await? {
+            set_driver_last_location_update(
+                &data.redis,
+                &data.redis_expiry,
+                &driver_id,
+                &request_body.merchant_id,
+                &driver_location.driver_last_known_location.location,
+                &driver_location.driver_last_known_location.timestamp,
+                &driver_location.blocked_till,
+                driver_location.stop_detection,
+                &driver_location.ride_status,
+                &Some(RideNotificationStatus::Idle),
+                &driver_location.driver_pickup_distance,
+                &driver_location.driver_last_known_location.bear,
+                &driver_location.driver_last_known_location.vehicle_type,
+            )
+            .await?;
+        }
     }
 
     Ok(APISuccess::default())
