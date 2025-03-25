@@ -42,6 +42,7 @@ tracing-log = "0.1.3"
 tracing-appender = "0.2.2"
 tracing-subscriber = { version = "0.3.16", features = ["env-filter", "registry", "json"] }
 prometheus = { version = "0.13.3", features = ["process"] }
+async-trait = "0.1"
 
 shared = { git = "https://github.com/nammayatri/shared-kernel-rs", rev = "f8d80ea" }
 # shared = { version = "0.1.0", path = "/Users/khuzema.khomosi/Documents/shared-kernel-rs/crates/shared" }

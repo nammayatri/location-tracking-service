@@ -188,6 +188,7 @@ pub enum RideInfo {
         route_long_name: Option<String>,
         bus_number: String,
         destination: Point,
+        polyline: Option<String>,
         driver_name: Option<String>,
     },
     #[serde(rename_all = "camelCase")]
@@ -298,11 +299,17 @@ pub struct StopDetection {
     pub locations: VecDeque<DriverLocation>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RouteDeviation {
+    pub locations: VecDeque<DriverLocation>,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct DriverAllDetails {
     pub driver_last_known_location: DriverLastKnownLocation,
     pub blocked_till: Option<TimeStamp>,
     pub stop_detection: Option<StopDetection>,
+    pub route_deviation: Option<RouteDeviation>,
     pub ride_status: Option<RideStatus>,
     pub ride_notification_status: Option<RideNotificationStatus>,
     pub driver_pickup_distance: Option<Meters>,

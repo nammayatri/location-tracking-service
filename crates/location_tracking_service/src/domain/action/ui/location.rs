@@ -6,16 +6,18 @@
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 #![allow(clippy::all)]
-use crate::common::utils::{distance_between_in_meters, get_city, is_blacklist_for_special_zone};
-use crate::common::{
-    sliding_window_rate_limiter::sliding_window_limiter, stop_detection::detect_stop, types::*,
+use crate::common::detection::{
+    DetectionConfig, DetectionContext, DetectionHandler, DetectionResult, RouteDeviationHandler,
+    StopDetectionHandler,
 };
+use crate::common::utils::{distance_between_in_meters, get_city, is_blacklist_for_special_zone};
+use crate::common::{sliding_window_rate_limiter::sliding_window_limiter, types::*};
 use crate::domain::types::ui::location::{DriverLocationResponse, UpdateDriverLocationRequest};
 use crate::environment::AppState;
 use crate::kafka::producers::kafka_stream_updates;
 use crate::outbound::external::{
     authenticate_dobpp, bulk_location_update_dobpp, driver_reached_destination, trigger_fcm_bap,
-    trigger_fcm_dobpp, trigger_stop_detection_event,
+    trigger_fcm_dobpp, trigger_route_deviation_event, trigger_stop_detection_event,
 };
 use crate::redis::{commands::*, keys::*};
 use crate::tools::error::AppError;
@@ -28,6 +30,7 @@ use futures::Future;
 use reqwest::Url;
 use shared::measure_latency_duration;
 use shared::redis::types::RedisConnectionPool;
+use std::collections::VecDeque;
 use std::env::var;
 use std::pin::Pin;
 use tracing::{debug, info, warn};
@@ -289,21 +292,94 @@ async fn process_driver_locations(
         || (data.stop_detection.enable_onride_stop_detection
             && driver_ride_status == Some(RideStatus::INPROGRESS))
     {
-        detect_stop(
-            driver_location_details
-                .as_ref()
-                .map(|driver_location_details| driver_location_details.stop_detection.to_owned())
-                .flatten(),
-            DriverLocation {
-                location: latest_driver_location.pt.to_owned(),
-                timestamp: latest_driver_location.ts,
+        let stop_config = data.get_stop_detection_config(&vehicle_type);
+        let mut stop_detection_handler = StopDetectionHandler::new(
+            DetectionConfig {
+                enabled: stop_config.enable_onride_stop_detection,
+                detection_interval: 30,
+                update_callback_url: stop_config.stop_detection_update_callback_url.clone(),
             },
-            latest_driver_location.v,
-            &data.stop_detection,
-        )
+            stop_config.clone(),
+        );
+
+        let context = DetectionContext {
+            driver_id: driver_id.clone(),
+            location: latest_driver_location.pt.clone(),
+            timestamp: latest_driver_location_ts.clone(),
+            speed: latest_driver_location
+                .v
+                .map(|v| SpeedInMeterPerSecond(v.inner())),
+            ride_status: driver_location_details
+                .as_ref()
+                .and_then(|d| d.ride_status.clone()),
+            ride_info: driver_ride_info.clone(),
+        };
+
+        match stop_detection_handler.check(&context) {
+            Some(DetectionResult::StopDetected {
+                location,
+                timestamp: _,
+            }) => {
+                let mut locations = VecDeque::new();
+                locations.push_back(DriverLocation {
+                    location: location.clone(),
+                    timestamp: context.timestamp.clone(),
+                });
+                let stop_detection = Some(StopDetection { locations });
+                (Some(location), stop_detection)
+            }
+            _ => (None, None),
+        }
     } else {
         (None, None)
     };
+
+    let (route_deviation_detected, route_deviation, deviation) =
+        if data.detection_configs.route_deviation.default.enabled
+            && driver_ride_status == Some(RideStatus::INPROGRESS)
+        {
+            let route_config = data.get_route_deviation_config(&vehicle_type);
+            let mut route_deviation_handler = RouteDeviationHandler::new(
+                DetectionConfig {
+                    enabled: route_config.enabled,
+                    detection_interval: route_config.detection_interval as i64,
+                    update_callback_url: route_config.route_deviation_update_callback_url.clone(),
+                },
+                route_config.clone(),
+            );
+
+            let context = DetectionContext {
+                driver_id: driver_id.clone(),
+                location: latest_driver_location.pt.clone(),
+                timestamp: latest_driver_location_ts.clone(),
+                speed: latest_driver_location
+                    .v
+                    .map(|v| SpeedInMeterPerSecond(v.inner())),
+                ride_status: driver_location_details
+                    .as_ref()
+                    .and_then(|d| d.ride_status.clone()),
+                ride_info: driver_ride_info.clone(),
+            };
+
+            match route_deviation_handler.check(&context) {
+                Some(DetectionResult::RouteDeviationDetected {
+                    location,
+                    timestamp: _,
+                    deviation,
+                }) => {
+                    let mut locations = VecDeque::new();
+                    locations.push_back(DriverLocation {
+                        location: location.clone(),
+                        timestamp: context.timestamp.clone(),
+                    });
+                    let route_deviation = Some(RouteDeviation { locations });
+                    (Some(location), route_deviation, Some(deviation))
+                }
+                _ => (None, None, None),
+            }
+        } else {
+            (None, None, None)
+        };
 
     let (
         driver_ride_notification_status,
@@ -393,6 +469,7 @@ async fn process_driver_locations(
                     &latest_driver_location_ts,
                     &None,
                     stop_detection,
+                    route_deviation,
                     &driver_ride_status,
                     &driver_ride_notification_status,
                     &driver_pickup_distance,
@@ -534,6 +611,7 @@ async fn process_driver_locations(
                     driver_location_timestamp,
                     &None::<TimeStamp>,
                     stop_detection,
+                    route_deviation,
                     &driver_ride_status,
                     &driver_ride_notification_status,
                     &driver_pickup_distance,
@@ -637,6 +715,23 @@ async fn process_driver_locations(
                         .await;
                     }
                 }
+
+                if let (Some(location), Some(ride_id)) =
+                    (route_deviation_detected.as_ref(), driver_ride_id.as_ref())
+                {
+                    let _ = trigger_route_deviation_event(
+                        &data
+                            .detection_configs
+                            .route_deviation
+                            .default
+                            .route_deviation_update_callback_url,
+                        location,
+                        ride_id.to_owned(),
+                        driver_id.to_owned(),
+                        deviation.unwrap_or(0.0),
+                    )
+                    .await;
+                }
             }
             Some(RideInfo::Car { pickup_location: _ }) => {
                 if let (Some(location), Some(ride_id)) =
@@ -647,6 +742,23 @@ async fn process_driver_locations(
                         location,
                         ride_id.to_owned(),
                         driver_id.to_owned(),
+                    )
+                    .await;
+                }
+
+                if let (Some(location), Some(ride_id)) =
+                    (route_deviation_detected.as_ref(), driver_ride_id.as_ref())
+                {
+                    let _ = trigger_route_deviation_event(
+                        &data
+                            .detection_configs
+                            .route_deviation
+                            .default
+                            .route_deviation_update_callback_url,
+                        location,
+                        ride_id.to_owned(),
+                        driver_id.to_owned(),
+                        deviation.unwrap_or(0.0),
                     )
                     .await;
                 }

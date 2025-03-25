@@ -1577,6 +1577,7 @@ dependencies = [
  "actix-http",
  "actix-web",
  "actix-web-prom",
+ "async-trait",
  "chrono",
  "enum-iterator",
  "fred",
