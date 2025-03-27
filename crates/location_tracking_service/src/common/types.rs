@@ -192,6 +192,14 @@ pub struct RideDetails {
     pub ride_info: Option<RideInfo>,
 }
 
+#[derive(Deserialize, Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RideDetailsApiEntity {
+    pub ride_id: RideId,
+    pub ride_status: RideStatus,
+    pub ride_info: Option<RideInfo>,
+}
+
 #[derive(Deserialize, Serialize, Clone, Debug, Eq, PartialEq)]
 pub struct DriverDetails {
     pub driver_id: DriverId, // TODO :: Make it string from json to save deserialization cost.

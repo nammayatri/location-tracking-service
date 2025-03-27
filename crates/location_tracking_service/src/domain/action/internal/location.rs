@@ -82,7 +82,16 @@ async fn search_nearby_drivers_with_vehicle(
                         created_at: last_location_update_ts,
                         updated_at: last_location_update_ts,
                         merchant_id: merchant_id.to_owned(),
-                        ride_details: driver_ride_detail.clone(),
+                        ride_details: driver_ride_detail
+                            .clone()
+                            .map(|detail| {
+                                Some(RideDetailsApiEntity {
+                                    ride_id: detail.ride_id,
+                                    ride_info: detail.ride_info,
+                                    ride_status: detail.ride_status,
+                                })
+                            })
+                            .flatten(),
                     }
                 },
             )
