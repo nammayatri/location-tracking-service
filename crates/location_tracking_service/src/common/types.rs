@@ -58,6 +58,7 @@ impl<'de> Deserialize<'de> for SpeedInMeterPerSecond {
 
         struct SpeedVisitor;
 
+        #[allow(clippy::needless_lifetimes)]
         impl<'de> serde::de::Visitor<'de> for SpeedVisitor {
             type Value = SpeedInMeterPerSecond;
 
