@@ -148,6 +148,29 @@ pub async fn trigger_stop_detection_event(
     .map_err(|e| e.into())
 }
 
+pub async fn trigger_route_deviation_event(
+    callback_url: &Url,
+    location: &Point,
+    ride_id: RideId,
+    driver_id: DriverId,
+    deviation: f64,
+) -> Result<APISuccess, AppError> {
+    call_api::<APISuccess, RouteDeviationReq>(
+        Protocol::Http1,
+        Method::POST,
+        callback_url,
+        vec![("content-type", "application/json")],
+        Some(RouteDeviationReq {
+            ride_id,
+            driver_id,
+            location: location.to_owned(),
+            deviation,
+        }),
+    )
+    .await
+    .map_err(|e| e.into())
+}
+
 pub async fn driver_reached_destination(
     driver_reached_destination_callback_url: &Url,
     location: &Point,

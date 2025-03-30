@@ -77,3 +77,12 @@ pub struct Apns {
     pub content_state: HashMap<String, String>,
     pub alert: HashMap<String, serde_json::Value>,
 }
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct RouteDeviationReq {
+    pub location: Point,
+    pub ride_id: RideId,
+    pub driver_id: DriverId,
+    pub deviation: f64,
+}
