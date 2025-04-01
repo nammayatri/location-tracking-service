@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use tokio::sync::mpsc::Sender;
 use tracing::info;
 
-use crate::common::{geo_polygon::read_geo_polygon, types::*};
+use crate::common::{geo_polygon::read_geo_polygon, route::read_route_data, types::*};
 
 use shared::tools::logger::LoggerConfig;
 
@@ -194,6 +194,7 @@ pub struct AppState {
     pub pickup_notification_threshold: f64,
     pub arriving_notification_threshold: f64,
     pub detection_configs: DetectionConfigs,
+    pub routes: Vec<Route>,
 }
 
 impl AppState {
@@ -243,6 +244,10 @@ impl AppState {
 
         let geo_config_path = var("GEO_CONFIG").unwrap_or_else(|_| "./geo_config".to_string());
         let polygons = read_geo_polygon(&geo_config_path).expect("Failed to read geoJSON");
+
+        let get_geo_json_path =
+            var("GET_GEO_JSON_CONFIG").unwrap_or_else(|_| "./get_geo_json_config".to_string());
+        let routes = read_route_data(&get_geo_json_path);
 
         let blacklist_geo_config_path =
             var("BLACKLIST_GEO_CONFIG").unwrap_or_else(|_| "./blacklist_geo_config".to_string());
@@ -339,6 +344,7 @@ impl AppState {
                     vehicle_specific: app_config.overspeeding_vehicle_configs.unwrap_or_default(),
                 },
             },
+            routes,
         }
     }
 
