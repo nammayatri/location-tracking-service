@@ -353,6 +353,13 @@ pub struct RideBookingDetails {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
+pub struct NextStopInfo {
+    pub name: String,
+    pub distance: f64,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
 pub struct VehicleTrackingInfo {
     pub start_time: Option<TimeStamp>,
     pub schedule_relationship: Option<String>,
@@ -362,4 +369,80 @@ pub struct VehicleTrackingInfo {
     pub speed: Option<SpeedInMeterPerSecond>,
     pub timestamp: Option<TimeStamp>,
     pub ride_status: Option<RideStatus>,
+    pub upcoming_stop: Option<Stop>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct RouteProperties {
+    #[serde(rename = "Route Code")]
+    pub route_code: String,
+    #[serde(rename = "Travel Mode")]
+    pub travel_mode: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct StopProperties {
+    #[serde(rename = "Stop Name")]
+    pub stop_name: String,
+    #[serde(rename = "Provider Id")]
+    pub provider_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct RouteFeature {
+    pub geometry: RouteGeometry,
+    pub properties: RouteProperties,
+    #[serde(rename = "type")]
+    pub feature_type: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct StopFeature {
+    pub geometry: StopGeometry,
+    pub properties: StopProperties,
+    #[serde(rename = "type")]
+    pub feature_type: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct RouteGeometry {
+    pub coordinates: Vec<Vec<f64>>,
+    #[serde(rename = "type")]
+    pub geometry_type: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct StopGeometry {
+    pub coordinates: Vec<f64>,
+    #[serde(rename = "type")]
+    pub geometry_type: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct RouteGeoJSON {
+    pub features: Vec<serde_json::Value>,
+    #[serde(rename = "type")]
+    pub geo_type: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct WaypointInfo {
+    pub coordinate: Vec<f64>,
+    pub stop: Option<Stop>,
+    pub upcoming_stop: Option<Stop>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Route {
+    pub route_code: String,
+    pub travel_mode: String,
+    pub coordinates: Vec<WaypointInfo>,
+    pub stops: Vec<Stop>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Stop {
+    pub name: String,
+    pub coordinates: Vec<f64>,
+    pub is_intermediate_stop: bool,
 }

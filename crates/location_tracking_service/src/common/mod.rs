@@ -10,6 +10,7 @@ pub mod detection;
 pub mod geo_polygon;
 pub mod heap_size;
 pub mod kafka;
+pub mod route;
 pub mod sliding_window_rate_limiter;
 pub mod stop_detection;
 pub mod types;

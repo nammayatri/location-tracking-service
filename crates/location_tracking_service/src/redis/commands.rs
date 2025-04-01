@@ -660,6 +660,7 @@ pub async fn push_drainer_driver_location(
         .map_err(|err| AppError::InternalError(err.to_string()))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn set_route_location(
     redis: &RedisConnectionPool,
     route_code: &str,
@@ -668,6 +669,7 @@ pub async fn set_route_location(
     speed: &Option<SpeedInMeterPerSecond>,
     timestamp: &TimeStamp,
     ride_status: Option<RideStatus>,
+    upcoming_stop: Option<Stop>,
 ) -> Result<(), AppError> {
     let vehicle_tracking_info = VehicleTrackingInfo {
         schedule_relationship: None,
@@ -678,6 +680,7 @@ pub async fn set_route_location(
         speed: *speed,
         timestamp: Some(*timestamp),
         ride_status,
+        upcoming_stop,
     };
     redis
         .set_hash_fields_with_hashmap_expiry(

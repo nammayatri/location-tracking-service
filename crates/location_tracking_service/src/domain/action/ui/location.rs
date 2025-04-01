@@ -10,6 +10,7 @@ use crate::common::detection::{
     DetectionConfig, DetectionContext, DetectionHandler, DetectionResult, RouteDeviationHandler,
     StopDetectionHandler,
 };
+use crate::common::route::get_next_stop_by_route_code;
 use crate::common::utils::{distance_between_in_meters, get_city, is_blacklist_for_special_zone};
 use crate::common::{sliding_window_rate_limiter::sliding_window_limiter, types::*};
 use crate::domain::types::ui::location::{DriverLocationResponse, UpdateDriverLocationRequest};
@@ -444,6 +445,9 @@ async fn process_driver_locations(
             let mut all_tasks: Vec<Pin<Box<dyn Future<Output = Result<(), AppError>>>>> =
                 Vec::new();
 
+            let upcoming_stop =
+                get_next_stop_by_route_code(&data.routes, route_code, &latest_driver_location.pt)
+                    .unwrap_or(None);
             let set_route_location = async {
                 set_route_location(
                     &data.redis,
@@ -453,6 +457,7 @@ async fn process_driver_locations(
                     &latest_driver_location.v,
                     &latest_driver_location_ts,
                     driver_ride_status.to_owned(),
+                    upcoming_stop,
                 )
                 .await?;
                 Ok(())
