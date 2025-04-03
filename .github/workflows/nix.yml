@@ -1,14 +1,14 @@
 name: CI
 
 permissions:
-  contents: read  
-  packages: write  
+  contents: read
+  packages: write
 
 on:
   push:
-    branches: ["main"]
+    branches: ["lts/prodHotPush"]
   pull_request:
-    branches: ["main"]
+    branches: ["lts/prodHotPush"]
   workflow_dispatch:
 
 jobs:
@@ -29,18 +29,18 @@ jobs:
 
       # Push and pin whitelisted paths to cachix
       # - name: Push to cachix
-      #   if: github.ref == 'refs/heads/main'
+      #   if: github.ref == 'refs/heads/lts/prodHotPush'
       #   run: nix run .#cachix-push
 
       - name: Docker tasks
         id: docker
-        if: (github.ref == 'refs/heads/main')
+        if: (github.ref == 'refs/heads/lts/prodHotPush')
         run: |
           nix build .#dockerImage -o docker-image.tgz
           echo "image_name=$(nix eval --raw .#dockerImage.imageName):$(nix eval --raw .#dockerImage.imageTag)" >> $GITHUB_OUTPUT
 
       - name: Upload Docker image tarball
-        if: (github.ref == 'refs/heads/main')
+        if: (github.ref == 'refs/heads/lts/prodHotPush')
         uses: actions/upload-artifact@v4
         with:
           name: docker-image
@@ -49,7 +49,7 @@ jobs:
   push-docker:
     needs: build
     runs-on: ubuntu-latest
-    if: (github.ref == 'refs/heads/main')
+    if: (github.ref == 'refs/heads/lts/prodHotPush')
     steps:
       - name: Download Docker image tarball
         uses: actions/download-artifact@v4
