@@ -29,6 +29,14 @@ pub struct GetDriversLocationRequest {
 
 pub type GetDriversLocationResponse = Vec<DriverLocationDetail>;
 
+#[derive(Deserialize, Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RideDetailsApiEntity {
+    pub ride_id: RideId,
+    pub ride_status: RideStatus,
+    pub ride_info: Option<RideInfo>,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct DriverLocationDetail {
@@ -40,7 +48,7 @@ pub struct DriverLocationDetail {
     pub updated_at: TimeStamp,
     pub merchant_id: MerchantId,
     pub bear: Option<Direction>,
-    pub ride_details: Option<RideDetails>,
+    pub ride_details: Option<RideDetailsApiEntity>,
     pub vehicle_type: Option<VehicleType>,
 }
 
