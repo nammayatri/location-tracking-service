@@ -9,7 +9,6 @@ let redis_cfg = {
     default_hash_ttl = 3600,
     stream_read_count = 100,
 }
-
 let replica_redis_cfg = {
     redis_host = "0.0.0.0",
     redis_port = 6380,
@@ -26,19 +25,15 @@ let zone_to_redis_replica_mapping =
         , ap-south-1b = "0.0.0.0"
         , ap-south-1c = "0.0.0.0"
         }
-
 let kafka_cfg = {
     kafka_key = "bootstrap.servers",
     kafka_host = "0.0.0.0:9092"
 }
-
 let LogLevel = < TRACE | DEBUG | INFO | WARN | ERROR | OFF >
-
 let logger_cfg = {
     level = LogLevel.DEBUG,
     log_to_file = False
 }
-
 let stop_detection_config = {
     stop_detection_update_callback_url = "http://127.0.0.1:8016/internal/stopDetection",
     max_eligible_stop_speed_threshold = 2.0,
@@ -46,51 +41,63 @@ let stop_detection_config = {
     min_points_within_radius_threshold = 5,
     enable_onride_stop_detection = False
 }
-
 let route_deviation_config = {
     route_deviation_update_callback_url = "http://127.0.0.1:8016/internal/routeDeviation",
     route_deviation_threshold_meters = 100,
     detection_interval = 30,
     enabled = True
 }
-
 let overspeeding_config = {
     update_callback_url = "http://127.0.0.1:8016/internal/overspeeding",
     speed_limit = 27.78,
     buffer_percentage = 10.0,
     detection_interval = 30
 }
-
 -- drainer_delay :: 4 * 1024KB * 1024MB * 1024GB / 100 Bytes = 41943040
-
-let stop_detection_vehicle_configs = {=}
-  with SEDAN = stop_detection_config
-  with BUS_AC = {
-    stop_detection_update_callback_url = "http://127.0.0.1:8016/internal/stopDetection",
-    max_eligible_stop_speed_threshold = 3.0,
-    radius_threshold_meters = 30,
-    min_points_within_radius_threshold = 4,
-    enable_onride_stop_detection = True
+let stoppedDetectionConfig = {
+    number_of_batches = 5,
+    single_batch_size = 1,
+    max_eligible_speed = Some 2,
+    max_eligible_distance = 25
   }
-
-let route_deviation_vehicle_configs = {=}
-  with SEDAN = route_deviation_config
-  with BUS_AC = {
-    route_deviation_update_callback_url = "http://127.0.0.1:8016/internal/routeDeviation",
-    route_deviation_threshold_meters = 150,
-    detection_interval = 45,
-    enabled = True
+let routeDeviationDetectionConfig = {
+    deviation_threshold = 300,
+    sample_size = 5
   }
-
-let overspeeding_vehicle_configs = {=}
-  with SEDAN = overspeeding_config
-  with BUS_AC = {
-    update_callback_url = "http://127.0.0.1:8016/internal/overspeeding",
-    speed_limit = 22.22,
-    buffer_percentage = 5.0,
-    detection_interval = 45
+let overspeedingDetectionConfig = {
+    speed_limit = 60.0,
+    sample_size = 10
   }
-
+let stoppedDetectionConfigT = { max_eligible_distance : Natural, max_eligible_speed : Optional Natural, number_of_batches : Natural, single_batch_size : Natural }
+let routeDeviationDetectionConfigT = { deviation_threshold : Natural, sample_size : Natural }
+let overspeedingDetectionConfigT = { sample_size : Natural, speed_limit : Double }
+let DetectionConfigType =
+      < StoppedDetection : stoppedDetectionConfigT | RouteDeviationDetection : routeDeviationDetectionConfigT | OverspeedingDetection : overspeedingDetectionConfigT >
+let detection_violation_cab_config = {=}
+  with Stopped = {
+    enabled_on_pick_up = False,
+    enabled_on_ride = False,
+    detection_config = DetectionConfigType.StoppedDetection stoppedDetectionConfig
+  }
+let detection_violation_bus_config = {=}
+  with Stopped = {
+    enabled_on_pick_up = True,
+    enabled_on_ride = True,
+    detection_config = DetectionConfigType.StoppedDetection stoppedDetectionConfig
+  }
+  with RouteDeviation = {
+    enabled_on_pick_up = True,
+    enabled_on_ride = True,
+    detection_config = DetectionConfigType.RouteDeviationDetection routeDeviationDetectionConfig
+  }
+  with Overspeeding = {
+    enabled_on_pick_up = True,
+    enabled_on_ride = True,
+    detection_config = DetectionConfigType.OverspeedingDetection overspeedingDetectionConfig
+  }
+let detection_violation_config = {=}
+  with SEDAN = detection_violation_cab_config
+  with BUS_AC = detection_violation_bus_config
 in {
     logger_cfg = logger_cfg,
     redis_cfg = redis_cfg,
@@ -105,11 +112,6 @@ in {
     auth_api_key = "ae288466-2add-11ee-be56-0242ac120002",
     bulk_location_callback_url = "http://127.0.0.1:8016/internal/bulkLocUpdate",
     stop_detection = stop_detection_config,
-    stop_detection_vehicle_configs = Some stop_detection_vehicle_configs,
-    route_deviation = route_deviation_config,
-    route_deviation_vehicle_configs = Some route_deviation_vehicle_configs,
-    overspeeding = overspeeding_config,
-    overspeeding_vehicle_configs = Some overspeeding_vehicle_configs,
     auth_token_expiry = 86400,
     min_location_accuracy = 50.0,
     driver_location_accuracy_buffer = 25.0,
@@ -134,4 +136,7 @@ in {
     apns_url = "https://api.sandbox.push.apple.com:443",
     pickup_notification_threshold = 40.0,
     arriving_notification_threshold = 100.0,
+    detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
+    detection_violation_config = detection_violation_config,
+    detection_anti_violation_config = detection_violation_config
 }

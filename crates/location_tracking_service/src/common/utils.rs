@@ -247,3 +247,20 @@ pub fn abs_diff_utc_as_sec(old: DateTime<Utc>, new: DateTime<Utc>) -> f64 {
     let duration = new.signed_duration_since(old);
     duration.num_seconds() as f64 + (duration.num_milliseconds() % 1000) as f64 / 1000.0
 }
+
+pub fn get_base_vehicle_type(vehicle_type: &VehicleType) -> VehicleType {
+    match vehicle_type {
+        VehicleType::SEDAN
+        | VehicleType::TAXI
+        | VehicleType::TaxiPlus
+        | VehicleType::PremiumSedan
+        | VehicleType::BLACK
+        | VehicleType::BlackXl
+        | VehicleType::SuvPlus
+        | VehicleType::HeritageCab => VehicleType::SEDAN,
+        VehicleType::BusAc | VehicleType::BusNonAc => VehicleType::BusAc,
+        VehicleType::AutoRickshaw | VehicleType::EvAutoRickshaw => VehicleType::AutoRickshaw,
+        VehicleType::BIKE | VehicleType::DeliveryBike => VehicleType::BIKE,
+        _ => VehicleType::SEDAN, // Default to SEDAN for all other types
+    }
+}

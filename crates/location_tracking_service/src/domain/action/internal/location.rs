@@ -262,12 +262,13 @@ pub async fn driver_block_till(
             &details.driver_last_known_location.timestamp,
             &Some(request_body.block_till),
             details.stop_detection,
-            details.route_deviation,
             &None::<RideStatus>,
             &None,
-            &None,
+            &details.detection_state,
+            &details.anti_detection_state,
+            &details.violation_trigger_flag,
+            &details.driver_pickup_distance,
             &details.driver_last_known_location.bear,
-            // travelled_distance.to_owned(),
             &details.driver_last_known_location.vehicle_type,
         )
         .await?;

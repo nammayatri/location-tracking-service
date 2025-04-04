@@ -6,19 +6,21 @@
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 #![allow(clippy::all)]
-use crate::common::detection::{
-    DetectionConfig, DetectionContext, DetectionHandler, DetectionResult, RouteDeviationHandler,
-    StopDetectionHandler,
+use crate::common::detection::*;
+use crate::common::stop_detection::*;
+use crate::common::utils::{
+    distance_between_in_meters, get_base_vehicle_type, get_city, is_blacklist_for_special_zone,
 };
-use crate::common::utils::{distance_between_in_meters, get_city, is_blacklist_for_special_zone};
 use crate::common::{sliding_window_rate_limiter::sliding_window_limiter, types::*};
 use crate::domain::types::ui::location::{DriverLocationResponse, UpdateDriverLocationRequest};
 use crate::environment::AppState;
 use crate::kafka::producers::kafka_stream_updates;
+use crate::outbound::external::trigger_detection_alert;
 use crate::outbound::external::{
     authenticate_dobpp, bulk_location_update_dobpp, driver_reached_destination, trigger_fcm_bap,
-    trigger_fcm_dobpp, trigger_route_deviation_event, trigger_stop_detection_event,
+    trigger_fcm_dobpp, trigger_stop_detection_event,
 };
+use crate::outbound::types::ViolationDetectionReq;
 use crate::redis::{commands::*, keys::*};
 use crate::tools::error::AppError;
 use crate::tools::prometheus::MEASURE_DURATION;
@@ -30,9 +32,10 @@ use futures::Future;
 use reqwest::Url;
 use shared::measure_latency_duration;
 use shared::redis::types::RedisConnectionPool;
-use std::collections::VecDeque;
+use std::collections::HashMap;
 use std::env::var;
 use std::pin::Pin;
+use strum::IntoEnumIterator;
 use tracing::{debug, info, warn};
 
 #[macros::measure_duration]
@@ -288,98 +291,147 @@ async fn process_driver_locations(
         TimeStamp(latest_driver_location_ts)
     };
 
+    let (
+        detection_state,
+        anti_detection_state,
+        violation_trigger_flag,
+        violation_detection_requests,
+    ): (
+        ViolationDetectionStateMap,
+        ViolationDetectionStateMap,
+        ViolationDetectionTriggerMap,
+        Vec<ViolationDetectionReq>,
+    ) = {
+        if let (Some(ride_status), Some(ride_id)) = (
+            driver_location_details
+                .as_ref()
+                .and_then(|d| d.ride_status.clone()),
+            driver_ride_id.as_ref(),
+        ) {
+            let base_vehicle_type = get_base_vehicle_type(&vehicle_type);
+            DetectionType::iter().fold(
+                (
+                    driver_location_details
+                        .as_ref()
+                        .map(|driver_location_details| {
+                            driver_location_details.detection_state.to_owned()
+                        })
+                        .flatten()
+                        .unwrap_or_default(),
+                    driver_location_details
+                        .as_ref()
+                        .map(|driver_location_details| {
+                            driver_location_details.anti_detection_state.to_owned()
+                        })
+                        .flatten()
+                        .unwrap_or_default(),
+                    driver_location_details
+                        .as_ref()
+                        .map(|driver_location_details| {
+                            driver_location_details.violation_trigger_flag.to_owned()
+                        })
+                        .flatten()
+                        .unwrap_or_default(),
+                    Vec::new(),
+                ),
+                |(
+                    mut detection_violation_state_map,
+                    mut detection_anti_violation_state_map,
+                    mut violation_trigger_flag_map,
+                    mut violation_detection_requests,
+                ),
+                 detection_type| {
+                    let context = DetectionContext {
+                        ride_id: ride_id.clone(),
+                        driver_id: driver_id.clone(),
+                        location: latest_driver_location.pt.clone(),
+                        timestamp: latest_driver_location_ts.clone(),
+                        speed: latest_driver_location
+                            .v
+                            .map(|v| SpeedInMeterPerSecond(v.inner())),
+                        ride_status: ride_status.to_owned(),
+                        ride_info: driver_ride_info.clone(),
+                        vehicle_type: vehicle_type.to_owned(),
+                    };
+
+                    if let (
+                        Some(detection_violation_config),
+                        Some(detection_anti_violation_config),
+                    ) = (
+                        data.detection_violation_config
+                            .get(&base_vehicle_type)
+                            .and_then(|inner_map| inner_map.get(&detection_type)),
+                        data.detection_anti_violation_config
+                            .get(&base_vehicle_type)
+                            .and_then(|inner_map| inner_map.get(&detection_type)),
+                    ) {
+                        if let (
+                            Some(detection_violation_state),
+                            Some(detection_anti_violation_state),
+                            violation_trigger_flag,
+                            violation_detection_req,
+                        ) = check(
+                            detection_violation_config,
+                            detection_anti_violation_config,
+                            context,
+                            detection_violation_state_map.get(&detection_type).cloned(),
+                            detection_anti_violation_state_map
+                                .get(&detection_type)
+                                .cloned(),
+                            violation_trigger_flag_map
+                                .get(&detection_type)
+                                .cloned()
+                                .flatten(),
+                        ) {
+                            detection_violation_state_map
+                                .insert(detection_type.clone(), detection_violation_state);
+                            detection_anti_violation_state_map
+                                .insert(detection_type.clone(), detection_anti_violation_state);
+                            violation_trigger_flag_map
+                                .insert(detection_type.clone(), violation_trigger_flag);
+
+                            if let Some(violation_detection_request) = violation_detection_req {
+                                violation_detection_requests.push(violation_detection_request)
+                            }
+                        }
+                    }
+                    (
+                        detection_violation_state_map,
+                        detection_anti_violation_state_map,
+                        violation_trigger_flag_map,
+                        violation_detection_requests,
+                    )
+                },
+            )
+        } else {
+            (
+                HashMap::default(),
+                HashMap::default(),
+                HashMap::default(),
+                Vec::new(),
+            )
+        }
+    };
+
     let (stop_detected, stop_detection) = if driver_ride_status == Some(RideStatus::NEW)
         || (data.stop_detection.enable_onride_stop_detection
             && driver_ride_status == Some(RideStatus::INPROGRESS))
     {
-        let stop_config = data.get_stop_detection_config(&vehicle_type);
-        let mut stop_detection_handler = StopDetectionHandler::new(
-            DetectionConfig {
-                enabled: stop_config.enable_onride_stop_detection,
-                detection_interval: 30,
-                update_callback_url: stop_config.stop_detection_update_callback_url.clone(),
-            },
-            stop_config.clone(),
-        );
-
-        let context = DetectionContext {
-            driver_id: driver_id.clone(),
-            location: latest_driver_location.pt.clone(),
-            timestamp: latest_driver_location_ts.clone(),
-            speed: latest_driver_location
-                .v
-                .map(|v| SpeedInMeterPerSecond(v.inner())),
-            ride_status: driver_location_details
+        detect_stop(
+            driver_location_details
                 .as_ref()
-                .and_then(|d| d.ride_status.clone()),
-            ride_info: driver_ride_info.clone(),
-        };
-
-        match stop_detection_handler.check(&context) {
-            Some(DetectionResult::StopDetected {
-                location,
-                timestamp: _,
-            }) => {
-                let mut locations = VecDeque::new();
-                locations.push_back(DriverLocation {
-                    location: location.clone(),
-                    timestamp: context.timestamp.clone(),
-                });
-                let stop_detection = Some(StopDetection { locations });
-                (Some(location), stop_detection)
-            }
-            _ => (None, None),
-        }
+                .map(|driver_location_details| driver_location_details.stop_detection.to_owned())
+                .flatten(),
+            DriverLocation {
+                location: latest_driver_location.pt.to_owned(),
+                timestamp: latest_driver_location.ts,
+            },
+            latest_driver_location.v,
+            &data.stop_detection,
+        )
     } else {
         (None, None)
     };
-
-    let (route_deviation_detected, route_deviation, deviation) =
-        if data.detection_configs.route_deviation.default.enabled
-            && driver_ride_status == Some(RideStatus::INPROGRESS)
-        {
-            let route_config = data.get_route_deviation_config(&vehicle_type);
-            let mut route_deviation_handler = RouteDeviationHandler::new(
-                DetectionConfig {
-                    enabled: route_config.enabled,
-                    detection_interval: route_config.detection_interval as i64,
-                    update_callback_url: route_config.route_deviation_update_callback_url.clone(),
-                },
-                route_config.clone(),
-            );
-
-            let context = DetectionContext {
-                driver_id: driver_id.clone(),
-                location: latest_driver_location.pt.clone(),
-                timestamp: latest_driver_location_ts.clone(),
-                speed: latest_driver_location
-                    .v
-                    .map(|v| SpeedInMeterPerSecond(v.inner())),
-                ride_status: driver_location_details
-                    .as_ref()
-                    .and_then(|d| d.ride_status.clone()),
-                ride_info: driver_ride_info.clone(),
-            };
-
-            match route_deviation_handler.check(&context) {
-                Some(DetectionResult::RouteDeviationDetected {
-                    location,
-                    timestamp: _,
-                    deviation,
-                }) => {
-                    let mut locations = VecDeque::new();
-                    locations.push_back(DriverLocation {
-                        location: location.clone(),
-                        timestamp: context.timestamp.clone(),
-                    });
-                    let route_deviation = Some(RouteDeviation { locations });
-                    (Some(location), route_deviation, Some(deviation))
-                }
-                _ => (None, None, None),
-            }
-        } else {
-            (None, None, None)
-        };
 
     let (
         driver_ride_notification_status,
@@ -469,9 +521,11 @@ async fn process_driver_locations(
                     &latest_driver_location_ts,
                     &None,
                     stop_detection,
-                    route_deviation,
                     &driver_ride_status,
                     &driver_ride_notification_status,
+                    &Some(detection_state),
+                    &Some(anti_detection_state),
+                    &Some(violation_trigger_flag),
                     &driver_pickup_distance,
                     &None,
                     &Some(vehicle_type.clone()),
@@ -611,12 +665,13 @@ async fn process_driver_locations(
                     driver_location_timestamp,
                     &None::<TimeStamp>,
                     stop_detection,
-                    route_deviation,
                     &driver_ride_status,
                     &driver_ride_notification_status,
+                    &Some(detection_state),
+                    &Some(anti_detection_state),
+                    &Some(violation_trigger_flag),
                     &driver_pickup_distance,
                     &latest_driver_location.bear,
-                    // travelled_distance.to_owned(),
                     &Some(vehicle_type.clone()),
                 )
                 .await?;
@@ -716,21 +771,14 @@ async fn process_driver_locations(
                     }
                 }
 
-                if let (Some(location), Some(ride_id)) =
-                    (route_deviation_detected.as_ref(), driver_ride_id.as_ref())
-                {
-                    let _ = trigger_route_deviation_event(
-                        &data
-                            .detection_configs
-                            .route_deviation
-                            .default
-                            .route_deviation_update_callback_url,
-                        location,
-                        ride_id.to_owned(),
-                        driver_id.to_owned(),
-                        deviation.unwrap_or(0.0),
-                    )
-                    .await;
+                for violations in violation_detection_requests {
+                    if let Err(err) =
+                        trigger_detection_alert(&data.detection_callback_url, violations)
+                            .await
+                            .map_err(|err| AppError::AlertRequestFailed(err.message()))
+                    {
+                        warn!("Violation Alert could not be sent. {} ", err);
+                    }
                 }
             }
             Some(RideInfo::Car { pickup_location: _ }) => {
@@ -742,23 +790,6 @@ async fn process_driver_locations(
                         location,
                         ride_id.to_owned(),
                         driver_id.to_owned(),
-                    )
-                    .await;
-                }
-
-                if let (Some(location), Some(ride_id)) =
-                    (route_deviation_detected.as_ref(), driver_ride_id.as_ref())
-                {
-                    let _ = trigger_route_deviation_event(
-                        &data
-                            .detection_configs
-                            .route_deviation
-                            .default
-                            .route_deviation_update_callback_url,
-                        location,
-                        ride_id.to_owned(),
-                        driver_id.to_owned(),
-                        deviation.unwrap_or(0.0),
                     )
                     .await;
                 }

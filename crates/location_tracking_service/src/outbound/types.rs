@@ -86,3 +86,41 @@ pub struct RouteDeviationReq {
     pub driver_id: DriverId,
     pub deviation: f64,
 }
+
+// Trigger Stop Detection Event
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct StoppedDetectionData {
+    pub location: Point,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct RouteDeviationDetectionData {
+    pub location: Point,
+    pub distance: f64,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct OverSpeedingDetectionData {
+    pub location: Point,
+    pub speed: f64,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub enum DetectionData {
+    RouteDeviationDetection(RouteDeviationDetectionData),
+    StoppedDetection(StoppedDetectionData),
+    OverSpeedingDetection(OverSpeedingDetectionData),
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ViolationDetectionReq {
+    pub ride_id: RideId,
+    pub driver_id: DriverId,
+    pub is_violated: bool,
+    pub detection_data: DetectionData,
+}

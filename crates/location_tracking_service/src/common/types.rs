@@ -310,11 +310,12 @@ pub struct DriverAllDetails {
     pub driver_last_known_location: DriverLastKnownLocation,
     pub blocked_till: Option<TimeStamp>,
     pub stop_detection: Option<StopDetection>,
-    pub route_deviation: Option<RouteDeviation>,
     pub ride_status: Option<RideStatus>,
     pub ride_notification_status: Option<RideNotificationStatus>,
     pub driver_pickup_distance: Option<Meters>,
-    // pub travelled_distance: Option<Meters>,
+    pub violation_trigger_flag: Option<ViolationDetectionTriggerMap>,
+    pub detection_state: Option<ViolationDetectionStateMap>,
+    pub anti_detection_state: Option<ViolationDetectionStateMap>,
 }
 
 #[derive(
@@ -362,4 +363,94 @@ pub struct VehicleTrackingInfo {
     pub speed: Option<SpeedInMeterPerSecond>,
     pub timestamp: Option<TimeStamp>,
     pub ride_status: Option<RideStatus>,
+}
+
+pub type ViolationDetectionTriggerMap = FxHashMap<DetectionType, Option<DetectionStatus>>;
+pub type ViolationDetectionStateMap = FxHashMap<DetectionType, ViolationDetectionState>;
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, Hash, PartialEq, EnumIter)]
+pub enum DetectionType {
+    Stopped,
+    RouteDeviation,
+    Overspeeding,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ViolationDetectionState {
+    StopDetection(StopDetectionState),
+    RouteDeviation(RouteDeviationState),
+    Overspeeding(OverspeedingState),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StopDetectionState {
+    pub coords_mean: Point,
+    pub avg_speed: Option<f64>,
+    pub total_datapoints: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RouteDeviationState {
+    pub minimum_deviation_distance: f64,
+    pub total_datapoints: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OverspeedingState {
+    pub avg_speed: f64,
+    pub total_datapoints: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct StoppedDetectionConfig {
+    pub number_of_batches: u32,
+    pub single_batch_size: u32,
+    pub max_eligible_speed: Option<SpeedInMeterPerSecond>,
+    pub max_eligible_distance: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OverspeedingConfig {
+    pub speed_limit: f64,
+    pub sample_size: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RouteDeviationConfig {
+    pub deviation_threshold: u32,
+    pub sample_size: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ViolationDetectionConfig {
+    pub enabled_on_pick_up: bool,
+    pub enabled_on_ride: bool,
+    pub detection_config: DetectionConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum DetectionConfig {
+    StoppedDetection(StoppedDetectionConfig),
+    OverspeedingDetection(OverspeedingConfig),
+    RouteDeviationDetection(RouteDeviationConfig),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DetectionContext {
+    pub driver_id: DriverId,
+    pub ride_id: RideId,
+    pub location: Point,
+    pub timestamp: TimeStamp,
+    pub speed: Option<SpeedInMeterPerSecond>,
+    pub ride_status: RideStatus,
+    pub ride_info: Option<RideInfo>,
+    pub vehicle_type: VehicleType,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum DetectionStatus {
+    ContinuedViolation,
+    ContinuedAntiViolation,
+    Violated,
+    AntiViolated,
 }
