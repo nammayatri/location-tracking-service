@@ -46,6 +46,7 @@ pub enum AppError {
     DrainerPushFailed(String),
     DriverSendingFCMFailed(String),
     DriverBlocked,
+    AlertRequestFailed(String),
 }
 
 impl AppError {
@@ -87,6 +88,9 @@ impl AppError {
             AppError::KafkaPushFailed(reason) => {
                 format!("Kafka Push Failed : {reason}")
             }
+            AppError::AlertRequestFailed(reason) => {
+                format!("Sending Violation Alert Failed : {reason}")
+            }
             _ => "Some Error Occured".to_string(),
         }
     }
@@ -118,6 +122,7 @@ impl AppError {
             AppError::KafkaPushFailed(_) => "KAFKA_PUSH_FAILED",
             AppError::DrainerPushFailed(_) => "DRAINER_PUSH_FAILED",
             AppError::DriverSendingFCMFailed(_) => "DOBPP_SENDING_FCM_FAILED",
+            AppError::AlertRequestFailed(_) => "VIOLATION_ALERT_FAILED",
             AppError::DriverBlocked => "DRIVER_BLOCKED",
         }
         .to_string()
@@ -156,6 +161,7 @@ impl ResponseError for AppError {
             AppError::InvalidConfiguration(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::RequestTimeout => StatusCode::REQUEST_TIMEOUT,
             AppError::DriverSendingFCMFailed(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            AppError::AlertRequestFailed(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::DriverBlocked => StatusCode::FORBIDDEN,
         }
     }

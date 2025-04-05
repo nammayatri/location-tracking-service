@@ -41,11 +41,6 @@ pub struct AppConfig {
     pub location_update_limit: usize,
     pub location_update_interval: u64,
     pub stop_detection: StopDetectionConfig,
-    pub stop_detection_vehicle_configs: Option<HashMap<VehicleType, StopDetectionConfig>>,
-    pub route_deviation: RouteDeviationConfig,
-    pub route_deviation_vehicle_configs: Option<HashMap<VehicleType, RouteDeviationConfig>>,
-    pub overspeeding: OverspeedingConfig,
-    pub overspeeding_vehicle_configs: Option<HashMap<VehicleType, OverspeedingConfig>>,
     pub kafka_cfg: KafkaConfig,
     pub driver_location_update_topic: String,
     pub batch_size: i64,
@@ -66,6 +61,12 @@ pub struct AppConfig {
     pub trigger_fcm_callback_url: String,
     pub trigger_fcm_callback_url_bap: String,
     pub apns_url: String,
+    #[serde(deserialize_with = "deserialize_url")]
+    pub detection_callback_url: Url,
+    pub detection_violation_config:
+        HashMap<VehicleType, HashMap<DetectionType, ViolationDetectionConfig>>,
+    pub detection_anti_violation_config:
+        HashMap<VehicleType, HashMap<DetectionType, ViolationDetectionConfig>>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -95,57 +96,6 @@ pub struct StopDetectionConfig {
     pub radius_threshold_meters: u64,
     pub min_points_within_radius_threshold: usize,
     pub enable_onride_stop_detection: bool,
-}
-
-#[derive(Debug, Deserialize, Clone)]
-pub struct RouteDeviationConfig {
-    #[serde(deserialize_with = "deserialize_url")]
-    pub route_deviation_update_callback_url: Url,
-    pub route_deviation_threshold_meters: u64,
-    pub detection_interval: u64,
-    pub enabled: bool,
-}
-
-#[derive(Debug, Deserialize, Clone)]
-pub struct OverspeedingConfig {
-    #[serde(deserialize_with = "deserialize_url")]
-    pub update_callback_url: Url,
-    pub speed_limit: f64,
-    pub buffer_percentage: f64,
-    pub detection_interval: u64,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct DetectionConfigs {
-    pub stop_detection: StopDetectionConfigs,
-    pub route_deviation: RouteDeviationConfigs,
-    pub overspeeding: OverspeedingConfigs,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct DetectionConfig {
-    pub enabled: bool,
-    #[serde(deserialize_with = "deserialize_url")]
-    pub update_callback_url: Url,
-    pub detection_interval: u32,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct StopDetectionConfigs {
-    pub default: StopDetectionConfig,
-    pub vehicle_specific: HashMap<VehicleType, StopDetectionConfig>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct RouteDeviationConfigs {
-    pub default: RouteDeviationConfig,
-    pub vehicle_specific: HashMap<VehicleType, RouteDeviationConfig>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct OverspeedingConfigs {
-    pub default: OverspeedingConfig,
-    pub vehicle_specific: HashMap<VehicleType, OverspeedingConfig>,
 }
 
 fn deserialize_url<'de, D>(deserializer: D) -> Result<Url, D::Error>
@@ -193,7 +143,11 @@ pub struct AppState {
     pub apns_url: Url,
     pub pickup_notification_threshold: f64,
     pub arriving_notification_threshold: f64,
-    pub detection_configs: DetectionConfigs,
+    pub detection_callback_url: Url,
+    pub detection_violation_config:
+        HashMap<VehicleType, HashMap<DetectionType, ViolationDetectionConfig>>,
+    pub detection_anti_violation_config:
+        HashMap<VehicleType, HashMap<DetectionType, ViolationDetectionConfig>>,
 }
 
 impl AppState {
@@ -321,68 +275,9 @@ impl AppState {
             apns_url: Url::parse(app_config.apns_url.as_str()).expect("Failed to parse apns_url."),
             pickup_notification_threshold: app_config.pickup_notification_threshold,
             arriving_notification_threshold: app_config.arriving_notification_threshold,
-            detection_configs: DetectionConfigs {
-                stop_detection: StopDetectionConfigs {
-                    default: app_config.stop_detection,
-                    vehicle_specific: app_config
-                        .stop_detection_vehicle_configs
-                        .unwrap_or_default(),
-                },
-                route_deviation: RouteDeviationConfigs {
-                    default: app_config.route_deviation,
-                    vehicle_specific: app_config
-                        .route_deviation_vehicle_configs
-                        .unwrap_or_default(),
-                },
-                overspeeding: OverspeedingConfigs {
-                    default: app_config.overspeeding,
-                    vehicle_specific: app_config.overspeeding_vehicle_configs.unwrap_or_default(),
-                },
-            },
+            detection_callback_url: app_config.detection_callback_url,
+            detection_violation_config: app_config.detection_violation_config,
+            detection_anti_violation_config: app_config.detection_anti_violation_config,
         }
-    }
-
-    fn get_base_vehicle_type(vehicle_type: &VehicleType) -> VehicleType {
-        match vehicle_type {
-            VehicleType::SEDAN
-            | VehicleType::TAXI
-            | VehicleType::TaxiPlus
-            | VehicleType::PremiumSedan
-            | VehicleType::BLACK
-            | VehicleType::BlackXl
-            | VehicleType::SuvPlus
-            | VehicleType::HeritageCab => VehicleType::SEDAN,
-            VehicleType::BusAc | VehicleType::BusNonAc => VehicleType::BusAc,
-            VehicleType::AutoRickshaw | VehicleType::EvAutoRickshaw => VehicleType::AutoRickshaw,
-            VehicleType::BIKE | VehicleType::DeliveryBike => VehicleType::BIKE,
-            _ => VehicleType::SEDAN, // Default to SEDAN for all other types
-        }
-    }
-
-    pub fn get_stop_detection_config(&self, vehicle_type: &VehicleType) -> &StopDetectionConfig {
-        let base_type = Self::get_base_vehicle_type(vehicle_type);
-        self.detection_configs
-            .stop_detection
-            .vehicle_specific
-            .get(&base_type)
-            .unwrap_or(&self.detection_configs.stop_detection.default)
-    }
-
-    pub fn get_route_deviation_config(&self, vehicle_type: &VehicleType) -> &RouteDeviationConfig {
-        let base_type = Self::get_base_vehicle_type(vehicle_type);
-        self.detection_configs
-            .route_deviation
-            .vehicle_specific
-            .get(&base_type)
-            .unwrap_or(&self.detection_configs.route_deviation.default)
-    }
-
-    pub fn get_overspeeding_config(&self, vehicle_type: &VehicleType) -> &OverspeedingConfig {
-        let base_type = Self::get_base_vehicle_type(vehicle_type);
-        self.detection_configs
-            .overspeeding
-            .vehicle_specific
-            .get(&base_type)
-            .unwrap_or(&self.detection_configs.overspeeding.default)
     }
 }
