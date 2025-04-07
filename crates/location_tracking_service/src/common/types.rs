@@ -384,8 +384,8 @@ pub enum ViolationDetectionState {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StopDetectionState {
-    pub coords_mean: Point,
-    pub avg_speed: Option<f64>,
+    pub avg_speed: Option<VecDeque<(f64, u32)>>,
+    pub avg_coord_mean: VecDeque<(Point, u32)>,
     pub total_datapoints: u64,
 }
 
@@ -397,14 +397,14 @@ pub struct RouteDeviationState {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OverspeedingState {
-    pub avg_speed: f64,
     pub total_datapoints: u64,
+    pub avg_speed_record: VecDeque<(f64, u32)>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct StoppedDetectionConfig {
-    pub number_of_batches: u32,
-    pub single_batch_size: u32,
+    pub batch_count: u32,
+    pub sample_size: u32,
     pub max_eligible_speed: Option<SpeedInMeterPerSecond>,
     pub max_eligible_distance: u32,
 }
@@ -413,6 +413,7 @@ pub struct StoppedDetectionConfig {
 pub struct OverspeedingConfig {
     pub speed_limit: f64,
     pub sample_size: u32,
+    pub batch_count: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

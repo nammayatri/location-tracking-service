@@ -55,22 +55,38 @@ let overspeeding_config = {
 }
 -- drainer_delay :: 4 * 1024KB * 1024MB * 1024GB / 100 Bytes = 41943040
 let stoppedDetectionConfig = {
-    number_of_batches = 5,
-    single_batch_size = 1,
+    batch_count = 10,
+    sample_size = 300,
     max_eligible_speed = Some 2,
     max_eligible_distance = 25
   }
 let routeDeviationDetectionConfig = {
-    deviation_threshold = 300,
+    deviation_threshold = 500,
     sample_size = 5
   }
 let overspeedingDetectionConfig = {
     speed_limit = 60.0,
-    sample_size = 10
+    sample_size = 6,
+    batch_count = 3
   }
-let stoppedDetectionConfigT = { max_eligible_distance : Natural, max_eligible_speed : Optional Natural, number_of_batches : Natural, single_batch_size : Natural }
-let routeDeviationDetectionConfigT = { deviation_threshold : Natural, sample_size : Natural }
-let overspeedingDetectionConfigT = { sample_size : Natural, speed_limit : Double }
+let stoppedAntiDetectionConfig = {
+    batch_count = 10,
+    sample_size = 300,
+    max_eligible_speed = Some 2,
+    max_eligible_distance = 50
+  }
+let routeDeviationAntiDetectionConfig = {
+    deviation_threshold = 300,
+    sample_size = 5
+  }
+let overspeedingAntiDetectionConfig = {
+    speed_limit = 50.0,
+    sample_size = 6,
+    batch_count = 3
+  }
+let stoppedDetectionConfigT = { max_eligible_distance : Natural, max_eligible_speed : Optional Natural, batch_count : Natural, sample_size : Natural }
+let routeDeviationDetectionConfigT = { deviation_threshold : Natural, sample_size : Natural}
+let overspeedingDetectionConfigT = { sample_size : Natural, speed_limit : Double, batch_count : Natural }
 let DetectionConfigType =
       < StoppedDetection : stoppedDetectionConfigT | RouteDeviationDetection : routeDeviationDetectionConfigT | OverspeedingDetection : overspeedingDetectionConfigT >
 let detection_violation_cab_config = {=}
@@ -95,9 +111,34 @@ let detection_violation_bus_config = {=}
     enabled_on_ride = True,
     detection_config = DetectionConfigType.OverspeedingDetection overspeedingDetectionConfig
   }
+let detection_anti_violation_cab_config = {=}
+  with Stopped = {
+    enabled_on_pick_up = False,
+    enabled_on_ride = False,
+    detection_config = DetectionConfigType.StoppedDetection stoppedAntiDetectionConfig
+  }
+let detection_anti_violation_bus_config = {=}
+  with Stopped = {
+    enabled_on_pick_up = True,
+    enabled_on_ride = True,
+    detection_config = DetectionConfigType.StoppedDetection stoppedAntiDetectionConfig
+  }
+  with RouteDeviation = {
+    enabled_on_pick_up = True,
+    enabled_on_ride = True,
+    detection_config = DetectionConfigType.RouteDeviationDetection routeDeviationAntiDetectionConfig
+  }
+  with Overspeeding = {
+    enabled_on_pick_up = True,
+    enabled_on_ride = True,
+    detection_config = DetectionConfigType.OverspeedingDetection overspeedingAntiDetectionConfig
+  }
 let detection_violation_config = {=}
   with SEDAN = detection_violation_cab_config
   with BUS_AC = detection_violation_bus_config
+let detection_anti_violation_config = {=}
+  with SEDAN = detection_anti_violation_cab_config
+  with BUS_AC = detection_anti_violation_bus_config
 in {
     logger_cfg = logger_cfg,
     redis_cfg = redis_cfg,
@@ -138,5 +179,5 @@ in {
     arriving_notification_threshold = 100.0,
     detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
     detection_violation_config = detection_violation_config,
-    detection_anti_violation_config = detection_violation_config
+    detection_anti_violation_config = detection_anti_violation_config
 }

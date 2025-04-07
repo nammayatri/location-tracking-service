@@ -6,10 +6,13 @@
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
+use std::collections::VecDeque;
+
 use tracing::warn;
 
 use crate::{
     common::types::*,
+    common::utils::distance_between_in_meters,
     outbound::types::{DetectionData, OverSpeedingDetectionData, ViolationDetectionReq},
 };
 
@@ -43,10 +46,10 @@ pub fn check(
         violation_detection_trigger_flag.as_ref(),
         violation_state_and_trigger
             .as_ref()
-            .map(|(_, trigger)| trigger),
+            .and_then(|(_, trigger)| trigger.to_owned()),
         anti_violation_state_and_trigger
             .as_ref()
-            .map(|(_, trigger)| trigger),
+            .and_then(|(_, trigger)| trigger.to_owned()),
     );
 
     let trigger_detection_req = get_triggered_state_req(
@@ -68,77 +71,355 @@ fn violation_check(
     config: &ViolationDetectionConfig,
     context: &DetectionContext,
     state: Option<ViolationDetectionState>,
-) -> Option<(ViolationDetectionState, bool)> {
+) -> Option<(ViolationDetectionState, Option<bool>)> {
     match config.detection_config {
         DetectionConfig::OverspeedingDetection(OverspeedingConfig {
             sample_size,
             speed_limit,
+            batch_count,
         }) => {
-            // if state present then use it
-            if config.enabled_on_pick_up {
-                if let Some(ViolationDetectionState::Overspeeding(OverspeedingState {
-                    avg_speed: p_average_speed,
-                    total_datapoints: p_total_datapoints,
-                })) = state
+            if let Some(ViolationDetectionState::Overspeeding(OverspeedingState {
+                mut total_datapoints,
+                avg_speed_record,
+            })) = state
+            {
+                if let (Some(prev_tuple), Some(current_speed)) =
+                    (avg_speed_record.back(), context.speed)
                 {
-                    if p_total_datapoints >= sample_size.into() {
-                        // if we have already sufficient data points, then reset the state
-                        if let Some(current_speed) = context.speed {
-                            return Some((
-                                ViolationDetectionState::Overspeeding(OverspeedingState {
-                                    avg_speed: current_speed.inner(),
-                                    total_datapoints: 1,
-                                }),
-                                false,
-                            ));
-                        }
-                    } else {
-                        // if less than sample size, simply calculate average and return
-                        // in case we reach the sample size by this addition and cross threshold
-                        // then send the alert
-                        if let Some(current_speed) = context.speed {
-                            let current_total_datapoints = p_total_datapoints + 1;
-                            let current_avg_speed = (p_average_speed * p_total_datapoints as f64
+                    let max_batch_size = sample_size / batch_count;
+                    let prev_avg_speed = prev_tuple.0;
+                    let prev_batch_datapoints = prev_tuple.1;
+                    if total_datapoints < sample_size as u64 {
+                        if prev_batch_datapoints < max_batch_size {
+                            let current_avg_speed = (prev_avg_speed * prev_batch_datapoints as f64
                                 + current_speed.inner())
-                                / (current_total_datapoints as f64);
-
-                            if current_total_datapoints == sample_size as u64
-                                && current_avg_speed > speed_limit
-                            {
-                                return Some((
-                                    ViolationDetectionState::Overspeeding(OverspeedingState {
-                                        avg_speed: current_avg_speed,
-                                        total_datapoints: current_total_datapoints,
-                                    }),
-                                    true,
-                                ));
+                                / (prev_batch_datapoints as f64 + 1.0);
+                            let mut copy_list = avg_speed_record.clone();
+                            copy_list.pop_back();
+                            copy_list.push_back((current_avg_speed, prev_batch_datapoints + 1));
+                            total_datapoints += 1;
+                            if total_datapoints == sample_size as u64 {
+                                // get this by the average of the values fro the list in the state
+                                let current_average_speed =
+                                    copy_list.iter().map(|c| c.0).sum::<f64>()
+                                        / (copy_list.len() as f64);
+                                if current_average_speed > speed_limit {
+                                    return Some((
+                                        ViolationDetectionState::Overspeeding(OverspeedingState {
+                                            total_datapoints,
+                                            avg_speed_record: copy_list,
+                                        }),
+                                        Some(true),
+                                    ));
+                                } else {
+                                    return Some((
+                                        ViolationDetectionState::Overspeeding(OverspeedingState {
+                                            total_datapoints,
+                                            avg_speed_record: copy_list,
+                                        }),
+                                        Some(false),
+                                    ));
+                                }
                             }
                             return Some((
                                 ViolationDetectionState::Overspeeding(OverspeedingState {
-                                    avg_speed: current_avg_speed,
-                                    total_datapoints: current_total_datapoints,
+                                    total_datapoints,
+                                    avg_speed_record: copy_list,
                                 }),
-                                false,
+                                None,
+                            ));
+                        } else {
+                            let mut copy_list = avg_speed_record.clone();
+                            copy_list.push_back((current_speed.inner(), 1));
+                            total_datapoints += 1;
+                            return Some((
+                                ViolationDetectionState::Overspeeding(OverspeedingState {
+                                    total_datapoints,
+                                    avg_speed_record: copy_list,
+                                }),
+                                None,
+                            ));
+                        }
+                    } else {
+                        let mut copy_list = avg_speed_record;
+                        total_datapoints -= max_batch_size as u64;
+                        copy_list.pop_front();
+                        if let Some(prev_tuple) = copy_list.back() {
+                            let prev_average_speed = prev_tuple.0;
+                            let prev_batch_size = prev_tuple.1;
+                            // Starting opied
+                            if prev_batch_size < max_batch_size {
+                                let current_avg_speed = (prev_average_speed
+                                    * prev_batch_size as f64
+                                    + current_speed.inner())
+                                    / (prev_batch_size as f64 + 1.0);
+                                copy_list.pop_back();
+                                copy_list.push_back((current_avg_speed, prev_batch_datapoints + 1));
+                                total_datapoints += 1;
+                                if total_datapoints == sample_size as u64 {
+                                    // get this by the average of the values fro the list in the state
+                                    let current_average_speed =
+                                        copy_list.iter().map(|c| c.0).sum::<f64>()
+                                            / (copy_list.len() as f64);
+                                    if current_average_speed > speed_limit {
+                                        return Some((
+                                            ViolationDetectionState::Overspeeding(
+                                                OverspeedingState {
+                                                    total_datapoints,
+                                                    avg_speed_record: copy_list,
+                                                },
+                                            ),
+                                            Some(true),
+                                        ));
+                                    } else {
+                                        return Some((
+                                            ViolationDetectionState::Overspeeding(
+                                                OverspeedingState {
+                                                    total_datapoints,
+                                                    avg_speed_record: copy_list,
+                                                },
+                                            ),
+                                            Some(false),
+                                        ));
+                                    }
+                                }
+                                return Some((
+                                    ViolationDetectionState::Overspeeding(OverspeedingState {
+                                        total_datapoints,
+                                        avg_speed_record: copy_list,
+                                    }),
+                                    None,
+                                ));
+                            } else {
+                                copy_list.push_back((current_speed.inner(), 1));
+                                total_datapoints += 1;
+                                return Some((
+                                    ViolationDetectionState::Overspeeding(OverspeedingState {
+                                        total_datapoints,
+                                        avg_speed_record: copy_list,
+                                    }),
+                                    None,
+                                ));
+                            }
+                            // Ending copied
+                        } else {
+                            total_datapoints = 1;
+                            return Some((
+                                ViolationDetectionState::Overspeeding(OverspeedingState {
+                                    total_datapoints,
+                                    avg_speed_record: VecDeque::from([(current_speed.inner(), 1)]),
+                                }),
+                                None,
                             ));
                         }
                     }
-                } else {
-                    // set the state with the current
-                    if let Some(current_speed) = context.speed {
-                        return Some((
-                            ViolationDetectionState::Overspeeding(OverspeedingState {
-                                avg_speed: current_speed.inner(),
-                                total_datapoints: 1,
-                            }),
-                            false,
-                        ));
-                    }
                 }
+            } else if let Some(current_speed) = context.speed {
+                return Some((
+                    ViolationDetectionState::Overspeeding(OverspeedingState {
+                        total_datapoints: 1,
+                        avg_speed_record: VecDeque::from([(current_speed.inner(), 1)]),
+                    }),
+                    None,
+                ));
             }
             None
         }
-        DetectionConfig::RouteDeviationDetection { .. } => None,
-        DetectionConfig::StoppedDetection { .. } => None,
+        DetectionConfig::RouteDeviationDetection(RouteDeviationConfig { .. }) => None,
+        DetectionConfig::StoppedDetection(StoppedDetectionConfig {
+            batch_count,
+            max_eligible_speed: _,
+            max_eligible_distance,
+            sample_size,
+        }) => {
+            if let Some(ViolationDetectionState::StopDetection(StopDetectionState {
+                avg_speed: _,
+                mut total_datapoints,
+                avg_coord_mean,
+            })) = state
+            {
+                if let Some(prev_tuple) = avg_coord_mean.back() {
+                    let max_batch_size = sample_size / batch_count;
+                    let prev_avg_point = prev_tuple.0.clone();
+                    let prev_batch_datapoints = prev_tuple.1;
+                    if total_datapoints < sample_size as u64 {
+                        if prev_batch_datapoints < max_batch_size {
+                            let current_avg_point = Point {
+                                lat: Latitude(
+                                    (prev_avg_point.lat.inner() * prev_batch_datapoints as f64
+                                        + context.location.lat.inner())
+                                        / (prev_batch_datapoints as f64 + 1.0),
+                                ),
+                                lon: Longitude(
+                                    (prev_avg_point.lon.inner() * prev_batch_datapoints as f64
+                                        + context.location.lon.inner())
+                                        / (prev_batch_datapoints as f64 + 1.0),
+                                ),
+                            };
+                            let mut copy_list = avg_coord_mean.clone();
+                            copy_list.pop_back();
+                            copy_list.push_back((current_avg_point, prev_batch_datapoints + 1));
+                            total_datapoints += 1;
+                            if total_datapoints == sample_size as u64 {
+                                // Check if the vehicle has stopped by comparing the distance between first and last points
+                                if let Some(true) = check_stopped(&copy_list, max_eligible_distance)
+                                {
+                                    return Some((
+                                        ViolationDetectionState::StopDetection(
+                                            StopDetectionState {
+                                                total_datapoints,
+                                                avg_speed: None,
+                                                avg_coord_mean: copy_list,
+                                            },
+                                        ),
+                                        Some(true),
+                                    ));
+                                } else if let Some(false) =
+                                    check_stopped(&copy_list, max_eligible_distance)
+                                {
+                                    return Some((
+                                        ViolationDetectionState::StopDetection(
+                                            StopDetectionState {
+                                                total_datapoints,
+                                                avg_speed: None,
+                                                avg_coord_mean: copy_list,
+                                            },
+                                        ),
+                                        Some(false),
+                                    ));
+                                }
+                            }
+                            return Some((
+                                ViolationDetectionState::StopDetection(StopDetectionState {
+                                    total_datapoints,
+                                    avg_speed: None,
+                                    avg_coord_mean: copy_list,
+                                }),
+                                None,
+                            ));
+                        } else {
+                            let mut copy_list = avg_coord_mean.clone();
+                            copy_list.push_back((context.location.clone(), 1));
+                            total_datapoints += 1;
+                            return Some((
+                                ViolationDetectionState::StopDetection(StopDetectionState {
+                                    total_datapoints,
+                                    avg_speed: None,
+                                    avg_coord_mean: copy_list,
+                                }),
+                                None,
+                            ));
+                        }
+                    } else {
+                        let mut copy_list = avg_coord_mean.clone();
+                        total_datapoints -= max_batch_size as u64;
+                        copy_list.pop_front();
+                        if let Some(prev_tuple) = copy_list.back() {
+                            let prev_average_point = prev_tuple.0.clone();
+                            let prev_batch_size = prev_tuple.1;
+                            if prev_batch_size < max_batch_size {
+                                let current_avg_point = Point {
+                                    lat: Latitude(
+                                        (prev_average_point.lat.inner() * prev_batch_size as f64
+                                            + context.location.lat.inner())
+                                            / (prev_batch_size as f64 + 1.0),
+                                    ),
+                                    lon: Longitude(
+                                        (prev_average_point.lon.inner() * prev_batch_size as f64
+                                            + context.location.lon.inner())
+                                            / (prev_batch_size as f64 + 1.0),
+                                    ),
+                                };
+                                let mut copy_list = avg_coord_mean.clone();
+                                copy_list.pop_back();
+                                copy_list.push_back((current_avg_point, prev_batch_size + 1));
+                                total_datapoints += 1;
+                                if total_datapoints == sample_size as u64 {
+                                    if let Some(true) =
+                                        check_stopped(&copy_list, max_eligible_distance)
+                                    {
+                                        return Some((
+                                            ViolationDetectionState::StopDetection(
+                                                StopDetectionState {
+                                                    total_datapoints,
+                                                    avg_speed: None,
+                                                    avg_coord_mean: copy_list,
+                                                },
+                                            ),
+                                            Some(true),
+                                        ));
+                                    } else if let Some(false) =
+                                        check_stopped(&copy_list, max_eligible_distance)
+                                    {
+                                        return Some((
+                                            ViolationDetectionState::StopDetection(
+                                                StopDetectionState {
+                                                    total_datapoints,
+                                                    avg_speed: None,
+                                                    avg_coord_mean: copy_list,
+                                                },
+                                            ),
+                                            Some(false),
+                                        ));
+                                    }
+                                }
+                                return Some((
+                                    ViolationDetectionState::StopDetection(StopDetectionState {
+                                        total_datapoints,
+                                        avg_speed: None,
+                                        avg_coord_mean: copy_list,
+                                    }),
+                                    None,
+                                ));
+                            } else {
+                                copy_list.push_back((context.location.clone(), 1));
+                                total_datapoints += 1;
+                                return Some((
+                                    ViolationDetectionState::StopDetection(StopDetectionState {
+                                        total_datapoints,
+                                        avg_speed: None,
+                                        avg_coord_mean: copy_list,
+                                    }),
+                                    None,
+                                ));
+                            }
+                        } else {
+                            total_datapoints = 1;
+                            return Some((
+                                ViolationDetectionState::StopDetection(StopDetectionState {
+                                    total_datapoints,
+                                    avg_speed: None,
+                                    avg_coord_mean: VecDeque::from([(context.location.clone(), 1)]),
+                                }),
+                                None,
+                            ));
+                        }
+                    }
+                }
+            } else {
+                return Some((
+                    ViolationDetectionState::StopDetection(StopDetectionState {
+                        total_datapoints: 1,
+                        avg_speed: None,
+                        avg_coord_mean: VecDeque::from([(context.location.clone(), 1)]),
+                    }),
+                    None,
+                ));
+            }
+            None
+        }
+    }
+}
+
+/// Checks if a vehicle has stopped by comparing the distance between the first and last point
+/// in the provided list of coordinates. If the distance is less than max_eligible_distance,
+/// the vehicle is considered to have stopped.
+fn check_stopped(coord_list: &VecDeque<(Point, u32)>, max_eligible_distance: u32) -> Option<bool> {
+    if let (Some(first_point), Some(last_point)) = (coord_list.front(), coord_list.back()) {
+        let distance = distance_between_in_meters(&first_point.0, &last_point.0);
+        Some(distance <= max_eligible_distance as f64)
+    } else {
+        None
     }
 }
 
@@ -146,68 +427,344 @@ fn anti_violation_check(
     config: &ViolationDetectionConfig,
     context: &DetectionContext,
     state: Option<ViolationDetectionState>,
-) -> Option<(ViolationDetectionState, bool)> {
+) -> Option<(ViolationDetectionState, Option<bool>)> {
     match config.detection_config {
         DetectionConfig::OverspeedingDetection(OverspeedingConfig {
             sample_size,
             speed_limit,
+            batch_count,
         }) => {
-            if config.enabled_on_pick_up {
-                if let Some(ViolationDetectionState::Overspeeding(OverspeedingState {
-                    avg_speed: p_average_speed,
-                    total_datapoints: p_total_datapoints,
-                })) = state
+            if let Some(ViolationDetectionState::Overspeeding(OverspeedingState {
+                mut total_datapoints,
+                avg_speed_record,
+            })) = state
+            {
+                if let (Some(prev_tuple), Some(current_speed)) =
+                    (avg_speed_record.back(), context.speed)
                 {
-                    if p_total_datapoints >= sample_size.into() {
-                        if let Some(current_speed) = context.speed {
+                    let max_batch_size = sample_size / batch_count;
+                    let prev_avg_speed = prev_tuple.0;
+                    let prev_batch_datapoints = prev_tuple.1;
+                    if total_datapoints < sample_size as u64 {
+                        if prev_batch_datapoints < max_batch_size {
+                            let current_avg_speed = (prev_avg_speed * prev_batch_datapoints as f64
+                                + current_speed.inner())
+                                / (prev_batch_datapoints as f64 + 1.0);
+                            let mut copy_list = avg_speed_record.clone();
+                            copy_list.pop_back();
+                            copy_list.push_back((current_avg_speed, prev_batch_datapoints + 1));
+                            total_datapoints += 1;
+                            if total_datapoints == sample_size as u64 {
+                                // get this by the average of the values fro the list in the state
+                                let current_average_speed =
+                                    copy_list.iter().map(|c| c.0).sum::<f64>()
+                                        / (copy_list.len() as f64);
+                                if current_average_speed <= speed_limit {
+                                    return Some((
+                                        ViolationDetectionState::Overspeeding(OverspeedingState {
+                                            total_datapoints,
+                                            avg_speed_record: copy_list,
+                                        }),
+                                        Some(true),
+                                    ));
+                                } else {
+                                    return Some((
+                                        ViolationDetectionState::Overspeeding(OverspeedingState {
+                                            total_datapoints,
+                                            avg_speed_record: copy_list,
+                                        }),
+                                        Some(false),
+                                    ));
+                                }
+                            }
                             return Some((
                                 ViolationDetectionState::Overspeeding(OverspeedingState {
-                                    avg_speed: current_speed.inner(),
-                                    total_datapoints: 1,
+                                    total_datapoints,
+                                    avg_speed_record: copy_list,
                                 }),
-                                false,
+                                None,
                             ));
-                        }
-                    } else if let Some(current_speed) = context.speed {
-                        let current_total_datapoints = p_total_datapoints + 1;
-                        let current_avg_speed = (p_average_speed * p_total_datapoints as f64
-                            + current_speed.inner())
-                            / (current_total_datapoints as f64);
-
-                        if current_total_datapoints == sample_size as u64
-                            && current_avg_speed <= speed_limit
-                        {
+                        } else {
+                            let mut copy_list = avg_speed_record.clone();
+                            copy_list.push_back((current_speed.inner(), 1));
+                            total_datapoints += 1;
                             return Some((
                                 ViolationDetectionState::Overspeeding(OverspeedingState {
-                                    avg_speed: current_avg_speed,
-                                    total_datapoints: current_total_datapoints,
+                                    total_datapoints,
+                                    avg_speed_record: copy_list,
                                 }),
-                                true,
+                                None,
                             ));
                         }
-
-                        return Some((
-                            ViolationDetectionState::Overspeeding(OverspeedingState {
-                                avg_speed: current_avg_speed,
-                                total_datapoints: current_total_datapoints,
-                            }),
-                            false,
-                        ));
+                    } else {
+                        let mut copy_list = avg_speed_record;
+                        total_datapoints -= max_batch_size as u64;
+                        copy_list.pop_front();
+                        if let Some(prev_tuple) = copy_list.back() {
+                            let prev_average_speed = prev_tuple.0;
+                            let prev_batch_size = prev_tuple.1;
+                            // Starting opied
+                            if prev_batch_size < max_batch_size {
+                                let current_avg_speed = (prev_average_speed
+                                    * prev_batch_size as f64
+                                    + current_speed.inner())
+                                    / (prev_batch_size as f64 + 1.0);
+                                copy_list.pop_back();
+                                copy_list.push_back((current_avg_speed, prev_batch_datapoints + 1));
+                                total_datapoints += 1;
+                                if total_datapoints == sample_size as u64 {
+                                    // get this by the average of the values fro the list in the state
+                                    let current_average_speed =
+                                        copy_list.iter().map(|c| c.0).sum::<f64>()
+                                            / (copy_list.len() as f64);
+                                    if current_average_speed <= speed_limit {
+                                        return Some((
+                                            ViolationDetectionState::Overspeeding(
+                                                OverspeedingState {
+                                                    total_datapoints,
+                                                    avg_speed_record: copy_list,
+                                                },
+                                            ),
+                                            Some(true),
+                                        ));
+                                    } else {
+                                        return Some((
+                                            ViolationDetectionState::Overspeeding(
+                                                OverspeedingState {
+                                                    total_datapoints,
+                                                    avg_speed_record: copy_list,
+                                                },
+                                            ),
+                                            Some(false),
+                                        ));
+                                    }
+                                }
+                                return Some((
+                                    ViolationDetectionState::Overspeeding(OverspeedingState {
+                                        total_datapoints,
+                                        avg_speed_record: copy_list,
+                                    }),
+                                    None,
+                                ));
+                            } else {
+                                copy_list.push_back((current_speed.inner(), 1));
+                                total_datapoints += 1;
+                                return Some((
+                                    ViolationDetectionState::Overspeeding(OverspeedingState {
+                                        total_datapoints,
+                                        avg_speed_record: copy_list,
+                                    }),
+                                    None,
+                                ));
+                            }
+                            // Ending copied
+                        } else {
+                            total_datapoints = 1;
+                            return Some((
+                                ViolationDetectionState::Overspeeding(OverspeedingState {
+                                    total_datapoints,
+                                    avg_speed_record: VecDeque::from([(current_speed.inner(), 1)]),
+                                }),
+                                None,
+                            ));
+                        }
                     }
-                } else if let Some(current_speed) = context.speed {
-                    return Some((
-                        ViolationDetectionState::Overspeeding(OverspeedingState {
-                            avg_speed: current_speed.inner(),
-                            total_datapoints: 1,
-                        }),
-                        false,
-                    ));
                 }
+            } else if let Some(current_speed) = context.speed {
+                return Some((
+                    ViolationDetectionState::Overspeeding(OverspeedingState {
+                        total_datapoints: 1,
+                        avg_speed_record: VecDeque::from([(current_speed.inner(), 1)]),
+                    }),
+                    None,
+                ));
             }
             None
         }
         DetectionConfig::RouteDeviationDetection { .. } => None,
-        DetectionConfig::StoppedDetection { .. } => None,
+        DetectionConfig::StoppedDetection(StoppedDetectionConfig {
+            batch_count,
+            max_eligible_speed: _,
+            max_eligible_distance,
+            sample_size,
+        }) => {
+            if let Some(ViolationDetectionState::StopDetection(StopDetectionState {
+                avg_speed: _,
+                mut total_datapoints,
+                avg_coord_mean,
+            })) = state
+            {
+                if let Some(prev_tuple) = avg_coord_mean.back() {
+                    let max_batch_size = sample_size / batch_count;
+                    let prev_avg_point = prev_tuple.0.clone();
+                    let prev_batch_datapoints = prev_tuple.1;
+                    if total_datapoints < sample_size as u64 {
+                        if prev_batch_datapoints < max_batch_size {
+                            let current_avg_point = Point {
+                                lat: Latitude(
+                                    (prev_avg_point.lat.inner() * prev_batch_datapoints as f64
+                                        + context.location.lat.inner())
+                                        / (prev_batch_datapoints as f64 + 1.0),
+                                ),
+                                lon: Longitude(
+                                    (prev_avg_point.lon.inner() * prev_batch_datapoints as f64
+                                        + context.location.lon.inner())
+                                        / (prev_batch_datapoints as f64 + 1.0),
+                                ),
+                            };
+                            let mut copy_list = avg_coord_mean.clone();
+                            copy_list.pop_back();
+                            copy_list.push_back((current_avg_point, prev_batch_datapoints + 1));
+                            total_datapoints += 1;
+                            if total_datapoints == sample_size as u64 {
+                                // Check if the vehicle has stopped by comparing the distance between first and last points
+                                if let Some(false) =
+                                    check_stopped(&copy_list, max_eligible_distance)
+                                {
+                                    return Some((
+                                        ViolationDetectionState::StopDetection(
+                                            StopDetectionState {
+                                                total_datapoints,
+                                                avg_speed: None,
+                                                avg_coord_mean: copy_list,
+                                            },
+                                        ),
+                                        Some(true),
+                                    ));
+                                } else if let Some(true) =
+                                    check_stopped(&copy_list, max_eligible_distance)
+                                {
+                                    return Some((
+                                        ViolationDetectionState::StopDetection(
+                                            StopDetectionState {
+                                                total_datapoints,
+                                                avg_speed: None,
+                                                avg_coord_mean: copy_list,
+                                            },
+                                        ),
+                                        Some(false),
+                                    ));
+                                }
+                            }
+                            return Some((
+                                ViolationDetectionState::StopDetection(StopDetectionState {
+                                    total_datapoints,
+                                    avg_speed: None,
+                                    avg_coord_mean: copy_list,
+                                }),
+                                None,
+                            ));
+                        } else {
+                            let mut copy_list = avg_coord_mean.clone();
+                            copy_list.push_back((context.location.clone(), 1));
+                            total_datapoints += 1;
+                            return Some((
+                                ViolationDetectionState::StopDetection(StopDetectionState {
+                                    total_datapoints,
+                                    avg_speed: None,
+                                    avg_coord_mean: copy_list,
+                                }),
+                                None,
+                            ));
+                        }
+                    } else {
+                        let mut copy_list = avg_coord_mean.clone();
+                        total_datapoints -= max_batch_size as u64;
+                        copy_list.pop_front();
+                        if let Some(prev_tuple) = copy_list.back() {
+                            let prev_average_point = prev_tuple.0.clone();
+                            let prev_batch_size = prev_tuple.1;
+                            if prev_batch_size < max_batch_size {
+                                let current_avg_point = Point {
+                                    lat: Latitude(
+                                        (prev_average_point.lat.inner() * prev_batch_size as f64
+                                            + context.location.lat.inner())
+                                            / (prev_batch_size as f64 + 1.0),
+                                    ),
+                                    lon: Longitude(
+                                        (prev_average_point.lon.inner() * prev_batch_size as f64
+                                            + context.location.lon.inner())
+                                            / (prev_batch_size as f64 + 1.0),
+                                    ),
+                                };
+                                let mut copy_list = avg_coord_mean.clone();
+                                copy_list.pop_back();
+                                copy_list.push_back((current_avg_point, prev_batch_size + 1));
+                                total_datapoints += 1;
+                                if total_datapoints == sample_size as u64 {
+                                    if let Some(true) =
+                                        check_stopped(&copy_list, max_eligible_distance)
+                                    {
+                                        return Some((
+                                            ViolationDetectionState::StopDetection(
+                                                StopDetectionState {
+                                                    total_datapoints,
+                                                    avg_speed: None,
+                                                    avg_coord_mean: copy_list,
+                                                },
+                                            ),
+                                            Some(true),
+                                        ));
+                                    } else if let Some(false) =
+                                        check_stopped(&copy_list, max_eligible_distance)
+                                    {
+                                        return Some((
+                                            ViolationDetectionState::StopDetection(
+                                                StopDetectionState {
+                                                    total_datapoints,
+                                                    avg_speed: None,
+                                                    avg_coord_mean: copy_list,
+                                                },
+                                            ),
+                                            Some(false),
+                                        ));
+                                    }
+                                }
+                                return Some((
+                                    ViolationDetectionState::StopDetection(StopDetectionState {
+                                        total_datapoints,
+                                        avg_speed: None,
+                                        avg_coord_mean: copy_list,
+                                    }),
+                                    None,
+                                ));
+                            } else {
+                                copy_list.push_back((context.location.clone(), 1));
+                                total_datapoints += 1;
+                                return Some((
+                                    ViolationDetectionState::StopDetection(StopDetectionState {
+                                        total_datapoints,
+                                        avg_speed: None,
+                                        avg_coord_mean: copy_list,
+                                    }),
+                                    None,
+                                ));
+                            }
+                        } else {
+                            total_datapoints = 1;
+                            return Some((
+                                ViolationDetectionState::StopDetection(StopDetectionState {
+                                    total_datapoints,
+                                    avg_speed: None,
+                                    avg_coord_mean: VecDeque::from([(context.location.clone(), 1)]),
+                                }),
+                                None,
+                            ));
+                        }
+                    }
+                }
+            } else {
+                return Some((
+                    ViolationDetectionState::StopDetection(StopDetectionState {
+                        total_datapoints: 1,
+                        avg_speed: None,
+                        avg_coord_mean: VecDeque::from([(context.location.clone(), 1)]),
+                    }),
+                    None,
+                ));
+            }
+            None
+        }
     }
 }
 
@@ -220,30 +777,44 @@ fn get_triggered_state_req(
     match is_violated {
         Some(DetectionStatus::Violated) => match curr_violation_state {
             Some(ViolationDetectionState::Overspeeding(OverspeedingState {
-                avg_speed, ..
-            })) => Some(ViolationDetectionReq {
-                ride_id: context.ride_id,
-                driver_id: context.driver_id,
-                is_violated: true,
-                detection_data: DetectionData::OverSpeedingDetection(OverSpeedingDetectionData {
-                    location: context.location,
-                    speed: *avg_speed,
-                }),
-            }),
+                avg_speed_record,
+                ..
+            })) => {
+                let average_speed = avg_speed_record.iter().map(|c| c.0).sum::<f64>()
+                    / avg_speed_record.len() as f64;
+                Some(ViolationDetectionReq {
+                    ride_id: context.ride_id,
+                    driver_id: context.driver_id,
+                    is_violated: true,
+                    detection_data: DetectionData::OverSpeedingDetection(
+                        OverSpeedingDetectionData {
+                            location: context.location,
+                            speed: average_speed,
+                        },
+                    ),
+                })
+            }
             _ => None,
         },
         Some(DetectionStatus::AntiViolated) => match curr_anti_violation_state {
             Some(ViolationDetectionState::Overspeeding(OverspeedingState {
-                avg_speed, ..
-            })) => Some(ViolationDetectionReq {
-                ride_id: context.ride_id,
-                driver_id: context.driver_id,
-                is_violated: false,
-                detection_data: DetectionData::OverSpeedingDetection(OverSpeedingDetectionData {
-                    location: context.location,
-                    speed: *avg_speed,
-                }),
-            }),
+                avg_speed_record,
+                ..
+            })) => {
+                let average_speed = avg_speed_record.iter().map(|c| c.0).sum::<f64>()
+                    / avg_speed_record.len() as f64;
+                Some(ViolationDetectionReq {
+                    ride_id: context.ride_id,
+                    driver_id: context.driver_id,
+                    is_violated: false,
+                    detection_data: DetectionData::OverSpeedingDetection(
+                        OverSpeedingDetectionData {
+                            location: context.location,
+                            speed: average_speed,
+                        },
+                    ),
+                })
+            }
             _ => None,
         },
         _ => None,
@@ -252,14 +823,20 @@ fn get_triggered_state_req(
 
 fn violation_trigger_decision_tree(
     prev_violation_trigger: Option<&DetectionStatus>,
-    curr_violation_trigger: Option<&bool>,
-    curr_anti_violation_trigger: Option<&bool>,
+    curr_violation_trigger: Option<bool>,
+    curr_anti_violation_trigger: Option<bool>,
 ) -> Option<DetectionStatus> {
     match (
         prev_violation_trigger,
         curr_violation_trigger,
         curr_anti_violation_trigger,
     ) {
+        (None, _, _) => Some(DetectionStatus::ContinuedAntiViolation),
+        (Some(DetectionStatus::Violated), None, None) => Some(DetectionStatus::ContinuedViolation),
+        (Some(DetectionStatus::AntiViolated), None, None) => {
+            Some(DetectionStatus::ContinuedAntiViolation)
+        }
+        (a, None, None) => a.cloned(),
         (Some(DetectionStatus::Violated), _, Some(true)) => Some(DetectionStatus::AntiViolated),
         (Some(DetectionStatus::Violated), _, Some(false)) => {
             Some(DetectionStatus::ContinuedViolation)
@@ -280,7 +857,6 @@ fn violation_trigger_decision_tree(
         (Some(DetectionStatus::ContinuedViolation), _, Some(false)) => {
             Some(DetectionStatus::ContinuedViolation)
         }
-        (None, _, _) => Some(DetectionStatus::ContinuedAntiViolation),
         (a, b, c) => {
             warn! {"Unexpected alert status, {:?} {:?} {:?}", a,b,c};
             None
