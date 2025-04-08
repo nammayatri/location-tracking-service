@@ -10,11 +10,15 @@ use std::collections::VecDeque;
 
 use tracing::warn;
 
+use crate::environment::AppState;
 use crate::{
     common::types::*,
     common::utils::distance_between_in_meters,
     outbound::types::{DetectionData, OverSpeedingDetectionData, ViolationDetectionReq},
 };
+use actix_web::web::Data;
+
+use super::utils::find_closest_point_on_route;
 
 pub fn check(
     violation_config: &ViolationDetectionConfig,
@@ -23,18 +27,24 @@ pub fn check(
     detection_state: Option<ViolationDetectionState>,
     anti_detection_state: Option<ViolationDetectionState>,
     violation_detection_trigger_flag: Option<DetectionStatus>,
+    data: Data<AppState>,
 ) -> (
     Option<ViolationDetectionState>,
     Option<ViolationDetectionState>,
     Option<DetectionStatus>,
     Option<ViolationDetectionReq>,
 ) {
-    let violation_state_and_trigger =
-        violation_check(violation_config, &context, detection_state.to_owned());
+    let violation_state_and_trigger = violation_check(
+        violation_config,
+        &context,
+        detection_state.to_owned(),
+        data.clone(),
+    );
     let anti_violation_state_and_trigger = anti_violation_check(
         anti_violation_config,
         &context,
         anti_detection_state.to_owned(),
+        data,
     );
 
     let violation_state = violation_state_and_trigger.as_ref().map(|(state, _)| state);
@@ -71,6 +81,7 @@ fn violation_check(
     config: &ViolationDetectionConfig,
     context: &DetectionContext,
     state: Option<ViolationDetectionState>,
+    data: Data<AppState>,
 ) -> Option<(ViolationDetectionState, Option<bool>)> {
     match config.detection_config {
         DetectionConfig::OverspeedingDetection(OverspeedingConfig {
@@ -225,7 +236,207 @@ fn violation_check(
             }
             None
         }
-        DetectionConfig::RouteDeviationDetection(RouteDeviationConfig { .. }) => None,
+        DetectionConfig::RouteDeviationDetection(RouteDeviationConfig {
+            batch_count,
+            deviation_threshold,
+            sample_size,
+        }) => {
+            if let Some(ViolationDetectionState::RouteDeviation(RouteDeviationState {
+                deviation_distance, // update this value down in the code below
+                mut total_datapoints,
+                avg_deviation_record,
+            })) = state
+            {
+                if let Some(prev_tuple) = avg_deviation_record.back() {
+                    let max_batch_size = sample_size / batch_count;
+                    let prev_avg_point = prev_tuple.0.clone();
+                    let prev_batch_datapoints = prev_tuple.1;
+                    if total_datapoints < sample_size as u64 {
+                        if prev_batch_datapoints < max_batch_size {
+                            let current_avg_point = Point {
+                                lat: Latitude(
+                                    (prev_avg_point.lat.inner() * prev_batch_datapoints as f64
+                                        + context.location.lat.inner())
+                                        / (prev_batch_datapoints as f64 + 1.0),
+                                ),
+                                lon: Longitude(
+                                    (prev_avg_point.lon.inner() * prev_batch_datapoints as f64
+                                        + context.location.lon.inner())
+                                        / (prev_batch_datapoints as f64 + 1.0),
+                                ),
+                            };
+                            let mut copy_list = avg_deviation_record.clone();
+                            copy_list.pop_back();
+                            copy_list.push_back((current_avg_point, prev_batch_datapoints + 1));
+                            total_datapoints += 1;
+                            if total_datapoints == sample_size as u64 {
+                                if let Some(ride_info) = &context.ride_info {
+                                    // Check if the vehicle has deviated from the route
+                                    // change the check_stopped to check_deviated
+                                    if let RideInfo::Bus { route_code, .. } = ride_info {
+                                        let points = data.routes.get(route_code);
+                                        if let Some((true, distance)) =
+                                            check_deviated(&copy_list, deviation_threshold, points)
+                                        {
+                                            return Some((
+                                                ViolationDetectionState::RouteDeviation(
+                                                    RouteDeviationState {
+                                                        total_datapoints,
+                                                        avg_deviation_record: copy_list,
+                                                        deviation_distance: distance,
+                                                    },
+                                                ),
+                                                Some(true),
+                                            ));
+                                        } else if let Some((false, distance)) =
+                                            check_deviated(&copy_list, deviation_threshold, points)
+                                        {
+                                            return Some((
+                                                ViolationDetectionState::RouteDeviation(
+                                                    RouteDeviationState {
+                                                        total_datapoints,
+                                                        avg_deviation_record: copy_list,
+                                                        deviation_distance: distance,
+                                                    },
+                                                ),
+                                                Some(false),
+                                            ));
+                                        }
+                                    }
+                                    return Some((
+                                        ViolationDetectionState::RouteDeviation(
+                                            RouteDeviationState {
+                                                total_datapoints,
+                                                avg_deviation_record: copy_list,
+                                                deviation_distance,
+                                            },
+                                        ),
+                                        None,
+                                    ));
+                                }
+                            } else {
+                                let mut copy_list = avg_deviation_record.clone();
+                                copy_list.push_back((context.location.clone(), 1));
+                                total_datapoints += 1;
+                                return Some((
+                                    ViolationDetectionState::RouteDeviation(RouteDeviationState {
+                                        total_datapoints,
+                                        avg_deviation_record: copy_list,
+                                        deviation_distance,
+                                    }),
+                                    None,
+                                ));
+                            }
+                        } else {
+                            let mut copy_list = avg_deviation_record.clone();
+                            copy_list.push_back((context.location.clone(), 1));
+                            total_datapoints += 1;
+                            return Some((
+                                ViolationDetectionState::RouteDeviation(RouteDeviationState {
+                                    total_datapoints,
+                                    avg_deviation_record: copy_list,
+                                    deviation_distance,
+                                }),
+                                None,
+                            ));
+                        }
+                    } else {
+                        let mut copy_list = avg_deviation_record.clone();
+                        total_datapoints -= max_batch_size as u64;
+                        copy_list.pop_front();
+                        if let Some(prev_tuple) = copy_list.back() {
+                            let prev_average_point = prev_tuple.0.clone();
+                            let prev_batch_size = prev_tuple.1;
+                            if prev_batch_size < max_batch_size {
+                                let current_avg_point = Point {
+                                    lat: Latitude(
+                                        (prev_average_point.lat.inner() * prev_batch_size as f64
+                                            + context.location.lat.inner())
+                                            / (prev_batch_size as f64 + 1.0),
+                                    ),
+                                    lon: Longitude(
+                                        (prev_average_point.lon.inner() * prev_batch_size as f64
+                                            + context.location.lon.inner())
+                                            / (prev_batch_size as f64 + 1.0),
+                                    ),
+                                };
+                                let mut copy_list = avg_deviation_record.clone();
+                                copy_list.pop_back();
+                                copy_list.push_back((current_avg_point, prev_batch_size + 1));
+                                total_datapoints += 1;
+                                if total_datapoints == sample_size as u64 {
+                                    if let Some(RideInfo::Bus { route_code, .. }) =
+                                        &context.ride_info
+                                    {
+                                        let points = data.routes.get(route_code);
+                                        if let Some((true, distance)) =
+                                            check_deviated(&copy_list, deviation_threshold, points)
+                                        {
+                                            return Some((
+                                                ViolationDetectionState::RouteDeviation(
+                                                    RouteDeviationState {
+                                                        total_datapoints,
+                                                        avg_deviation_record: copy_list,
+                                                        deviation_distance: distance,
+                                                    },
+                                                ),
+                                                Some(true),
+                                            ));
+                                        } else if let Some((false, distance)) =
+                                            check_deviated(&copy_list, deviation_threshold, points)
+                                        {
+                                            return Some((
+                                                ViolationDetectionState::RouteDeviation(
+                                                    RouteDeviationState {
+                                                        total_datapoints,
+                                                        avg_deviation_record: copy_list,
+                                                        deviation_distance: distance,
+                                                    },
+                                                ),
+                                                Some(false),
+                                            ));
+                                        }
+                                    }
+                                    return Some((
+                                        ViolationDetectionState::RouteDeviation(
+                                            RouteDeviationState {
+                                                total_datapoints,
+                                                avg_deviation_record: copy_list,
+                                                deviation_distance,
+                                            },
+                                        ),
+                                        None,
+                                    ));
+                                }
+                            } else {
+                                total_datapoints = 1;
+                                return Some((
+                                    ViolationDetectionState::RouteDeviation(RouteDeviationState {
+                                        total_datapoints,
+                                        avg_deviation_record: VecDeque::from([(
+                                            context.location.clone(),
+                                            1,
+                                        )]),
+                                        deviation_distance,
+                                    }),
+                                    None,
+                                ));
+                            }
+                        }
+                    }
+                } else {
+                    return Some((
+                        ViolationDetectionState::RouteDeviation(RouteDeviationState {
+                            total_datapoints: 1,
+                            avg_deviation_record: VecDeque::from([(context.location.clone(), 1)]),
+                            deviation_distance,
+                        }),
+                        None,
+                    ));
+                }
+            }
+            None
+        }
         DetectionConfig::StoppedDetection(StoppedDetectionConfig {
             batch_count,
             max_eligible_speed: _,
@@ -422,11 +633,50 @@ fn check_stopped(coord_list: &VecDeque<(Point, u32)>, max_eligible_distance: u32
         None
     }
 }
+/// Checks if a vehicle has deviated from the route by using the average of the points in the list
+/// first we get the route from the route_code in the context, and then we get the polyline for the route
+/// and then we project the current point on the polyline and check if the distance between the projected point and the current point is less than the deviation threshold
+fn check_deviated(
+    coord_list: &VecDeque<(Point, u32)>,
+    deviation_threshold: u32,
+    points: Option<&Route>,
+) -> Option<(bool, f64)> {
+    if let Some(route) = points {
+        let points = route
+            .waypoints
+            .iter()
+            .map(|w| w.coordinate.clone())
+            .collect();
+        let average_point = {
+            let mut total_lat = 0.0;
+            let mut total_lon = 0.0;
+            let count = coord_list.len() as f64;
+
+            for (point, _) in coord_list.iter() {
+                total_lat += point.lat.inner();
+                total_lon += point.lon.inner();
+            }
+
+            Point {
+                lat: Latitude(total_lat / count),
+                lon: Longitude(total_lon / count),
+            }
+        };
+        let projected_point = find_closest_point_on_route(&average_point, points);
+        if let Some(projected_point) = projected_point {
+            let distance =
+                distance_between_in_meters(&average_point, &projected_point.projection_point);
+            return Some((distance <= deviation_threshold as f64, distance));
+        }
+    }
+    None
+}
 
 fn anti_violation_check(
     config: &ViolationDetectionConfig,
     context: &DetectionContext,
     state: Option<ViolationDetectionState>,
+    data: Data<AppState>,
 ) -> Option<(ViolationDetectionState, Option<bool>)> {
     match config.detection_config {
         DetectionConfig::OverspeedingDetection(OverspeedingConfig {
@@ -581,7 +831,209 @@ fn anti_violation_check(
             }
             None
         }
-        DetectionConfig::RouteDeviationDetection { .. } => None,
+        DetectionConfig::RouteDeviationDetection(RouteDeviationConfig {
+            batch_count,
+            deviation_threshold,
+            sample_size,
+        }) => {
+            if let Some(ViolationDetectionState::RouteDeviation(RouteDeviationState {
+                deviation_distance, // update this value down in the code below
+                mut total_datapoints,
+                avg_deviation_record,
+            })) = state
+            {
+                if let Some(prev_tuple) = avg_deviation_record.back() {
+                    let max_batch_size = sample_size / batch_count;
+                    let prev_avg_point = prev_tuple.0.clone();
+                    let prev_batch_datapoints = prev_tuple.1;
+                    if total_datapoints < sample_size as u64 {
+                        if prev_batch_datapoints < max_batch_size {
+                            let current_avg_point = Point {
+                                lat: Latitude(
+                                    (prev_avg_point.lat.inner() * prev_batch_datapoints as f64
+                                        + context.location.lat.inner())
+                                        / (prev_batch_datapoints as f64 + 1.0),
+                                ),
+                                lon: Longitude(
+                                    (prev_avg_point.lon.inner() * prev_batch_datapoints as f64
+                                        + context.location.lon.inner())
+                                        / (prev_batch_datapoints as f64 + 1.0),
+                                ),
+                            };
+                            let mut copy_list = avg_deviation_record.clone();
+                            copy_list.pop_back();
+                            copy_list.push_back((current_avg_point, prev_batch_datapoints + 1));
+                            total_datapoints += 1;
+                            if total_datapoints == sample_size as u64 {
+                                if let Some(ride_info) = &context.ride_info {
+                                    // Check if the vehicle has deviated from the route
+                                    // change the check_stopped to check_deviated
+                                    if let RideInfo::Bus { route_code, .. } = ride_info {
+                                        let points = data.routes.get(route_code);
+                                        if let Some((true, distance)) =
+                                            check_deviated(&copy_list, deviation_threshold, points)
+                                        {
+                                            return Some((
+                                                ViolationDetectionState::RouteDeviation(
+                                                    RouteDeviationState {
+                                                        total_datapoints,
+                                                        avg_deviation_record: copy_list,
+                                                        deviation_distance: distance,
+                                                    },
+                                                ),
+                                                Some(false),
+                                            ));
+                                        } else if let Some((false, distance)) =
+                                            check_deviated(&copy_list, deviation_threshold, points)
+                                        {
+                                            return Some((
+                                                ViolationDetectionState::RouteDeviation(
+                                                    RouteDeviationState {
+                                                        total_datapoints,
+                                                        avg_deviation_record: copy_list,
+                                                        deviation_distance: distance,
+                                                    },
+                                                ),
+                                                Some(true),
+                                            ));
+                                        }
+                                    }
+                                    return Some((
+                                        ViolationDetectionState::RouteDeviation(
+                                            RouteDeviationState {
+                                                total_datapoints,
+                                                avg_deviation_record: copy_list,
+                                                deviation_distance,
+                                            },
+                                        ),
+                                        None,
+                                    ));
+                                }
+                            } else {
+                                let mut copy_list = avg_deviation_record.clone();
+                                copy_list.push_back((context.location.clone(), 1));
+                                total_datapoints += 1;
+                                return Some((
+                                    ViolationDetectionState::RouteDeviation(RouteDeviationState {
+                                        total_datapoints,
+                                        avg_deviation_record: copy_list,
+                                        deviation_distance,
+                                    }),
+                                    None,
+                                ));
+                            }
+                        } else {
+                            let mut copy_list = avg_deviation_record.clone();
+                            copy_list.push_back((context.location.clone(), 1));
+                            total_datapoints += 1;
+                            return Some((
+                                ViolationDetectionState::RouteDeviation(RouteDeviationState {
+                                    total_datapoints,
+                                    avg_deviation_record: copy_list,
+                                    deviation_distance,
+                                }),
+                                None,
+                            ));
+                        }
+                    } else {
+                        let mut copy_list = avg_deviation_record.clone();
+                        total_datapoints -= max_batch_size as u64;
+                        copy_list.pop_front();
+                        if let Some(prev_tuple) = copy_list.back() {
+                            let prev_average_point = prev_tuple.0.clone();
+                            let prev_batch_size = prev_tuple.1;
+                            if prev_batch_size < max_batch_size {
+                                let current_avg_point = Point {
+                                    lat: Latitude(
+                                        (prev_average_point.lat.inner() * prev_batch_size as f64
+                                            + context.location.lat.inner())
+                                            / (prev_batch_size as f64 + 1.0),
+                                    ),
+                                    lon: Longitude(
+                                        (prev_average_point.lon.inner() * prev_batch_size as f64
+                                            + context.location.lon.inner())
+                                            / (prev_batch_size as f64 + 1.0),
+                                    ),
+                                };
+                                let mut copy_list = avg_deviation_record.clone();
+                                copy_list.pop_back();
+                                copy_list.push_back((current_avg_point, prev_batch_size + 1));
+                                total_datapoints += 1;
+                                if total_datapoints == sample_size as u64 {
+                                    if let Some(RideInfo::Bus { route_code, .. }) =
+                                        &context.ride_info
+                                    {
+                                        let points = data.routes.get(route_code);
+                                        if let Some((true, distance)) =
+                                            check_deviated(&copy_list, deviation_threshold, points)
+                                        {
+                                            return Some((
+                                                ViolationDetectionState::RouteDeviation(
+                                                    RouteDeviationState {
+                                                        total_datapoints,
+                                                        avg_deviation_record: copy_list,
+                                                        deviation_distance: distance,
+                                                    },
+                                                ),
+                                                Some(false),
+                                            ));
+                                        } else if let Some((false, distance)) =
+                                            check_deviated(&copy_list, deviation_threshold, points)
+                                        {
+                                            return Some((
+                                                ViolationDetectionState::RouteDeviation(
+                                                    RouteDeviationState {
+                                                        total_datapoints,
+                                                        avg_deviation_record: copy_list,
+                                                        deviation_distance: distance,
+                                                    },
+                                                ),
+                                                Some(true),
+                                            ));
+                                        }
+                                    }
+                                    return Some((
+                                        ViolationDetectionState::RouteDeviation(
+                                            RouteDeviationState {
+                                                total_datapoints,
+                                                avg_deviation_record: copy_list,
+                                                deviation_distance,
+                                            },
+                                        ),
+                                        None,
+                                    ));
+                                } else {
+                                    total_datapoints = 1;
+                                    return Some((
+                                        ViolationDetectionState::RouteDeviation(
+                                            RouteDeviationState {
+                                                total_datapoints,
+                                                avg_deviation_record: VecDeque::from([(
+                                                    context.location.clone(),
+                                                    1,
+                                                )]),
+                                                deviation_distance,
+                                            },
+                                        ),
+                                        None,
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    return Some((
+                        ViolationDetectionState::RouteDeviation(RouteDeviationState {
+                            total_datapoints: 1,
+                            avg_deviation_record: VecDeque::from([(context.location.clone(), 1)]),
+                            deviation_distance,
+                        }),
+                        None,
+                    ));
+                }
+            }
+            None
+        }
         DetectionConfig::StoppedDetection(StoppedDetectionConfig {
             batch_count,
             max_eligible_speed: _,
