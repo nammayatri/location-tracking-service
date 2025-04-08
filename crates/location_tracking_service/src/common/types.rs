@@ -382,7 +382,7 @@ pub struct UpcomingStop {
     pub stop: Stop,
     pub eta: TimeStamp,
     pub status: UpcomingStopStatus,
-    pub delta: f64,
+    pub delta: Option<f64>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

@@ -496,14 +496,14 @@ pub fn estimated_upcoming_stops_eta(
                         UpcomingStop {
                             stop: upcoming_stop.to_owned(),
                             eta: upcoming_stop_with_eta.eta,
-                            delta: delta.unwrap_or(upcoming_stop_with_eta.delta),
+                            delta: None,
                             status: UpcomingStopStatus::Upcoming,
                         }
                     } else {
                         UpcomingStop {
                             stop: upcoming_stop_with_eta.stop.to_owned(),
                             eta: upcoming_stop_with_eta.eta,
-                            delta: delta.unwrap_or(upcoming_stop_with_eta.delta),
+                            delta: upcoming_stop_with_eta.delta.or(delta),
                             status: UpcomingStopStatus::Reached,
                         }
                     }
@@ -519,7 +519,7 @@ pub fn estimated_upcoming_stops_eta(
                 let upcoming_stop = UpcomingStop {
                     stop: stop.to_owned(),
                     eta: TimeStamp(Utc::now() + Duration::from_secs(prev_stop_durations)),
-                    delta: 0.0,
+                    delta: None,
                     status: UpcomingStopStatus::Upcoming,
                 };
                 upcoming_stops_with_eta.push(upcoming_stop);

@@ -291,6 +291,7 @@ async fn process_driver_locations(
     } else {
         TimeStamp(latest_driver_location_ts)
     };
+    let base_vehicle_type = get_base_vehicle_type(&vehicle_type);
 
     let (
         detection_state,
@@ -309,7 +310,6 @@ async fn process_driver_locations(
                 .and_then(|d| d.ride_status.clone()),
             driver_ride_id.as_ref(),
         ) {
-            let base_vehicle_type = get_base_vehicle_type(&vehicle_type);
             DetectionType::iter().fold(
                 (
                     driver_location_details
@@ -414,25 +414,32 @@ async fn process_driver_locations(
         }
     };
 
-    let (stop_detected, stop_detection) = if driver_ride_status == Some(RideStatus::NEW)
-        || (data.stop_detection.enable_onride_stop_detection
-            && driver_ride_status == Some(RideStatus::INPROGRESS))
-    {
-        detect_stop(
-            driver_location_details
-                .as_ref()
-                .map(|driver_location_details| driver_location_details.stop_detection.to_owned())
-                .flatten(),
-            DriverLocation {
-                location: latest_driver_location.pt.to_owned(),
-                timestamp: latest_driver_location.ts,
-            },
-            latest_driver_location.v,
-            &data.stop_detection,
-        )
-    } else {
-        (None, None)
-    };
+    let (stop_detected, stop_detection) =
+        if let Some(stop_detection_config) = data.stop_detection.get(&base_vehicle_type) {
+            if driver_ride_status == Some(RideStatus::NEW)
+                || (stop_detection_config.enable_onride_stop_detection
+                    && driver_ride_status == Some(RideStatus::INPROGRESS))
+            {
+                detect_stop(
+                    driver_location_details
+                        .as_ref()
+                        .map(|driver_location_details| {
+                            driver_location_details.stop_detection.to_owned()
+                        })
+                        .flatten(),
+                    DriverLocation {
+                        location: latest_driver_location.pt.to_owned(),
+                        timestamp: latest_driver_location.ts,
+                    },
+                    latest_driver_location.v,
+                    &stop_detection_config,
+                )
+            } else {
+                (None, None)
+            }
+        } else {
+            (None, None)
+        };
 
     let (
         driver_ride_notification_status,
@@ -811,13 +818,16 @@ async fn process_driver_locations(
                 if let (Some(location), Some(ride_id)) =
                     (stop_detected.as_ref(), driver_ride_id.as_ref())
                 {
-                    let _ = trigger_stop_detection_event(
-                        &data.stop_detection.stop_detection_update_callback_url,
-                        location,
-                        ride_id.to_owned(),
-                        driver_id.to_owned(),
-                    )
-                    .await;
+                    if let Some(stop_detection_config) = data.stop_detection.get(&base_vehicle_type)
+                    {
+                        let _ = trigger_stop_detection_event(
+                            &stop_detection_config.stop_detection_update_callback_url,
+                            location,
+                            ride_id.to_owned(),
+                            driver_id.to_owned(),
+                        )
+                        .await;
+                    }
                 }
 
                 if is_driver_ride_notification_status_changed {
@@ -839,13 +849,16 @@ async fn process_driver_locations(
                 if let (Some(location), Some(ride_id)) =
                     (stop_detected.as_ref(), driver_ride_id.as_ref())
                 {
-                    let _ = trigger_stop_detection_event(
-                        &data.stop_detection.stop_detection_update_callback_url,
-                        location,
-                        ride_id.to_owned(),
-                        driver_id.to_owned(),
-                    )
-                    .await;
+                    if let Some(stop_detection_config) = data.stop_detection.get(&base_vehicle_type)
+                    {
+                        let _ = trigger_stop_detection_event(
+                            &stop_detection_config.stop_detection_update_callback_url,
+                            location,
+                            ride_id.to_owned(),
+                            driver_id.to_owned(),
+                        )
+                        .await;
+                    }
                 }
             }
         }
