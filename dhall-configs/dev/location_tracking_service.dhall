@@ -39,13 +39,25 @@ let logger_cfg = {
     log_to_file = False
 }
 
-let stop_detection_config = {
+let stop_detection_cab_config = {
     stop_detection_update_callback_url = "http://127.0.0.1:8016/internal/stopDetection",
-    max_eligible_stop_speed_threshold = 2,
+    max_eligible_stop_speed_threshold = Some 2.0,
     radius_threshold_meters = 25,
     min_points_within_radius_threshold = 5,
     enable_onride_stop_detection = False
 }
+
+let stop_detection_bus_config = {
+    stop_detection_update_callback_url = "http://127.0.0.1:8016/internal/stopDetection",
+    max_eligible_stop_speed_threshold = None Double,
+    radius_threshold_meters = 50,
+    min_points_within_radius_threshold = 5,
+    enable_onride_stop_detection = False
+}
+
+let stop_detection_config = {=}
+  with SEDAN = stop_detection_cab_config
+  with BUS_AC = stop_detection_bus_config
 
 -- drainer_delay :: 4 * 1024KB * 1024MB * 1024GB / 100 Bytes = 41943040
 in {

@@ -61,9 +61,11 @@ fn is_stop_detected(
     let distance = distance_between_in_meters(mean_location, latest_location);
     distance < config.radius_threshold_meters as f64
         && total_points >= config.min_points_within_radius_threshold
-        && speed.is_some_and(|speed| {
-            speed <= SpeedInMeterPerSecond(config.max_eligible_stop_speed_threshold)
-        })
+        && config
+            .max_eligible_stop_speed_threshold
+            .is_none_or(|max_speed| {
+                speed.is_some_and(|SpeedInMeterPerSecond(speed)| speed <= max_speed)
+            })
 }
 
 /// Detects whether the driver has stopped based on a sliding window of driver locations and the stop detection configuration.
