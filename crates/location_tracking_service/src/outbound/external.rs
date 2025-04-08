@@ -255,3 +255,76 @@ pub async fn trigger_detection_alert(
     .await
     .map_err(|e| e.into())
 }
+
+/// Computes routes between two points using the Google Routes API.
+///
+/// This function communicates with the Google Routes API to calculate
+/// the optimal route between an origin and destination point.
+///
+/// # Parameters
+/// - `routes_url`: The Google Routes API endpoint URL.
+/// - `api_key`: The Google API key for authentication.
+/// - `origin`: The starting point coordinates.
+/// - `destination`: The ending point coordinates.
+/// - `intermediates`: Optional intermediate points along the route.
+/// - `travel_mode`: The mode of travel (e.g., Drive, Walk, Bicycle).
+///
+/// # Returns
+/// - `Ok(GoogleRoutesResponse)`: The route computation was successful.
+/// - `Err(AppError)`: An error occurred during route computation.
+pub async fn compute_routes(
+    routes_url: &Url,
+    api_key: &str,
+    origin: &Point,
+    destination: &Point,
+    intermediates: Vec<Point>,
+    travel_mode: TravelMode,
+) -> Result<GoogleRoutesResponse, AppError> {
+    let request = GoogleRoutesRequest {
+        origin: Location {
+            location: OuterLatLng {
+                lat_lng: LatLng {
+                    latitude: origin.lat.inner(),
+                    longitude: origin.lon.inner(),
+                },
+            },
+        },
+        destination: Location {
+            location: OuterLatLng {
+                lat_lng: LatLng {
+                    latitude: destination.lat.inner(),
+                    longitude: destination.lon.inner(),
+                },
+            },
+        },
+        intermediates: intermediates
+            .into_iter()
+            .map(|point| Location {
+                location: OuterLatLng {
+                    lat_lng: LatLng {
+                        latitude: point.lat.inner(),
+                        longitude: point.lon.inner(),
+                    },
+                },
+            })
+            .collect(),
+        travel_mode,
+        routing_preference: "TRAFFIC_AWARE".to_string(),
+        compute_alternative_routes: false,
+        extra_computations: vec![],
+    };
+
+    call_api::<GoogleRoutesResponse, GoogleRoutesRequest>(
+        Protocol::Http1,
+        Method::POST,
+        routes_url,
+        vec![
+            ("content-type", "application/json"),
+            ("X-Goog-Api-Key", api_key),
+            ("X-Goog-FieldMask", "routes.legs.*,routes.distanceMeters,routes.duration,routes.viewport.*,routes.polyline.*,routes.routeLabels.*"),
+        ],
+        Some(request),
+    )
+    .await
+    .map_err(|e| e.into())
+}

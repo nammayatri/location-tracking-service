@@ -9,7 +9,8 @@
 use crate::common::detection::*;
 use crate::common::stop_detection::*;
 use crate::common::utils::{
-    distance_between_in_meters, get_base_vehicle_type, get_city, is_blacklist_for_special_zone,
+    distance_between_in_meters, estimated_upcoming_stops_eta, get_base_vehicle_type, get_city,
+    get_upcoming_stops_by_route_code, is_blacklist_for_special_zone,
 };
 use crate::common::{sliding_window_rate_limiter::sliding_window_limiter, types::*};
 use crate::domain::types::ui::location::{DriverLocationResponse, UpdateDriverLocationRequest};
@@ -496,6 +497,30 @@ async fn process_driver_locations(
             let mut all_tasks: Vec<Pin<Box<dyn Future<Output = Result<(), AppError>>>>> =
                 Vec::new();
 
+            let upcoming_stops = get_upcoming_stops_by_route_code(
+                &data.routes,
+                route_code,
+                &latest_driver_location.pt,
+            )
+            .ok();
+
+            let vehicle_route_location =
+                get_route_location_by_vehicle_number(&data.redis, &route_code, &bus_number).await?;
+
+            let upcoming_stops_with_eta = if let Some(upcoming_stops) = upcoming_stops {
+                estimated_upcoming_stops_eta(
+                    vehicle_route_location
+                        .map(|vehicle_route_location| {
+                            vehicle_route_location.upcoming_stops.to_owned()
+                        })
+                        .flatten(),
+                    &upcoming_stops,
+                    &latest_driver_location.pt,
+                )
+            } else {
+                None
+            };
+
             let set_route_location = async {
                 set_route_location(
                     &data.redis,
@@ -505,6 +530,7 @@ async fn process_driver_locations(
                     &latest_driver_location.v,
                     &latest_driver_location_ts,
                     driver_ride_status.to_owned(),
+                    upcoming_stops_with_eta,
                 )
                 .await?;
                 Ok(())

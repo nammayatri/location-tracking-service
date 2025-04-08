@@ -40,6 +40,7 @@ pub struct RideEndRequest {
     pub driver_id: DriverId,
     pub merchant_id: MerchantId,
     pub next_ride_id: Option<RideId>,
+    pub ride_info: Option<RideInfo>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

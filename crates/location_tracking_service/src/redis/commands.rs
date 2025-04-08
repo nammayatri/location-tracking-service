@@ -132,6 +132,7 @@ pub async fn ride_cleanup(
     merchant_id: &MerchantId,
     driver_id: &DriverId,
     ride_id: &RideId,
+    ride_info: &Option<RideInfo>,
 ) -> Result<(), AppError> {
     redis
         .delete_keys(vec![
@@ -140,7 +141,21 @@ pub async fn ride_cleanup(
             &on_ride_loc_key(merchant_id, driver_id),
         ])
         .await
-        .map_err(|err| AppError::InternalError(err.to_string()))
+        .map_err(|err| AppError::InternalError(err.to_string()))?;
+
+    if let Some(RideInfo::Bus {
+        route_code,
+        bus_number,
+        ..
+    }) = ride_info
+    {
+        redis
+            .hdel(&driver_loc_based_on_route_key(route_code), bus_number)
+            .await
+            .map_err(|err| AppError::InternalError(err.to_string()))?
+    }
+
+    Ok(())
 }
 
 /// Stores the driver details associated with a specific ride into the Redis database.
@@ -663,6 +678,7 @@ pub async fn push_drainer_driver_location(
         .map_err(|err| AppError::InternalError(err.to_string()))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn set_route_location(
     redis: &RedisConnectionPool,
     route_code: &str,
@@ -671,6 +687,7 @@ pub async fn set_route_location(
     speed: &Option<SpeedInMeterPerSecond>,
     timestamp: &TimeStamp,
     ride_status: Option<RideStatus>,
+    upcoming_stops: Option<Vec<UpcomingStop>>,
 ) -> Result<(), AppError> {
     let vehicle_tracking_info = VehicleTrackingInfo {
         schedule_relationship: None,
@@ -681,6 +698,7 @@ pub async fn set_route_location(
         speed: *speed,
         timestamp: Some(*timestamp),
         ride_status,
+        upcoming_stops,
     };
     redis
         .set_hash_fields_with_hashmap_expiry(
@@ -698,6 +716,17 @@ pub async fn get_route_location(
 ) -> Result<HashMap<String, VehicleTrackingInfo>, AppError> {
     redis
         .get_all_hash_fields(&driver_loc_based_on_route_key(route_code))
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
+pub async fn get_route_location_by_vehicle_number(
+    redis: &RedisConnectionPool,
+    route_code: &str,
+    vehicle_number: &str,
+) -> Result<Option<VehicleTrackingInfo>, AppError> {
+    redis
+        .get_hash_field(&driver_loc_based_on_route_key(route_code), vehicle_number)
         .await
         .map_err(|err| AppError::InternalError(err.to_string()))
 }

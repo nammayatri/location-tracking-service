@@ -81,6 +81,7 @@ pub async fn ride_end(
         &request_body.merchant_id,
         &request_body.driver_id,
         &ride_id,
+        &request_body.ride_info,
     )
     .await?;
 
@@ -140,6 +141,7 @@ pub async fn ride_details(
             &request_body.merchant_id,
             &driver_id,
             &request_body.ride_id,
+            &request_body.ride_info,
         )
         .await?;
 
