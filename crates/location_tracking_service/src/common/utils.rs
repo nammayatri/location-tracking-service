@@ -286,6 +286,7 @@ pub fn get_upcoming_stops_by_route_code(
         let (
             Stop {
                 name,
+                stop_code,
                 coordinate,
                 stop_idx,
                 distance_to_upcoming_intermediate_stop:
@@ -314,6 +315,7 @@ pub fn get_upcoming_stops_by_route_code(
 
         let upcoming_stop = Stop {
             name,
+            stop_code,
             coordinate,
             stop_idx,
             distance_to_upcoming_intermediate_stop: Meters(
@@ -340,6 +342,7 @@ pub fn get_upcoming_stops_by_route_code(
                 ) {
                     let stop = Stop {
                         name: waypoint.stop.name.to_owned(),
+                        stop_code: waypoint.stop.stop_code.to_owned(),
                         coordinate: waypoint.stop.coordinate.to_owned(),
                         stop_idx: waypoint.stop.stop_idx,
                         distance_to_upcoming_intermediate_stop,

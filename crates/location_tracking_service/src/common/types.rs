@@ -377,6 +377,7 @@ pub struct VehicleTrackingInfo {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
 pub struct UpcomingStop {
     pub stop: Stop,
     pub eta: TimeStamp,
@@ -421,6 +422,8 @@ pub struct RouteProperties {
 pub struct StopProperties {
     #[serde(rename = "Stop Name")]
     pub stop_name: String,
+    #[serde(rename = "Stop Code")]
+    pub stop_code: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -474,8 +477,10 @@ pub struct Route {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct Stop {
     pub name: String,
+    pub stop_code: String,
     pub coordinate: Point,
     pub stop_idx: usize,
     pub distance_to_upcoming_intermediate_stop: Meters,

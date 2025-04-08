@@ -53,7 +53,7 @@ async fn parse_route_geojson(
 
     let mut route_feature: Option<RouteFeature> = None;
 
-    let mut stops: Vec<(String, Point, StopType)> = vec![];
+    let mut stops: Vec<(String, String, Point, StopType)> = vec![];
 
     for feature in route_geojson.features {
         if feature["type"] == "Feature" {
@@ -65,6 +65,7 @@ async fn parse_route_geojson(
                 let stop_lon = stop_feature.geometry.coordinates.first().expect("REASON");
                 stops.push((
                     stop_feature.properties.stop_name.to_owned(),
+                    stop_feature.properties.stop_code.to_owned(),
                     Point {
                         lat: Latitude(*stop_lat),
                         lon: Longitude(*stop_lon),
@@ -100,7 +101,7 @@ async fn parse_route_geojson(
         .collect();
 
     // Project stops onto route coordinates and put them in the waypoint vector
-    for (i, (stop_name, stop_point, stop_type)) in stops.iter().enumerate() {
+    for (i, (stop_name, stop_code, stop_point, stop_type)) in stops.iter().enumerate() {
         let projection = find_closest_point_on_route(
             stop_point,
             waypoints.iter().map(|(pt, _)| pt.to_owned()).collect(),
@@ -116,6 +117,7 @@ async fn parse_route_geojson(
                 projection.projection_point,
                 Some(Stop {
                     name: stop_name.to_owned(),
+                    stop_code: stop_code.to_owned(),
                     coordinate: stop_point.to_owned(),
                     distance_to_upcoming_intermediate_stop: Meters(0),
                     duration_to_upcoming_intermediate_stop: Seconds(0),
@@ -139,6 +141,7 @@ async fn parse_route_geojson(
                     waypoint_coordinate,
                     Some(Stop {
                         name,
+                        stop_code,
                         coordinate,
                         stop_type,
                         stop_idx,
@@ -163,6 +166,7 @@ async fn parse_route_geojson(
 
                     upcoming_intermediate_stop = Some(Stop {
                         name,
+                        stop_code,
                         coordinate: coordinate.to_owned(),
                         distance_to_upcoming_intermediate_stop: Meters(0),
                         duration_to_upcoming_intermediate_stop,
@@ -189,6 +193,7 @@ async fn parse_route_geojson(
                         );
                         upcoming_intermediate_stop = Some(Stop {
                             name: upcoming_stop.name.to_owned(),
+                            stop_code: upcoming_stop.stop_code.to_owned(),
                             coordinate: upcoming_stop.coordinate.to_owned(),
                             distance_to_upcoming_intermediate_stop,
                             duration_to_upcoming_intermediate_stop,
@@ -199,6 +204,7 @@ async fn parse_route_geojson(
                             waypoint_coordinate,
                             Some(Stop {
                                 name: name.to_owned(),
+                                stop_code: stop_code.to_owned(),
                                 coordinate: coordinate.to_owned(),
                                 distance_to_upcoming_intermediate_stop,
                                 duration_to_upcoming_intermediate_stop,
@@ -213,6 +219,7 @@ async fn parse_route_geojson(
                 (waypoint_coordinate, None),
                 Some(Stop {
                     name,
+                    stop_code,
                     coordinate,
                     distance_to_upcoming_intermediate_stop:
                         Meters(distance_to_upcoming_intermediate_stop),
@@ -232,6 +239,7 @@ async fn parse_route_geojson(
                 );
                 upcoming_intermediate_stop = Some(Stop {
                     name: name.to_owned(),
+                    stop_code: stop_code.to_owned(),
                     coordinate: coordinate.to_owned(),
                     distance_to_upcoming_intermediate_stop,
                     duration_to_upcoming_intermediate_stop,
@@ -242,6 +250,7 @@ async fn parse_route_geojson(
                     waypoint_coordinate,
                     Some(Stop {
                         name: name.to_owned(),
+                        stop_code: stop_code.to_owned(),
                         coordinate: coordinate.to_owned(),
                         distance_to_upcoming_intermediate_stop,
                         duration_to_upcoming_intermediate_stop,

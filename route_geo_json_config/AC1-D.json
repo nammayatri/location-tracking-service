@@ -1,10 +1,7 @@
 {
-  "type": "FeatureCollection",
   "features": [
     {
-      "type": "Feature",
       "geometry": {
-        "type": "LineString",
         "coordinates": [
           [
             88.34397,
@@ -55,15 +52,15 @@
             22.58523
           ],
           [
-            88.34136,
-            22.58565
+            88.34135,
+            22.58566
           ],
           [
-            88.34159,
-            22.58621
+            88.34171,
+            22.58652
           ],
           [
-            88.34177,
+            88.34174,
             22.58657
           ],
           [
@@ -692,43 +689,51 @@
           ],
           [
             88.34518,
+            22.50166
+          ],
+          [
+            88.34519,
             22.50151
           ],
           [
-            88.34518,
+            88.34519,
             22.50151
           ],
           [
-            88.34518,
-            22.50143
+            88.3452,
+            22.50141
           ],
           [
-            88.34565,
-            22.5014
+            88.34567,
+            22.50136
           ],
           [
-            88.34723,
-            22.50131
+            88.34635,
+            22.50134
           ],
           [
-            88.34894,
-            22.50126
+            88.34662,
+            22.50135
           ],
           [
-            88.34954,
-            22.50123
+            88.34814,
+            22.50128
           ],
           [
-            88.35012,
-            22.50117
+            88.34943,
+            22.50119
           ],
           [
-            88.35049,
+            88.34959,
+            22.50119
+          ],
+          [
+            88.35048,
+            22.5011
+          ],
+          [
+            88.35104,
             22.50115
-          ],
-          [
-            88.35078,
-            22.50116
           ],
           [
             88.35131,
@@ -874,208 +879,225 @@
             88.37088,
             22.4957
           ]
-        ]
+        ],
+        "type": "LineString"
       },
       "properties": {
         "Route Code": "AC1-D",
-        "Travel Mode": "TWO_WHEELER"
-      }
+        "Travel Mode": "DRIVE"
+      },
+      "type": "Feature"
     },
     {
-      "type": "Feature",
       "geometry": {
-        "type": "Point",
         "coordinates": [
           88.34397,
           22.58534
-        ]
+        ],
+        "type": "Point"
       },
       "properties": {
-        "Stop Name": "Howrah Station",
-        "Provider Id": 129001
-      }
+        "Provider Id": 129001,
+        "Stop Code": "10cfabd01945a3967688c9c330614dea",
+        "Stop Name": "Howrah Station"
+      },
+      "type": "Feature"
     },
     {
-      "type": "Feature",
       "geometry": {
-        "type": "Point",
         "coordinates": [
           88.34943,
           22.58455
-        ]
+        ],
+        "type": "Point"
       },
       "properties": {
-        "Stop Name": "Howrah Bridge East",
-        "Provider Id": 129002
-      }
+        "Provider Id": 129002,
+        "Stop Code": "08c4d0723e759c416fda77fa7ee637d9",
+        "Stop Name": "Howrah Bridge East"
+      },
+      "type": "Feature"
     },
     {
-      "type": "Feature",
       "geometry": {
-        "type": "Point",
         "coordinates": [
           88.35019,
           22.5711
-        ]
+        ],
+        "type": "Point"
       },
       "properties": {
-        "Stop Name": "Bbd Bag",
-        "Provider Id": 129003
-      }
+        "Provider Id": 129003,
+        "Stop Code": "9ed9b69bae564d9efdf553eab4ec523e",
+        "Stop Name": "Bbd Bag"
+      },
+      "type": "Feature"
     },
     {
-      "type": "Feature",
       "geometry": {
-        "type": "Point",
         "coordinates": [
           88.34834,
           22.55995
-        ]
+        ],
+        "type": "Point"
       },
       "properties": {
-        "Stop Name": "Esplanade Mayo Road",
-        "Provider Id": 129004
-      }
+        "Provider Id": 129004,
+        "Stop Code": "ad112c088248ae3c98b006027afe6af2",
+        "Stop Name": "Esplanade Mayo Road"
+      },
+      "type": "Feature"
     },
     {
-      "type": "Feature",
       "geometry": {
-        "type": "Point",
         "coordinates": [
           88.35015,
           22.55499
-        ]
+        ],
+        "type": "Point"
       },
       "properties": {
-        "Stop Name": "Park Street",
-        "Provider Id": 129005
-      }
+        "Provider Id": 129005,
+        "Stop Code": "ac9c9b75bdd73f8e59c8cfa80cd08217",
+        "Stop Name": "Park Street"
+      },
+      "type": "Feature"
     },
     {
-      "type": "Feature",
       "geometry": {
-        "type": "Point",
         "coordinates": [
           88.34759,
           22.54329
-        ]
+        ],
+        "type": "Point"
       },
       "properties": {
-        "Stop Name": "ROUTE CORRECTION",
-        "Provider Id": null
-      }
+        "Provider Id": null,
+        "Stop Code": "8aa54ac6dbe079ecfbd60984aa8bdfd9",
+        "Stop Name": "ROUTE CORRECTION"
+      },
+      "type": "Feature"
     },
     {
-      "type": "Feature",
       "geometry": {
-        "type": "Point",
         "coordinates": [
           88.34729,
           22.54143
-        ]
+        ],
+        "type": "Point"
       },
       "properties": {
-        "Stop Name": "Rabindra Sadan",
-        "Provider Id": 129006
-      }
+        "Provider Id": 129006,
+        "Stop Code": "5a4efccd03d174fd7dceb05d95c3d677",
+        "Stop Name": "Rabindra Sadan"
+      },
+      "type": "Feature"
     },
     {
-      "type": "Feature",
       "geometry": {
-        "type": "Point",
         "coordinates": [
           88.34671,
           22.538
-        ]
+        ],
+        "type": "Point"
       },
       "properties": {
-        "Stop Name": "Elgin Road",
-        "Provider Id": 129007
-      }
+        "Provider Id": 129007,
+        "Stop Code": "1f92f83614b6514bb28f780dda432bc2",
+        "Stop Name": "Elgin Road"
+      },
+      "type": "Feature"
     },
     {
-      "type": "Feature",
       "geometry": {
-        "type": "Point",
         "coordinates": [
           88.34649,
           22.52459
-        ]
+        ],
+        "type": "Point"
       },
       "properties": {
-        "Stop Name": "Hazra Park",
-        "Provider Id": 129008
-      }
+        "Provider Id": 129008,
+        "Stop Code": "3e74aec92a4d44407208faf65c6177b7",
+        "Stop Name": "Hazra Park"
+      },
+      "type": "Feature"
     },
     {
-      "type": "Feature",
       "geometry": {
-        "type": "Point",
         "coordinates": [
           88.34591,
           22.5171
-        ]
+        ],
+        "type": "Point"
       },
       "properties": {
-        "Stop Name": "Rashbehari Crossing",
-        "Provider Id": 129009
-      }
+        "Provider Id": 129009,
+        "Stop Code": "e2c94d87772f1459ce566adc1de412dc",
+        "Stop Name": "Rashbehari Crossing"
+      },
+      "type": "Feature"
     },
     {
-      "type": "Feature",
       "geometry": {
-        "type": "Point",
         "coordinates": [
-          88.34518,
+          88.34519,
           22.50151
-        ]
+        ],
+        "type": "Point"
       },
       "properties": {
-        "Stop Name": "Prince Anwar Shah Crossing",
-        "Provider Id": 129010
-      }
+        "Provider Id": 129010,
+        "Stop Code": "0ab8015a30f0074a350458bd7a3c7bd9",
+        "Stop Name": "Prince Anwar Shah Crossing"
+      },
+      "type": "Feature"
     },
     {
-      "type": "Feature",
       "geometry": {
-        "type": "Point",
         "coordinates": [
           88.36107,
           22.50218
-        ]
+        ],
+        "type": "Point"
       },
       "properties": {
-        "Stop Name": "South City Mall",
-        "Provider Id": 129011
-      }
+        "Provider Id": 129011,
+        "Stop Code": "872f547b24c1cb171e92e5c284ed4c65",
+        "Stop Name": "South City Mall"
+      },
+      "type": "Feature"
     },
     {
-      "type": "Feature",
       "geometry": {
-        "type": "Point",
         "coordinates": [
           88.36759,
           22.50302
-        ]
+        ],
+        "type": "Point"
       },
       "properties": {
-        "Stop Name": "Jadavpur Ps",
-        "Provider Id": 129012
-      }
+        "Provider Id": 129012,
+        "Stop Code": "20f06d76ed5e3a3bc27261f015314bcf",
+        "Stop Name": "Jadavpur Ps"
+      },
+      "type": "Feature"
     },
     {
-      "type": "Feature",
       "geometry": {
-        "type": "Point",
         "coordinates": [
           88.37088,
           22.4957
-        ]
+        ],
+        "type": "Point"
       },
       "properties": {
-        "Stop Name": "Jadavpur",
-        "Provider Id": 129013
-      }
+        "Provider Id": 129013,
+        "Stop Code": "28e691e46c4e9fd717139b75222e60f5",
+        "Stop Name": "Jadavpur"
+      },
+      "type": "Feature"
     }
-  ]
+  ],
+  "type": "FeatureCollection"
 }
