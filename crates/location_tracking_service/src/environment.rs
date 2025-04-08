@@ -40,7 +40,7 @@ pub struct AppConfig {
     pub last_location_timstamp_expiry: u32,
     pub location_update_limit: usize,
     pub location_update_interval: u64,
-    pub stop_detection: StopDetectionConfig,
+    pub stop_detection: HashMap<VehicleType, StopDetectionConfig>,
     pub kafka_cfg: KafkaConfig,
     pub driver_location_update_topic: String,
     pub batch_size: i64,
@@ -96,7 +96,7 @@ pub struct RedisConfig {
 pub struct StopDetectionConfig {
     #[serde(deserialize_with = "deserialize_url")]
     pub stop_detection_update_callback_url: Url,
-    pub max_eligible_stop_speed_threshold: f64,
+    pub max_eligible_stop_speed_threshold: Option<f64>,
     pub radius_threshold_meters: u64,
     pub min_points_within_radius_threshold: usize,
     pub enable_onride_stop_detection: bool,
@@ -124,7 +124,7 @@ pub struct AppState {
     pub auth_token_expiry: u32,
     pub redis_expiry: u32,
     pub min_location_accuracy: Accuracy,
-    pub stop_detection: StopDetectionConfig,
+    pub stop_detection: HashMap<VehicleType, StopDetectionConfig>,
     pub last_location_timstamp_expiry: u32,
     pub location_update_limit: usize,
     pub location_update_interval: u64,
