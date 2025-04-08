@@ -46,6 +46,9 @@ pub struct Radius(pub f64);
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq, PartialOrd, Copy)]
 #[macros::impl_getter]
 pub struct Accuracy(pub f64);
+#[derive(Deserialize, Serialize, Clone, Debug, PartialEq, PartialOrd, Copy)]
+#[macros::impl_getter]
+pub struct Seconds(pub u32);
 #[derive(Serialize, Clone, Debug, PartialEq, PartialOrd, Copy)]
 #[macros::impl_getter]
 pub struct SpeedInMeterPerSecond(pub f64);
@@ -354,6 +357,13 @@ pub struct RideBookingDetails {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
+pub struct NextStopInfo {
+    pub name: String,
+    pub distance: f64,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
 pub struct VehicleTrackingInfo {
     pub start_time: Option<TimeStamp>,
     pub schedule_relationship: Option<String>,
@@ -363,6 +373,136 @@ pub struct VehicleTrackingInfo {
     pub speed: Option<SpeedInMeterPerSecond>,
     pub timestamp: Option<TimeStamp>,
     pub ride_status: Option<RideStatus>,
+    pub upcoming_stops: Option<Vec<UpcomingStop>>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct UpcomingStop {
+    pub stop: Stop,
+    pub eta: TimeStamp,
+    pub status: UpcomingStopStatus,
+    pub delta: f64,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum UpcomingStopStatus {
+    Reached,
+    Upcoming,
+}
+
+#[derive(Debug, Clone, EnumString, Display, Serialize, Deserialize, Eq, Hash, PartialEq, Copy)]
+pub enum TravelMode {
+    #[strum(serialize = "DRIVE")]
+    #[serde(rename = "DRIVE")]
+    Drive,
+    #[strum(serialize = "WALK")]
+    #[serde(rename = "WALK")]
+    Walk,
+    #[strum(serialize = "BICYCLE")]
+    #[serde(rename = "BICYCLE")]
+    Bicycle,
+    #[strum(serialize = "TRANSIT")]
+    #[serde(rename = "TRANSIT")]
+    Transit,
+    #[strum(serialize = "TWO_WHEELER")]
+    #[serde(rename = "TWO_WHEELER")]
+    TwoWheeler,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct RouteProperties {
+    #[serde(rename = "Route Code")]
+    pub route_code: String,
+    #[serde(rename = "Travel Mode")]
+    pub travel_mode: TravelMode,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct StopProperties {
+    #[serde(rename = "Stop Name")]
+    pub stop_name: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct RouteFeature {
+    pub geometry: RouteGeometry,
+    pub properties: RouteProperties,
+    #[serde(rename = "type")]
+    pub feature_type: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct StopFeature {
+    pub geometry: StopGeometry,
+    pub properties: StopProperties,
+    #[serde(rename = "type")]
+    pub feature_type: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct RouteGeometry {
+    pub coordinates: Vec<Vec<f64>>,
+    #[serde(rename = "type")]
+    pub geometry_type: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct StopGeometry {
+    pub coordinates: Vec<f64>,
+    #[serde(rename = "type")]
+    pub geometry_type: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct RouteGeoJSON {
+    pub features: Vec<serde_json::Value>,
+    #[serde(rename = "type")]
+    pub geo_type: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct WaypointInfo {
+    pub coordinate: Point,
+    pub stop: Stop,
+}
+
+#[derive(Debug, Clone)]
+pub struct Route {
+    pub route_code: String,
+    pub travel_mode: TravelMode,
+    pub waypoints: Vec<WaypointInfo>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Stop {
+    pub name: String,
+    pub coordinate: Point,
+    pub stop_idx: usize,
+    pub distance_to_upcoming_intermediate_stop: Meters,
+    pub duration_to_upcoming_intermediate_stop: Seconds,
+    pub stop_type: StopType,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub enum StopType {
+    IntermediateStop,
+    RouteCorrectionStop,
+    UpcomingStop,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct UpcomingIntermediateStop {
+    pub name: String,
+    pub coordinate: Point,
+}
+
+#[derive(Debug)]
+pub struct ProjectionPoint {
+    pub segment_index: i32,
+    pub projection_point: Point,
+    pub projection_point_to_point_distance: f64,
+    pub projection_point_to_line_start_distance: f64,
+    pub projection_point_to_line_end_distance: f64,
 }
 
 pub type ViolationDetectionTriggerMap = FxHashMap<DetectionType, Option<DetectionStatus>>;

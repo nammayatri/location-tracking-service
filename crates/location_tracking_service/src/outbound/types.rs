@@ -124,3 +124,54 @@ pub struct ViolationDetectionReq {
     pub is_violated: bool,
     pub detection_data: DetectionData,
 }
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct GoogleRoutesRequest {
+    pub origin: Location,
+    pub destination: Location,
+    pub intermediates: Vec<Location>,
+    pub travel_mode: TravelMode,
+    pub routing_preference: String,
+    pub compute_alternative_routes: bool,
+    pub extra_computations: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct Location {
+    pub location: OuterLatLng,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct OuterLatLng {
+    pub lat_lng: LatLng,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct LatLng {
+    pub latitude: f64,
+    pub longitude: f64,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct GoogleRoutesResponse {
+    pub routes: Vec<Route>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct Route {
+    pub distance_meters: i32,
+    pub duration: String,
+    pub polyline: Polyline,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct Polyline {
+    pub encoded_polyline: String,
+}

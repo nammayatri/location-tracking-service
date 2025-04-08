@@ -8,6 +8,7 @@ let redis_cfg = {
     default_ttl = 3600,
     default_hash_ttl = 3600,
     stream_read_count = 100,
+    broadcast_channel_capacity = 10
 }
 let replica_redis_cfg = {
     redis_host = "0.0.0.0",
@@ -19,6 +20,7 @@ let replica_redis_cfg = {
     default_ttl = 3600,
     default_hash_ttl = 3600,
     stream_read_count = 100,
+    broadcast_channel_capacity = 10
 }
 let zone_to_redis_replica_mapping =
         { ap-south-1a = "0.0.0.0"
@@ -179,5 +181,7 @@ in {
     arriving_notification_threshold = 100.0,
     detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
     detection_violation_config = detection_violation_config,
-    detection_anti_violation_config = detection_anti_violation_config
+    detection_anti_violation_config = detection_anti_violation_config,
+    google_compute_route_url = "https://routes.googleapis.com/directions/v2:computeRoutes",
+    google_api_key = "ADD_GOOGLE_API_KEY_HERE"
 }

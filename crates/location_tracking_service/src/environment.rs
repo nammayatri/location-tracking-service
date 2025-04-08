@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use tokio::sync::mpsc::Sender;
 use tracing::info;
 
-use crate::common::{geo_polygon::read_geo_polygon, types::*};
+use crate::common::{geo_polygon::read_geo_polygon, route::read_route_data, types::*};
 
 use shared::tools::logger::LoggerConfig;
 
@@ -67,6 +67,9 @@ pub struct AppConfig {
         HashMap<VehicleType, HashMap<DetectionType, ViolationDetectionConfig>>,
     pub detection_anti_violation_config:
         HashMap<VehicleType, HashMap<DetectionType, ViolationDetectionConfig>>,
+    #[serde(deserialize_with = "deserialize_url")]
+    pub google_compute_route_url: Url,
+    pub google_api_key: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -86,6 +89,7 @@ pub struct RedisConfig {
     pub default_ttl: u32,
     pub default_hash_ttl: u32,
     pub stream_read_count: u64,
+    pub broadcast_channel_capacity: usize,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -148,6 +152,9 @@ pub struct AppState {
         HashMap<VehicleType, HashMap<DetectionType, ViolationDetectionConfig>>,
     pub detection_anti_violation_config:
         HashMap<VehicleType, HashMap<DetectionType, ViolationDetectionConfig>>,
+    pub routes: Vec<Route>,
+    pub google_compute_route_url: Url,
+    pub google_api_key: String,
 }
 
 impl AppState {
@@ -173,6 +180,7 @@ impl AppState {
                     app_config.redis_cfg.default_ttl,
                     app_config.redis_cfg.default_hash_ttl,
                     app_config.redis_cfg.stream_read_count,
+                    app_config.redis_cfg.broadcast_channel_capacity,
                 ),
                 app_config.replica_redis_cfg.map(|mut replica_redis_cfg| {
                     if let Some(host) = new_replica_host {
@@ -188,6 +196,7 @@ impl AppState {
                         replica_redis_cfg.default_ttl,
                         replica_redis_cfg.default_hash_ttl,
                         replica_redis_cfg.stream_read_count,
+                        replica_redis_cfg.broadcast_channel_capacity,
                     )
                 }),
             )
@@ -197,6 +206,18 @@ impl AppState {
 
         let geo_config_path = var("GEO_CONFIG").unwrap_or_else(|_| "./geo_config".to_string());
         let polygons = read_geo_polygon(&geo_config_path).expect("Failed to read geoJSON");
+
+        let route_geo_json_path =
+            var("ROUTE_GEO_JSON_CONFIG").unwrap_or_else(|_| "./route_geo_json_config".to_string());
+
+        let routes = read_route_data(
+            &route_geo_json_path,
+            &app_config.google_compute_route_url,
+            &app_config.google_api_key,
+        )
+        .await;
+
+        info!(tag = "[Route]", "Routes: {:?}", routes);
 
         let blacklist_geo_config_path =
             var("BLACKLIST_GEO_CONFIG").unwrap_or_else(|_| "./blacklist_geo_config".to_string());
@@ -278,6 +299,9 @@ impl AppState {
             detection_callback_url: app_config.detection_callback_url,
             detection_violation_config: app_config.detection_violation_config,
             detection_anti_violation_config: app_config.detection_anti_violation_config,
+            routes,
+            google_compute_route_url: app_config.google_compute_route_url,
+            google_api_key: app_config.google_api_key,
         }
     }
 }
