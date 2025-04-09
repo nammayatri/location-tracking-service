@@ -13,6 +13,7 @@ use crate::common::types::{
 use crate::common::utils::*;
 use crate::outbound::external::compute_routes;
 use reqwest::Url;
+use rustc_hash::FxHashMap;
 use serde_json::from_str;
 use std::fs;
 use std::fs::File;
@@ -23,9 +24,9 @@ pub async fn read_route_data(
     config_path: &str,
     google_compute_route_url: &Url,
     google_api_key: &str,
-) -> Vec<Route> {
+) -> FxHashMap<String, Route> {
     let geometries = fs::read_dir(config_path).expect("Failed to read config path");
-    let mut routes: Vec<Route> = vec![];
+    let mut routes: FxHashMap<String, Route> = FxHashMap::default();
 
     for entry in geometries {
         let entry = entry.expect("Failed to read entry");
@@ -37,7 +38,7 @@ pub async fn read_route_data(
         file.read_to_string(&mut contents).expect("Failed to read");
 
         let route = parse_route_geojson(&contents, google_compute_route_url, google_api_key).await;
-        routes.push(route);
+        routes.insert(route.route_code.clone(), route);
     }
 
     routes

@@ -66,7 +66,8 @@ let stoppedDetectionConfig = {
   }
 let routeDeviationDetectionConfig = {
     deviation_threshold = 500,
-    sample_size = 5
+    sample_size = 60,
+    batch_count = 6
   }
 let overspeedingDetectionConfig = {
     speed_limit = 60.0,
@@ -81,7 +82,8 @@ let stoppedAntiDetectionConfig = {
   }
 let routeDeviationAntiDetectionConfig = {
     deviation_threshold = 300,
-    sample_size = 5
+    sample_size = 60,
+    batch_count = 6
   }
 let overspeedingAntiDetectionConfig = {
     speed_limit = 50.0,
@@ -89,7 +91,7 @@ let overspeedingAntiDetectionConfig = {
     batch_count = 3
   }
 let stoppedDetectionConfigT = { max_eligible_distance : Natural, max_eligible_speed : Optional Natural, batch_count : Natural, sample_size : Natural }
-let routeDeviationDetectionConfigT = { deviation_threshold : Natural, sample_size : Natural}
+let routeDeviationDetectionConfigT = { deviation_threshold : Natural, sample_size : Natural, batch_count : Natural}
 let overspeedingDetectionConfigT = { sample_size : Natural, speed_limit : Double, batch_count : Natural }
 let DetectionConfigType =
       < StoppedDetection : stoppedDetectionConfigT | RouteDeviationDetection : routeDeviationDetectionConfigT | OverspeedingDetection : overspeedingDetectionConfigT >

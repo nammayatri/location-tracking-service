@@ -11,6 +11,7 @@ use std::{env::var, sync::Arc};
 
 use rdkafka::{error::KafkaError, producer::FutureProducer, ClientConfig};
 use reqwest::Url;
+use rustc_hash::FxHashMap;
 use serde::Deserialize;
 use shared::redis::types::{RedisConnectionPool, RedisSettings};
 use std::collections::HashMap;
@@ -152,7 +153,7 @@ pub struct AppState {
         HashMap<VehicleType, HashMap<DetectionType, ViolationDetectionConfig>>,
     pub detection_anti_violation_config:
         HashMap<VehicleType, HashMap<DetectionType, ViolationDetectionConfig>>,
-    pub routes: Vec<Route>,
+    pub routes: FxHashMap<String, Route>,
     pub google_compute_route_url: Url,
     pub google_api_key: String,
 }

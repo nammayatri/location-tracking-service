@@ -536,8 +536,9 @@ pub struct StopDetectionState {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RouteDeviationState {
-    pub minimum_deviation_distance: f64,
+    pub deviation_distance: f64,
     pub total_datapoints: u64,
+    pub avg_deviation_record: VecDeque<(Point, u32)>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -565,6 +566,7 @@ pub struct OverspeedingConfig {
 pub struct RouteDeviationConfig {
     pub deviation_threshold: u32,
     pub sample_size: u32,
+    pub batch_count: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

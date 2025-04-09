@@ -383,6 +383,7 @@ async fn process_driver_locations(
                                 .get(&detection_type)
                                 .cloned()
                                 .flatten(),
+                            data.clone(),
                         ) {
                             detection_violation_state_map
                                 .insert(detection_type.clone(), detection_violation_state);
@@ -504,12 +505,9 @@ async fn process_driver_locations(
             let mut all_tasks: Vec<Pin<Box<dyn Future<Output = Result<(), AppError>>>>> =
                 Vec::new();
 
-            let upcoming_stops = get_upcoming_stops_by_route_code(
-                &data.routes,
-                route_code,
-                &latest_driver_location.pt,
-            )
-            .ok();
+            let upcoming_stops = data.routes.get(route_code).and_then(|route| {
+                get_upcoming_stops_by_route_code(route, &latest_driver_location.pt).ok()
+            });
 
             let vehicle_route_location =
                 get_route_location_by_vehicle_number(&data.redis, &route_code, &bus_number).await?;

@@ -266,15 +266,9 @@ pub fn get_base_vehicle_type(vehicle_type: &VehicleType) -> VehicleType {
 }
 
 pub fn get_upcoming_stops_by_route_code(
-    routes: &[Route],
-    route_code: &str,
+    route: &Route,
     point: &Point,
 ) -> Result<Vec<Stop>, AppError> {
-    let route = routes
-        .iter()
-        .find(|r| r.route_code == route_code)
-        .ok_or_else(|| AppError::InternalError("Route not found".to_string()))?;
-
     if let Some(projection) = find_closest_point_on_route(
         point,
         route
