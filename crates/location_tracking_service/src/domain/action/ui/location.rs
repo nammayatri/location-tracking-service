@@ -296,27 +296,20 @@ async fn process_driver_locations(
                 _ => None,
             };
             if let Some(config) = stop_detection_config {
-                if driver_ride_status == Some(RideStatus::NEW)
-                    || (config.enable_onride_stop_detection
-                        && driver_ride_status == Some(RideStatus::INPROGRESS))
-                {
-                    detect_stop(
-                        driver_location_details
-                            .as_ref()
-                            .map(|driver_location_details| {
-                                driver_location_details.stop_detection.to_owned()
-                            })
-                            .flatten(),
-                        DriverLocation {
-                            location: latest_driver_location.pt.to_owned(),
-                            timestamp: latest_driver_location.ts,
-                        },
-                        latest_driver_location.v,
-                        config,
-                    )
-                } else {
-                    (None, None)
-                }
+                detect_stop(
+                    driver_location_details
+                        .as_ref()
+                        .map(|driver_location_details| {
+                            driver_location_details.stop_detection.to_owned()
+                        })
+                        .flatten(),
+                    DriverLocation {
+                        location: latest_driver_location.pt.to_owned(),
+                        timestamp: latest_driver_location.ts,
+                    },
+                    latest_driver_location.v,
+                    config,
+                )
             } else {
                 (None, None)
             }
