@@ -504,25 +504,21 @@ pub fn estimated_upcoming_stops_eta(
                 })
                 .collect(),
         )
-    } else if let Some(upcoming_stop) = upcoming_stops.first() {
-        if distance_between_in_meters(point, &upcoming_stop.coordinate) < stop_threshold {
-            let mut upcoming_stops_with_eta = Vec::new();
-            let mut prev_stop_durations: u64 = 0;
-            for stop in upcoming_stops {
-                prev_stop_durations += stop.duration_to_upcoming_intermediate_stop.inner() as u64;
-                let upcoming_stop = UpcomingStop {
-                    stop: stop.to_owned(),
-                    eta: TimeStamp(Utc::now() + Duration::from_secs(prev_stop_durations)),
-                    delta: None,
-                    status: UpcomingStopStatus::Upcoming,
-                };
-                upcoming_stops_with_eta.push(upcoming_stop);
-            }
-
-            Some(upcoming_stops_with_eta)
-        } else {
-            None
+    } else if let Some(_upcoming_stop) = upcoming_stops.first() {
+        let mut upcoming_stops_with_eta = Vec::new();
+        let mut prev_stop_durations: u64 = 0;
+        for stop in upcoming_stops {
+            prev_stop_durations += stop.duration_to_upcoming_intermediate_stop.inner() as u64;
+            let upcoming_stop = UpcomingStop {
+                stop: stop.to_owned(),
+                eta: TimeStamp(Utc::now() + Duration::from_secs(prev_stop_durations)),
+                delta: None,
+                status: UpcomingStopStatus::Upcoming,
+            };
+            upcoming_stops_with_eta.push(upcoming_stop);
         }
+
+        Some(upcoming_stops_with_eta)
     } else {
         None
     }
