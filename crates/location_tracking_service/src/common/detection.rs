@@ -100,7 +100,7 @@ fn violation_check(
                 if let (Some(prev_tuple), Some(current_speed)) =
                     (avg_speed_record.back(), context.speed)
                 {
-                    let max_batch_size = (sample_size + batch_count - 1) / batch_count;
+                    let max_batch_size = sample_size.div_ceil(batch_count);
                     let prev_avg_speed = prev_tuple.0;
                     let prev_batch_datapoints = prev_tuple.1;
                     if total_datapoints < sample_size as u64 {
@@ -249,7 +249,7 @@ fn violation_check(
             })) = state
             {
                 if let Some(prev_tuple) = avg_deviation_record.back() {
-                    let max_batch_size = (sample_size + batch_count - 1) / batch_count;
+                    let max_batch_size = sample_size.div_ceil(batch_count);
                     let prev_avg_point = prev_tuple.0.clone();
                     let prev_batch_datapoints = prev_tuple.1;
                     if total_datapoints < sample_size as u64 {
@@ -427,7 +427,7 @@ fn violation_check(
             })) = state
             {
                 if let Some(prev_tuple) = avg_coord_mean.back() {
-                    let max_batch_size = (sample_size + batch_count - 1) / batch_count;
+                    let max_batch_size = sample_size.div_ceil(batch_count);
                     let prev_avg_point = prev_tuple.0.clone();
                     let prev_batch_datapoints = prev_tuple.1;
                     if total_datapoints < sample_size as u64 {
@@ -656,7 +656,7 @@ fn anti_violation_check(
                 if let (Some(prev_tuple), Some(current_speed)) =
                     (avg_speed_record.back(), context.speed)
                 {
-                    let max_batch_size = (sample_size + batch_count - 1) / batch_count;
+                    let max_batch_size = sample_size.div_ceil(batch_count);
                     let prev_avg_speed = prev_tuple.0;
                     let prev_batch_datapoints = prev_tuple.1;
                     if total_datapoints < sample_size as u64 {
@@ -807,7 +807,7 @@ fn anti_violation_check(
             })) = state
             {
                 if let Some(prev_tuple) = avg_deviation_record.back() {
-                    let max_batch_size = (sample_size + batch_count - 1) / batch_count;
+                    let max_batch_size = sample_size.div_ceil(batch_count);
                     let prev_avg_point = prev_tuple.0.clone();
                     let prev_batch_datapoints = prev_tuple.1;
                     if total_datapoints < sample_size as u64 {
@@ -985,7 +985,7 @@ fn anti_violation_check(
             })) = state
             {
                 if let Some(prev_tuple) = avg_coord_mean.back() {
-                    let max_batch_size = (sample_size + batch_count - 1) / batch_count;
+                    let max_batch_size = sample_size.div_ceil(batch_count);
                     let prev_avg_point = prev_tuple.0.clone();
                     let prev_batch_datapoints = prev_tuple.1;
                     if total_datapoints < sample_size as u64 {

@@ -251,7 +251,6 @@ pub struct MultiPolygonBody {
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq)]
-#[serde(rename_all = "camelCase")]
 pub struct RideDetails {
     pub ride_id: RideId,
     pub ride_status: RideStatus,
