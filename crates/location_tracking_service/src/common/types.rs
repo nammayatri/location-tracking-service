@@ -252,8 +252,11 @@ pub struct MultiPolygonBody {
 
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq)]
 pub struct RideDetails {
+    #[serde(alias = "rideId")]
     pub ride_id: RideId,
+    #[serde(alias = "rideStatus")]
     pub ride_status: RideStatus,
+    #[serde(alias = "rideInfo")]
     pub ride_info: Option<RideInfo>,
 }
 
