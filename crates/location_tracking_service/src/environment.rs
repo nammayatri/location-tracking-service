@@ -71,12 +71,19 @@ pub struct AppConfig {
     #[serde(deserialize_with = "deserialize_url")]
     pub google_compute_route_url: Url,
     pub google_api_key: String,
+    pub route_geo_json_config: S3Config,
 }
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct KafkaConfig {
     pub kafka_key: String,
     pub kafka_host: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct S3Config {
+    pub bucket: String,
+    pub prefix: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -208,11 +215,10 @@ impl AppState {
         let geo_config_path = var("GEO_CONFIG").unwrap_or_else(|_| "./geo_config".to_string());
         let polygons = read_geo_polygon(&geo_config_path).expect("Failed to read geoJSON");
 
-        let route_geo_json_path =
-            var("ROUTE_GEO_JSON_CONFIG").unwrap_or_else(|_| "./route_geo_json_config".to_string());
-
         let routes = read_route_data(
-            &route_geo_json_path,
+            &redis,
+            &app_config.route_geo_json_config.bucket,
+            &app_config.route_geo_json_config.prefix,
             &app_config.google_compute_route_url,
             &app_config.google_api_key,
         )

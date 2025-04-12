@@ -202,5 +202,9 @@ in {
     detection_violation_config = detection_violation_config,
     detection_anti_violation_config = detection_anti_violation_config,
     google_compute_route_url = "https://routes.googleapis.com/directions/v2:computeRoutes",
-    google_api_key = "ADD_GOOGLE_API_KEY_HERE"
+    google_api_key = "ADD_GOOGLE_API_KEY_HERE",
+    route_geo_json_config = {
+        bucket = "route-geojson",
+        prefix = ""
+    }
 }

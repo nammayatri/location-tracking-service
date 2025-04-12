@@ -740,3 +740,28 @@ pub async fn get_trip_location(
         .await
         .map_err(|err| AppError::InternalError(err.to_string()))
 }
+
+pub async fn cache_google_stop_duration(
+    redis: &RedisConnectionPool,
+    source_stop_code: String,
+    destination_stop_code: String,
+    duration: Seconds,
+) -> Result<(), AppError> {
+    let route_config_key = google_stop_duration_key(&source_stop_code, &destination_stop_code);
+    redis
+        .set_key_without_expiry(&route_config_key, duration)
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
+pub async fn get_google_stop_duration(
+    redis: &RedisConnectionPool,
+    source_stop_code: String,
+    destination_stop_code: String,
+) -> Result<Option<Seconds>, AppError> {
+    let route_config_key = google_stop_duration_key(&source_stop_code, &destination_stop_code);
+    redis
+        .get_key::<Seconds>(&route_config_key)
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}

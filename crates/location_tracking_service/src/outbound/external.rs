@@ -272,6 +272,7 @@ pub async fn trigger_detection_alert(
 /// # Returns
 /// - `Ok(GoogleRoutesResponse)`: The route computation was successful.
 /// - `Err(AppError)`: An error occurred during route computation.
+#[allow(clippy::too_many_arguments)]
 pub async fn compute_routes(
     routes_url: &Url,
     api_key: &str,

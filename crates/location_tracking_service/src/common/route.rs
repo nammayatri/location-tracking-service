@@ -12,40 +12,66 @@ use crate::common::types::{
 };
 use crate::common::utils::*;
 use crate::outbound::external::compute_routes;
+use crate::redis::commands::{cache_google_stop_duration, get_google_stop_duration};
 use reqwest::Url;
 use rustc_hash::FxHashMap;
 use serde_json::from_str;
+use shared::redis::types::RedisConnectionPool;
+use shared::tools::aws::get_files_in_directory_from_s3;
+use std::env::var;
 use std::fs;
 use std::fs::File;
 use std::io::Read;
 
 #[allow(clippy::expect_used)]
 pub async fn read_route_data(
-    config_path: &str,
+    redis: &RedisConnectionPool,
+    config_bucket: &str,
+    config_prefix: &str,
     google_compute_route_url: &Url,
     google_api_key: &str,
 ) -> FxHashMap<String, Route> {
-    let geometries = fs::read_dir(config_path).expect("Failed to read config path");
-    let mut routes: FxHashMap<String, Route> = FxHashMap::default();
+    if var("DEV").is_ok() {
+        let config_path = "./route_geo_json_config";
+        let geometries = fs::read_dir(config_path).expect("Failed to read config path");
+        let mut routes: FxHashMap<String, Route> = FxHashMap::default();
 
-    for entry in geometries {
-        let entry = entry.expect("Failed to read entry");
-        let file_name = entry.file_name().to_string_lossy().to_string();
+        for entry in geometries {
+            let entry = entry.expect("Failed to read entry");
+            let file_name = entry.file_name().to_string_lossy().to_string();
 
-        let file_path = config_path.to_owned() + "/" + &file_name;
-        let mut file = File::open(file_path).expect("Failed to open file");
-        let mut contents = String::new();
-        file.read_to_string(&mut contents).expect("Failed to read");
+            let file_path = config_path.to_owned() + "/" + &file_name;
+            let mut file = File::open(file_path).expect("Failed to open file");
+            let mut contents = String::new();
+            file.read_to_string(&mut contents).expect("Failed to read");
 
-        let route = parse_route_geojson(&contents, google_compute_route_url, google_api_key).await;
-        routes.insert(route.route_code.clone(), route);
+            let route =
+                parse_route_geojson(redis, &contents, google_compute_route_url, google_api_key)
+                    .await;
+            routes.insert(route.route_code.clone(), route);
+        }
+
+        routes
+    } else {
+        let geometries = get_files_in_directory_from_s3(config_bucket, config_prefix)
+            .await
+            .expect("Failed to fetch files from S3");
+
+        let mut routes: FxHashMap<String, Route> = FxHashMap::default();
+        for (_, data) in geometries {
+            let data = String::from_utf8(data).expect("Failed to convert to string");
+            let route =
+                parse_route_geojson(redis, &data, google_compute_route_url, google_api_key).await;
+            routes.insert(route.route_code.clone(), route);
+        }
+
+        routes
     }
-
-    routes
 }
 
 #[allow(clippy::expect_used)]
 async fn parse_route_geojson(
+    redis: &RedisConnectionPool,
     geojson_str: &str,
     google_compute_route_url: &Url,
     google_api_key: &str,
@@ -156,8 +182,10 @@ async fn parse_route_geojson(
                 if stop_type == StopType::IntermediateStop {
                     let duration_to_upcoming_intermediate_stop =
                         compute_duration_to_upcoming_intermediate_stop(
+                            redis,
                             &waypoints,
                             i,
+                            stop_code.to_owned(),
                             &coordinate,
                             google_compute_route_url,
                             google_api_key,
@@ -178,8 +206,10 @@ async fn parse_route_geojson(
                     if let Some(upcoming_stop) = upcoming_stop {
                         let duration_to_upcoming_intermediate_stop =
                             compute_duration_to_upcoming_intermediate_stop(
+                                redis,
                                 &waypoints,
                                 i,
+                                stop_code.to_owned() + &stop_idx.to_string(),
                                 &coordinate,
                                 google_compute_route_url,
                                 google_api_key,
@@ -281,10 +311,13 @@ async fn parse_route_geojson(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn compute_duration_to_upcoming_intermediate_stop(
+    redis: &RedisConnectionPool,
     waypoints: &[(Point, Option<Stop>)],
     i: usize,
-    coordinate: &Point,
+    destination_intermediate_stop_code: String,
+    destination_intermediate_stop_coordinate: &Point,
     google_compute_route_url: &Url,
     google_api_key: &str,
     upcoming_route_correction_stop_duration: &mut Option<Seconds>,
@@ -301,11 +334,19 @@ async fn compute_duration_to_upcoming_intermediate_stop(
     if let Some((origin_intermediate_stop_coordinate, Some(origin_intermediate_stop))) =
         origin_intermediate_stop
     {
-        let duration = if let Ok(routes_response) = compute_routes(
+        let Seconds(duration) = if let Ok(Some(duration)) = get_google_stop_duration(
+            redis,
+            origin_intermediate_stop.stop_code.to_owned(),
+            destination_intermediate_stop_code.to_owned(),
+        )
+        .await
+        {
+            duration
+        } else if let Ok(routes_response) = compute_routes(
             google_compute_route_url,
             google_api_key,
             origin_intermediate_stop_coordinate,
-            coordinate,
+            destination_intermediate_stop_coordinate,
             vec![],
             TravelMode::Drive,
         )
@@ -313,13 +354,14 @@ async fn compute_duration_to_upcoming_intermediate_stop(
         {
             if let Some(route) = routes_response.routes.first() {
                 if let Ok(duration) = route.duration.replace("s", "").parse::<u32>() {
-                    if let Some(Seconds(upcoming_route_correction_stop_duration)) =
-                        upcoming_route_correction_stop_duration
-                    {
-                        Seconds(duration + *upcoming_route_correction_stop_duration)
-                    } else {
-                        Seconds(duration)
-                    }
+                    let _ = cache_google_stop_duration(
+                        redis,
+                        origin_intermediate_stop.stop_code.to_owned(),
+                        destination_intermediate_stop_code,
+                        Seconds(duration),
+                    )
+                    .await;
+                    Seconds(duration)
                 } else {
                     Seconds(0)
                 }
@@ -328,6 +370,14 @@ async fn compute_duration_to_upcoming_intermediate_stop(
             }
         } else {
             Seconds(0)
+        };
+
+        let duration = if let Some(Seconds(upcoming_route_correction_stop_duration)) =
+            upcoming_route_correction_stop_duration
+        {
+            Seconds(duration + *upcoming_route_correction_stop_duration)
+        } else {
+            Seconds(duration)
         };
 
         match origin_intermediate_stop.stop_type {

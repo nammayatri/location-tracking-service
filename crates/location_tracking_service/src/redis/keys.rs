@@ -180,3 +180,7 @@ pub fn driver_loc_based_on_route_key(route_code: &str) -> String {
 pub fn driver_loc_based_on_trip_key(trip_id: &str) -> String {
     format!("trip:{trip_id}")
 }
+
+pub fn google_stop_duration_key(source_stop_code: &str, destination_stop_code: &str) -> String {
+    format!("gsd:{source_stop_code}:{destination_stop_code}")
+}

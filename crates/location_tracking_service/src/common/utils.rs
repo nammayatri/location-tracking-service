@@ -462,7 +462,8 @@ pub fn estimated_upcoming_stops_eta(
     let stop_threshold = 100.0; // TODO :: Make it configurable
     if let Some(upcoming_stops_with_eta) = upcoming_stops_with_eta {
         let delta = upcoming_stops_with_eta
-            .first()
+            .iter()
+            .find(|upcoming_stop| upcoming_stop.status == UpcomingStopStatus::Upcoming)
             .and_then(|upcoming_stop_with_eta| {
                 if distance_between_in_meters(point, &upcoming_stop_with_eta.stop.coordinate)
                     < stop_threshold

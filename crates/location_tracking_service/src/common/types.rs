@@ -387,7 +387,7 @@ pub struct UpcomingStop {
     pub delta: Option<f64>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 pub enum UpcomingStopStatus {
     Reached,
     Upcoming,

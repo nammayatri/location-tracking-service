@@ -13,5 +13,5 @@ serde_json = "1.0.100"
 tonic = "0.10.2"
 rand = "0.8.5"
 
-shared = { git = "https://github.com/nammayatri/shared-kernel-rs", rev = "f58fabc" }
+shared = { git = "https://github.com/nammayatri/shared-kernel-rs", rev = "36b76dc" }
 location_tracking_service = { version = "0.1.0", path = "../location_tracking_service" }
