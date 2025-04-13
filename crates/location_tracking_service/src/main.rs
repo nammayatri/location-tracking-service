@@ -79,7 +79,14 @@ async fn start_server() -> std::io::Result<()> {
 
     std::panic::set_hook(Box::new(|panic_info| {
         termination!("panic", Instant::now());
-        error!("Panic Occured : {:?}", panic_info);
+        let payload = if let Some(s) = panic_info.payload().downcast_ref::<&str>() {
+            s.to_string()
+        } else if let Some(s) = panic_info.payload().downcast_ref::<String>() {
+            s.to_string()
+        } else {
+            "Unknown".to_string()
+        };
+        error!("Panic Occured : {} - {:?}", payload, panic_info);
     }));
 
     let port = app_config.port;
