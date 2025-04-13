@@ -415,41 +415,43 @@ async fn process_driver_locations(
         }
     };
 
-    let (stop_detected, stop_detection) =
-        if let Some(stop_detection_config) = data.stop_detection.get(&base_vehicle_type) {
-            let stop_detection_config = match driver_ride_status {
-                Some(RideStatus::NEW) => stop_detection_config.get(&RideStatus::NEW),
-                Some(RideStatus::INPROGRESS) => stop_detection_config.get(&RideStatus::INPROGRESS),
-                _ => None,
-            };
-            if let Some(config) = stop_detection_config {
-                if driver_ride_status == Some(RideStatus::NEW)
-                    || (config.enable_onride_stop_detection
-                        && driver_ride_status == Some(RideStatus::INPROGRESS))
-                {
-                    detect_stop(
-                        driver_location_details
-                            .as_ref()
-                            .map(|driver_location_details| {
-                                driver_location_details.stop_detection.to_owned()
-                            })
-                            .flatten(),
-                        DriverLocation {
-                            location: latest_driver_location.pt.to_owned(),
-                            timestamp: latest_driver_location.ts,
-                        },
-                        latest_driver_location.v,
-                        config,
-                    )
-                } else {
-                    (None, None)
-                }
+    let (stop_detected, stop_detection) = if let Some(stop_detection_config) =
+        data.stop_detection.get(&base_vehicle_type)
+    {
+        let stop_detection_config = match driver_ride_status {
+            Some(RideStatus::NEW) => stop_detection_config.get(&RideStatus::NEW),
+            Some(RideStatus::INPROGRESS) => stop_detection_config.get(&RideStatus::INPROGRESS),
+            _ => None,
+        };
+        if let Some(config) = stop_detection_config {
+            if (driver_ride_status == Some(RideStatus::NEW)
+                || (config.enable_onride_stop_detection
+                    && driver_ride_status == Some(RideStatus::INPROGRESS)))
+                && latest_driver_location.acc.unwrap_or(Accuracy(0.0)) <= data.min_location_accuracy
+            {
+                detect_stop(
+                    driver_location_details
+                        .as_ref()
+                        .map(|driver_location_details| {
+                            driver_location_details.stop_detection.to_owned()
+                        })
+                        .flatten(),
+                    DriverLocation {
+                        location: latest_driver_location.pt.to_owned(),
+                        timestamp: latest_driver_location.ts,
+                    },
+                    latest_driver_location.v,
+                    config,
+                )
             } else {
                 (None, None)
             }
         } else {
             (None, None)
-        };
+        }
+    } else {
+        (None, None)
+    };
 
     let (
         driver_ride_notification_status,
@@ -530,9 +532,14 @@ async fn process_driver_locations(
             let upcoming_stops_with_eta = if let Some(upcoming_stops) = upcoming_stops {
                 estimated_upcoming_stops_eta(
                     vehicle_route_location
+                        .as_ref()
                         .map(|vehicle_route_location| {
                             vehicle_route_location.upcoming_stops.to_owned()
                         })
+                        .flatten(),
+                    vehicle_route_location
+                        .as_ref()
+                        .map(|vehicle_route_location| vehicle_route_location.speed.to_owned())
                         .flatten(),
                     &upcoming_stops,
                     &latest_driver_location.pt,

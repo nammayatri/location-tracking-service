@@ -456,9 +456,11 @@ pub fn find_closest_point_on_route(
 
 pub fn estimated_upcoming_stops_eta(
     upcoming_stops_with_eta: Option<Vec<UpcomingStop>>,
+    speed: Option<SpeedInMeterPerSecond>,
     upcoming_stops: &Vec<Stop>,
     point: &Point,
 ) -> Option<Vec<UpcomingStop>> {
+    let now = Utc::now();
     let stop_threshold = 100.0; // TODO :: Make it configurable
     if let Some(upcoming_stops_with_eta) = upcoming_stops_with_eta {
         let delta = upcoming_stops_with_eta
@@ -468,7 +470,6 @@ pub fn estimated_upcoming_stops_eta(
                 if distance_between_in_meters(point, &upcoming_stop_with_eta.stop.coordinate)
                     < stop_threshold
                 {
-                    let now = Utc::now();
                     let upcoming_stop_eta = upcoming_stop_with_eta.eta.inner();
                     if now > upcoming_stop_eta {
                         Some(abs_diff_utc_as_sec(upcoming_stop_eta, now))
@@ -488,10 +489,25 @@ pub fn estimated_upcoming_stops_eta(
                         .iter()
                         .find(|stop| stop.stop_idx == upcoming_stop_with_eta.stop.stop_idx)
                     {
+                        let delta = if upcoming_stop_with_eta.eta.inner() > now {
+                            0.0
+                        } else {
+                            let distance =
+                                upcoming_stop.distance_to_upcoming_intermediate_stop.inner() as f64;
+                            let speed = speed
+                                .unwrap_or(SpeedInMeterPerSecond(1.0))
+                                .inner()
+                                .clamp(1.0, 16.66);
+                            let time = distance / speed;
+                            let updated_eta_delta =
+                                (now - upcoming_stop_with_eta.eta.inner()).num_seconds();
+                            updated_eta_delta as f64 + time
+                        };
+
                         UpcomingStop {
                             stop: upcoming_stop.to_owned(),
                             eta: upcoming_stop_with_eta.eta,
-                            delta: None,
+                            delta: Some(delta),
                             status: UpcomingStopStatus::Upcoming,
                         }
                     } else {
