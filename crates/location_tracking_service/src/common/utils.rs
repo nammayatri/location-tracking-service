@@ -481,6 +481,7 @@ pub fn estimated_upcoming_stops_eta(
                 }
             });
 
+        let mut distance_to_upcoming_stop = 0.0;
         Some(
             upcoming_stops_with_eta
                 .iter()
@@ -492,8 +493,10 @@ pub fn estimated_upcoming_stops_eta(
                         let delta = if upcoming_stop_with_eta.eta.inner() > now {
                             0.0
                         } else {
-                            let distance =
-                                upcoming_stop.distance_to_upcoming_intermediate_stop.inner() as f64;
+                            let distance = distance_to_upcoming_stop
+                                + upcoming_stop.distance_to_upcoming_intermediate_stop.inner()
+                                    as f64;
+                            distance_to_upcoming_stop += distance;
                             let speed = speed
                                 .unwrap_or(SpeedInMeterPerSecond(1.0))
                                 .inner()
