@@ -490,7 +490,12 @@ pub fn estimated_upcoming_stops_eta(
                         .iter()
                         .find(|stop| stop.stop_idx == upcoming_stop_with_eta.stop.stop_idx)
                     {
-                        let delta = if upcoming_stop_with_eta.eta.inner() > now {
+                        let delta = if upcoming_stop_with_eta.eta.inner()
+                            + Duration::from_secs(
+                                upcoming_stop_with_eta.delta.map_or(0, |delta| delta as u64),
+                            )
+                            > now
+                        {
                             0.0
                         } else {
                             let distance = distance_to_upcoming_stop
