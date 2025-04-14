@@ -458,7 +458,11 @@ async fn process_driver_locations(
         is_driver_ride_notification_status_changed,
         driver_pickup_distance,
     ) = (|| {
-        if let Some(RideInfo::Car { pickup_location }) = driver_ride_info.as_ref() {
+        if let Some(RideInfo::Car {
+            pickup_location,
+            distance_batch_size: _,
+        }) = driver_ride_info.as_ref()
+        {
             let pickup_distance =
                 distance_between_in_meters(pickup_location, &latest_driver_location.pt);
             if let Some(ride_notification_status) = driver_ride_notification_status {
@@ -658,6 +662,15 @@ async fn process_driver_locations(
                     latest_driver_location.pt, driver_id, merchant_id
                 );
             }
+            let driver_location_accuracy_buffer_to_use: f64 = match driver_ride_info {
+                Some(RideInfo::Car {
+                    distance_batch_size,
+                    ..
+                }) => distance_batch_size
+                    .map(|x| x as f64)
+                    .unwrap_or(data.driver_location_accuracy_buffer),
+                _ => data.driver_location_accuracy_buffer,
+            };
 
             let (locations, any_location_unfiltered) =
                 if let Some(RideStatus::INPROGRESS) = driver_ride_status.as_ref() {
@@ -665,7 +678,7 @@ async fn process_driver_locations(
                         driver_last_known_location.as_ref(),
                         locations,
                         data.min_location_accuracy,
-                        data.driver_location_accuracy_buffer,
+                        driver_location_accuracy_buffer_to_use,
                     );
                     if !locations.is_empty() {
                         if locations.len() > data.batch_size as usize {
@@ -834,7 +847,10 @@ async fn process_driver_locations(
                     }
                 }
             }
-            Some(RideInfo::Car { pickup_location: _ }) => {
+            Some(RideInfo::Car {
+                pickup_location: _,
+                distance_batch_size: _,
+            }) => {
                 if let (Some(location), Some(ride_id)) =
                     (stop_detected.as_ref(), driver_ride_id.as_ref())
                 {
