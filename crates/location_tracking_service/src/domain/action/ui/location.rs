@@ -460,7 +460,7 @@ async fn process_driver_locations(
     ) = (|| {
         if let Some(RideInfo::Car {
             pickup_location,
-            distance_batch_size: _,
+            min_distance_between_two_points: _,
         }) = driver_ride_info.as_ref()
         {
             let pickup_distance =
@@ -664,9 +664,9 @@ async fn process_driver_locations(
             }
             let driver_location_accuracy_buffer_to_use: f64 = match driver_ride_info {
                 Some(RideInfo::Car {
-                    distance_batch_size,
+                    min_distance_between_two_points,
                     ..
-                }) => distance_batch_size
+                }) => min_distance_between_two_points
                     .map(|x| x as f64)
                     .unwrap_or(data.driver_location_accuracy_buffer),
                 _ => data.driver_location_accuracy_buffer,
@@ -849,7 +849,7 @@ async fn process_driver_locations(
             }
             Some(RideInfo::Car {
                 pickup_location: _,
-                distance_batch_size: _,
+                min_distance_between_two_points: _,
             }) => {
                 if let (Some(location), Some(ride_id)) =
                     (stop_detected.as_ref(), driver_ride_id.as_ref())
