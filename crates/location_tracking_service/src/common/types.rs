@@ -198,7 +198,7 @@ pub enum RideInfo {
     #[serde(rename_all = "camelCase")]
     Car {
         pickup_location: Point,
-        distance_batch_size: Option<i32>,
+        min_distance_between_two_points: Option<i32>,
     },
 }
 
