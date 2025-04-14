@@ -196,7 +196,10 @@ pub enum RideInfo {
         driver_name: Option<String>,
     },
     #[serde(rename_all = "camelCase")]
-    Car { pickup_location: Point },
+    Car {
+        pickup_location: Point,
+        distance_batch_size: Option<i32>,
+    },
 }
 
 #[derive(Debug, Clone, EnumString, Display, Serialize, Deserialize, Eq, Hash, PartialEq)]
