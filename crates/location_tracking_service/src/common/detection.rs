@@ -630,7 +630,7 @@ fn check_deviated(
         if let Some(projected_point) = projected_point {
             let distance =
                 distance_between_in_meters(&average_point, &projected_point.projection_point);
-            return Some((distance <= deviation_threshold as f64, distance));
+            return Some((distance > deviation_threshold as f64, distance));
         }
     }
     None
