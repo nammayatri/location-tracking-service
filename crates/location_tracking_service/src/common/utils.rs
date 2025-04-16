@@ -496,7 +496,7 @@ pub fn estimated_upcoming_stops_eta(
                             )
                             > now
                         {
-                            0.0
+                            upcoming_stop_with_eta.delta.map_or(0.0, |delta| delta)
                         } else {
                             let distance = distance_to_upcoming_stop
                                 + upcoming_stop.distance_to_upcoming_intermediate_stop.inner()
