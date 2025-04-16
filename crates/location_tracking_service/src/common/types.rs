@@ -523,6 +523,8 @@ pub enum DetectionType {
     Stopped,
     RouteDeviation,
     Overspeeding,
+    OppositeDirection,
+    TripNotStarted,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -530,6 +532,8 @@ pub enum ViolationDetectionState {
     StopDetection(StopDetectionState),
     RouteDeviation(RouteDeviationState),
     Overspeeding(OverspeedingState),
+    OppositeDirection(OppositeDirectionState),
+    TripNotStarted(TripNotStartedState),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -550,6 +554,18 @@ pub struct RouteDeviationState {
 pub struct OverspeedingState {
     pub total_datapoints: u64,
     pub avg_speed_record: VecDeque<(f64, u32)>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OppositeDirectionState {
+    pub total_datapoints: u64,
+    pub expected_count: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TripNotStartedState {
+    pub total_datapoints: u64,
+    pub avg_coord_mean: VecDeque<(Point, u32)>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -575,6 +591,16 @@ pub struct RouteDeviationConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OppositeDirectionConfig {}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TripNotStartedConfig {
+    pub deviation_threshold: u32,
+    pub sample_size: u32,
+    pub batch_count: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ViolationDetectionConfig {
     pub enabled_on_pick_up: bool,
     pub enabled_on_ride: bool,
@@ -586,6 +612,8 @@ pub enum DetectionConfig {
     StoppedDetection(StoppedDetectionConfig),
     OverspeedingDetection(OverspeedingConfig),
     RouteDeviationDetection(RouteDeviationConfig),
+    OppositeDirectionDetection(OppositeDirectionConfig),
+    TripNotStartedDetection(TripNotStartedConfig),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -598,6 +626,7 @@ pub struct DetectionContext {
     pub ride_status: RideStatus,
     pub ride_info: Option<RideInfo>,
     pub vehicle_type: VehicleType,
+    pub accuracy: Accuracy,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

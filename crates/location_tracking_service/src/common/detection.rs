@@ -13,10 +13,11 @@ use tracing::warn;
 use crate::environment::AppState;
 use crate::{
     common::types::*,
-    common::utils::distance_between_in_meters,
+    common::utils::{distance_between_in_meters, get_upcoming_stops_by_route_code},
     outbound::types::{
-        DetectionData, OverSpeedingDetectionData, RouteDeviationDetectionData,
-        StoppedDetectionData, ViolationDetectionReq,
+        DetectionData, OppositeDirectionDetectionData, OverSpeedingDetectionData,
+        RouteDeviationDetectionData, StoppedDetectionData, TripNotStartedDetectionData,
+        ViolationDetectionReq,
     },
 };
 use actix_web::web::Data;
@@ -578,6 +579,229 @@ fn violation_check(
                 ViolationDetectionState::StopDetection(StopDetectionState {
                     total_datapoints: 1,
                     avg_speed: None,
+                    avg_coord_mean: VecDeque::from([(context.location.clone(), 1)]),
+                }),
+                None,
+            ))
+        }
+        DetectionConfig::OppositeDirectionDetection(OppositeDirectionConfig {}) => {
+            if let Some(ViolationDetectionState::OppositeDirection(OppositeDirectionState {
+                total_datapoints,
+                expected_count,
+            })) = state
+            {
+                if let Some(RideInfo::Bus { route_code, .. }) = &context.ride_info {
+                    let route = data.routes.get(route_code);
+                    if let Some(route) = route {
+                        let upcoming_stops =
+                            get_upcoming_stops_by_route_code(route, &context.location);
+                        if let Ok(upcoming) = upcoming_stops {
+                            let count = upcoming.len() as u64;
+                            if count <= expected_count {
+                                return Some((
+                                    ViolationDetectionState::OppositeDirection(
+                                        OppositeDirectionState {
+                                            total_datapoints: total_datapoints + 1,
+                                            expected_count: count,
+                                        },
+                                    ),
+                                    Some(false),
+                                ));
+                            } else {
+                                return Some((
+                                    ViolationDetectionState::OppositeDirection(
+                                        OppositeDirectionState {
+                                            total_datapoints: total_datapoints + 1,
+                                            expected_count,
+                                        },
+                                    ),
+                                    Some(true),
+                                ));
+                            }
+                        }
+                        return Some((
+                            ViolationDetectionState::OppositeDirection(OppositeDirectionState {
+                                total_datapoints: total_datapoints + 1,
+                                expected_count,
+                            }),
+                            None,
+                        ));
+                    }
+                }
+            }
+            Some((
+                ViolationDetectionState::OppositeDirection(OppositeDirectionState {
+                    total_datapoints: 0,
+                    expected_count: 1e6 as u64,
+                }),
+                None,
+            ))
+        }
+        DetectionConfig::TripNotStartedDetection(TripNotStartedConfig {
+            deviation_threshold,
+            sample_size,
+            batch_count,
+        }) => {
+            if let Some(ViolationDetectionState::TripNotStarted(TripNotStartedState {
+                mut total_datapoints,
+                avg_coord_mean,
+            })) = state
+            {
+                let max_batch_size = sample_size.div_ceil(batch_count);
+                let flag = context.ride_status == RideStatus::NEW;
+
+                if let Some(prev_tuple) = avg_coord_mean.back() {
+                    let prev_avg_point = prev_tuple.0.clone();
+                    let prev_batch_datapoints = prev_tuple.1;
+
+                    if total_datapoints < sample_size as u64 {
+                        if prev_batch_datapoints < max_batch_size {
+                            let current_avg_point = Point {
+                                lat: Latitude(
+                                    (prev_avg_point.lat.inner() * prev_batch_datapoints as f64
+                                        + context.location.lat.inner())
+                                        / (prev_batch_datapoints as f64 + 1.0),
+                                ),
+                                lon: Longitude(
+                                    (prev_avg_point.lon.inner() * prev_batch_datapoints as f64
+                                        + context.location.lon.inner())
+                                        / (prev_batch_datapoints as f64 + 1.0),
+                                ),
+                            };
+                            let mut copy_list = avg_coord_mean.clone();
+                            copy_list.pop_back();
+                            copy_list.push_back((current_avg_point, prev_batch_datapoints + 1));
+                            total_datapoints += 1;
+
+                            if total_datapoints == sample_size as u64 && flag {
+                                if let Some(RideInfo::Bus { route_code, .. }) = &context.ride_info {
+                                    let points = data.routes.get(route_code);
+                                    if let Some(true) = check_trip_not_started(
+                                        &copy_list,
+                                        deviation_threshold,
+                                        points,
+                                    ) {
+                                        return Some((
+                                            ViolationDetectionState::TripNotStarted(
+                                                TripNotStartedState {
+                                                    total_datapoints,
+                                                    avg_coord_mean: copy_list,
+                                                },
+                                            ),
+                                            Some(true),
+                                        ));
+                                    } else if let Some(false) = check_trip_not_started(
+                                        &copy_list,
+                                        deviation_threshold,
+                                        points,
+                                    ) {
+                                        return Some((
+                                            ViolationDetectionState::TripNotStarted(
+                                                TripNotStartedState {
+                                                    total_datapoints,
+                                                    avg_coord_mean: copy_list,
+                                                },
+                                            ),
+                                            Some(false),
+                                        ));
+                                    }
+                                }
+                            }
+                            return Some((
+                                ViolationDetectionState::TripNotStarted(TripNotStartedState {
+                                    total_datapoints,
+                                    avg_coord_mean: copy_list,
+                                }),
+                                None,
+                            ));
+                        } else {
+                            let mut copy_list = avg_coord_mean.clone();
+                            copy_list.push_back((context.location.clone(), 1));
+                            total_datapoints += 1;
+                            return Some((
+                                ViolationDetectionState::TripNotStarted(TripNotStartedState {
+                                    total_datapoints,
+                                    avg_coord_mean: copy_list,
+                                }),
+                                None,
+                            ));
+                        }
+                    } else {
+                        let mut copy_list = avg_coord_mean.clone();
+                        total_datapoints -= max_batch_size as u64;
+                        copy_list.pop_front();
+                        if let Some(prev_tuple) = copy_list.back() {
+                            let prev_average_point = prev_tuple.0.clone();
+                            let prev_batch_size = prev_tuple.1;
+                            if prev_batch_size < max_batch_size {
+                                let current_avg_point = Point {
+                                    lat: Latitude(
+                                        (prev_average_point.lat.inner() * prev_batch_size as f64
+                                            + context.location.lat.inner())
+                                            / (prev_batch_size as f64 + 1.0),
+                                    ),
+                                    lon: Longitude(
+                                        (prev_average_point.lon.inner() * prev_batch_size as f64
+                                            + context.location.lon.inner())
+                                            / (prev_batch_size as f64 + 1.0),
+                                    ),
+                                };
+                                let mut copy_list = avg_coord_mean.clone();
+                                copy_list.pop_back();
+                                copy_list.push_back((current_avg_point, prev_batch_size + 1));
+                                total_datapoints += 1;
+
+                                if total_datapoints == sample_size as u64 && flag {
+                                    if let Some(RideInfo::Bus { route_code, .. }) =
+                                        &context.ride_info
+                                    {
+                                        let points = data.routes.get(route_code);
+                                        if let Some(true) = check_trip_not_started(
+                                            &copy_list,
+                                            deviation_threshold,
+                                            points,
+                                        ) {
+                                            return Some((
+                                                ViolationDetectionState::TripNotStarted(
+                                                    TripNotStartedState {
+                                                        total_datapoints,
+                                                        avg_coord_mean: copy_list,
+                                                    },
+                                                ),
+                                                Some(true),
+                                            ));
+                                        } else if let Some(false) = check_trip_not_started(
+                                            &copy_list,
+                                            deviation_threshold,
+                                            points,
+                                        ) {
+                                            return Some((
+                                                ViolationDetectionState::TripNotStarted(
+                                                    TripNotStartedState {
+                                                        total_datapoints,
+                                                        avg_coord_mean: copy_list,
+                                                    },
+                                                ),
+                                                Some(false),
+                                            ));
+                                        }
+                                    }
+                                }
+                                return Some((
+                                    ViolationDetectionState::TripNotStarted(TripNotStartedState {
+                                        total_datapoints,
+                                        avg_coord_mean: copy_list,
+                                    }),
+                                    None,
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+            Some((
+                ViolationDetectionState::TripNotStarted(TripNotStartedState {
+                    total_datapoints: 1,
                     avg_coord_mean: VecDeque::from([(context.location.clone(), 1)]),
                 }),
                 None,
@@ -1155,6 +1379,70 @@ fn anti_violation_check(
             }
             None
         }
+        DetectionConfig::OppositeDirectionDetection(OppositeDirectionConfig {}) => {
+            if let Some(ViolationDetectionState::OppositeDirection(OppositeDirectionState {
+                total_datapoints,
+                expected_count,
+            })) = state
+            {
+                if let Some(RideInfo::Bus { route_code, .. }) = &context.ride_info {
+                    let route = data.routes.get(route_code);
+                    if let Some(route) = route {
+                        let upcoming_stops =
+                            get_upcoming_stops_by_route_code(route, &context.location);
+                        if let Ok(upcoming) = upcoming_stops {
+                            let count = upcoming.len() as u64;
+                            if count <= expected_count {
+                                return Some((
+                                    ViolationDetectionState::OppositeDirection(
+                                        OppositeDirectionState {
+                                            total_datapoints: total_datapoints + 1,
+                                            expected_count: count,
+                                        },
+                                    ),
+                                    Some(true),
+                                ));
+                            } else {
+                                return Some((
+                                    ViolationDetectionState::OppositeDirection(
+                                        OppositeDirectionState {
+                                            total_datapoints: total_datapoints + 1,
+                                            expected_count,
+                                        },
+                                    ),
+                                    Some(false),
+                                ));
+                            }
+                        }
+                        return Some((
+                            ViolationDetectionState::OppositeDirection(OppositeDirectionState {
+                                total_datapoints: total_datapoints + 1,
+                                expected_count,
+                            }),
+                            None,
+                        ));
+                    }
+                }
+            }
+            Some((
+                ViolationDetectionState::OppositeDirection(OppositeDirectionState {
+                    total_datapoints: 0,
+                    expected_count: 1e6 as u64,
+                }),
+                None,
+            ))
+        }
+        DetectionConfig::TripNotStartedDetection(TripNotStartedConfig {
+            deviation_threshold: _,
+            sample_size: _,
+            batch_count: _,
+        }) => Some((
+            ViolationDetectionState::TripNotStarted(TripNotStartedState {
+                total_datapoints: 0,
+                avg_coord_mean: VecDeque::new(),
+            }),
+            Some(false),
+        )),
     }
 }
 
@@ -1208,6 +1496,30 @@ fn get_triggered_state_req(
                     }),
                 })
             }
+            Some(ViolationDetectionState::TripNotStarted(TripNotStartedState { .. })) => {
+                Some(ViolationDetectionReq {
+                    ride_id: context.ride_id,
+                    driver_id: context.driver_id,
+                    is_violated: true,
+                    detection_data: DetectionData::TripNotStartedDetection(
+                        TripNotStartedDetectionData {
+                            location: context.location,
+                        },
+                    ),
+                })
+            }
+            Some(ViolationDetectionState::OppositeDirection(OppositeDirectionState { .. })) => {
+                Some(ViolationDetectionReq {
+                    ride_id: context.ride_id,
+                    driver_id: context.driver_id,
+                    is_violated: true,
+                    detection_data: DetectionData::OppositeDirectionDetection(
+                        OppositeDirectionDetectionData {
+                            location: context.location,
+                        },
+                    ),
+                })
+            }
             _ => None,
         },
         Some(DetectionStatus::AntiViolated) => match curr_anti_violation_state {
@@ -1251,6 +1563,18 @@ fn get_triggered_state_req(
                     detection_data: DetectionData::StoppedDetection(StoppedDetectionData {
                         location: context.location,
                     }),
+                })
+            }
+            Some(ViolationDetectionState::OppositeDirection(OppositeDirectionState { .. })) => {
+                Some(ViolationDetectionReq {
+                    ride_id: context.ride_id,
+                    driver_id: context.driver_id,
+                    is_violated: false,
+                    detection_data: DetectionData::OppositeDirectionDetection(
+                        OppositeDirectionDetectionData {
+                            location: context.location,
+                        },
+                    ),
                 })
             }
             _ => None,
@@ -1300,4 +1624,31 @@ fn violation_trigger_decision_tree(
             None
         }
     }
+}
+
+fn check_trip_not_started(
+    coord_list: &VecDeque<(Point, u32)>,
+    deviation_threshold: u32,
+    points: Option<&Route>,
+) -> Option<bool> {
+    if let Some(route) = points {
+        let points = route
+            .waypoints
+            .iter()
+            .map(|w| w.coordinate.clone())
+            .collect::<Vec<Point>>();
+
+        // Check each point's distance from the route
+        for (point, _) in coord_list.iter() {
+            let projected_point = find_closest_point_on_route(point, points.clone());
+            if let Some(projected_point) = projected_point {
+                let distance = distance_between_in_meters(point, &projected_point.projection_point);
+                if distance > deviation_threshold as f64 {
+                    return Some(false);
+                }
+            }
+        }
+        return Some(true);
+    }
+    None
 }
