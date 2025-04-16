@@ -285,7 +285,8 @@ pub fn get_upcoming_stops_by_route_code(
                 stop_idx,
                 distance_to_upcoming_intermediate_stop:
                     Meters(distance_to_upcoming_intermediate_stop),
-                duration_to_upcoming_intermediate_stop,
+                duration_to_upcoming_intermediate_stop:
+                    Seconds(duration_to_upcoming_intermediate_stop),
                 stop_type,
             },
             delta,
@@ -315,7 +316,11 @@ pub fn get_upcoming_stops_by_route_code(
             distance_to_upcoming_intermediate_stop: Meters(
                 (distance_to_upcoming_intermediate_stop as f64 + delta) as u32,
             ),
-            duration_to_upcoming_intermediate_stop,
+            duration_to_upcoming_intermediate_stop: Seconds(
+                ((duration_to_upcoming_intermediate_stop as f64
+                    * (distance_to_upcoming_intermediate_stop as f64 + delta))
+                    / distance_to_upcoming_intermediate_stop as f64) as u32,
+            ),
             stop_type,
         };
 
@@ -456,7 +461,7 @@ pub fn find_closest_point_on_route(
 
 pub fn estimated_upcoming_stops_eta(
     upcoming_stops_with_eta: Option<Vec<UpcomingStop>>,
-    speed: Option<SpeedInMeterPerSecond>,
+    _speed: Option<SpeedInMeterPerSecond>,
     upcoming_stops: &Vec<Stop>,
     point: &Point,
 ) -> Option<Vec<UpcomingStop>> {
@@ -481,7 +486,6 @@ pub fn estimated_upcoming_stops_eta(
                 }
             });
 
-        let mut distance_to_upcoming_stop = 0.0;
         Some(
             upcoming_stops_with_eta
                 .iter()
@@ -497,19 +501,28 @@ pub fn estimated_upcoming_stops_eta(
                             > now
                         {
                             upcoming_stop_with_eta.delta.map_or(0.0, |delta| delta)
+                        } else if let Some(delta) = upcoming_stops_with_eta
+                            .last()
+                            .and_then(|upcoming_stop: &UpcomingStop| upcoming_stop.delta)
+                        {
+                            if upcoming_stop_with_eta.eta.inner()
+                                + Duration::from_secs(delta as u64)
+                                > now
+                            {
+                                delta
+                            } else {
+                                abs_diff_utc_as_sec(upcoming_stop_with_eta.eta.inner(), now)
+                                    + upcoming_stop_with_eta
+                                        .stop
+                                        .duration_to_upcoming_intermediate_stop
+                                        .inner() as f64
+                            }
                         } else {
-                            let distance = distance_to_upcoming_stop
-                                + upcoming_stop.distance_to_upcoming_intermediate_stop.inner()
-                                    as f64;
-                            distance_to_upcoming_stop += distance;
-                            let speed = speed
-                                .unwrap_or(SpeedInMeterPerSecond(1.0))
-                                .inner()
-                                .clamp(1.0, 16.66);
-                            let time = distance / speed;
-                            let updated_eta_delta =
-                                (now - upcoming_stop_with_eta.eta.inner()).num_seconds();
-                            updated_eta_delta as f64 + time
+                            abs_diff_utc_as_sec(upcoming_stop_with_eta.eta.inner(), now)
+                                + upcoming_stop_with_eta
+                                    .stop
+                                    .duration_to_upcoming_intermediate_stop
+                                    .inner() as f64
                         };
 
                         UpcomingStop {
