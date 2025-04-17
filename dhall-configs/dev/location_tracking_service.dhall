@@ -105,11 +105,35 @@ let overspeedingAntiDetectionConfig = {
     sample_size = 6,
     batch_count = 3
   }
+let oppositeDirectionDetectionConfig = {
+    sample_size = 60,
+    batch_count = 6
+  }
+let oppositeDirectionAntiDetectionConfig = {
+    sample_size = 60,
+    batch_count = 6
+  }
+let tripNotStartedDetectionConfig = {
+    deviation_threshold = 500,
+    sample_size = 60,
+    batch_count = 6
+  }
+let tripNotStartedAntiDetectionConfig = {
+    deviation_threshold = 300,
+    sample_size = 60,
+    batch_count = 6
+  }
 let stoppedDetectionConfigT = { max_eligible_distance : Natural, max_eligible_speed : Optional Natural, batch_count : Natural, sample_size : Natural }
 let routeDeviationDetectionConfigT = { deviation_threshold : Natural, sample_size : Natural, batch_count : Natural}
 let overspeedingDetectionConfigT = { sample_size : Natural, speed_limit : Double, batch_count : Natural }
+let oppositeDirectionDetectionConfigT = { sample_size : Natural, batch_count : Natural }
+let tripNotStartedDetectionConfigT = { deviation_threshold : Natural, sample_size : Natural, batch_count : Natural }
 let DetectionConfigType =
-      < StoppedDetection : stoppedDetectionConfigT | RouteDeviationDetection : routeDeviationDetectionConfigT | OverspeedingDetection : overspeedingDetectionConfigT >
+      < StoppedDetection : stoppedDetectionConfigT
+      | RouteDeviationDetection : routeDeviationDetectionConfigT
+      | OverspeedingDetection : overspeedingDetectionConfigT
+      | OppositeDirectionDetection : oppositeDirectionDetectionConfigT
+      | TripNotStartedDetection : tripNotStartedDetectionConfigT >
 let detection_violation_cab_config = {=}
   with Stopped = {
     enabled_on_pick_up = False,
@@ -132,6 +156,16 @@ let detection_violation_bus_config = {=}
     enabled_on_ride = True,
     detection_config = DetectionConfigType.OverspeedingDetection overspeedingDetectionConfig
   }
+  with OppositeDirection = {
+    enabled_on_pick_up = True,
+    enabled_on_ride = True,
+    detection_config = DetectionConfigType.OppositeDirectionDetection oppositeDirectionDetectionConfig
+  }
+  with TripNotStarted = {
+    enabled_on_pick_up = True,
+    enabled_on_ride = True,
+    detection_config = DetectionConfigType.TripNotStartedDetection tripNotStartedDetectionConfig
+  }
 let detection_anti_violation_cab_config = {=}
   with Stopped = {
     enabled_on_pick_up = False,
@@ -153,6 +187,16 @@ let detection_anti_violation_bus_config = {=}
     enabled_on_pick_up = True,
     enabled_on_ride = True,
     detection_config = DetectionConfigType.OverspeedingDetection overspeedingAntiDetectionConfig
+  }
+  with OppositeDirection = {
+    enabled_on_pick_up = True,
+    enabled_on_ride = True,
+    detection_config = DetectionConfigType.OppositeDirectionDetection oppositeDirectionAntiDetectionConfig
+  }
+  with TripNotStarted = {
+    enabled_on_pick_up = True,
+    enabled_on_ride = True,
+    detection_config = DetectionConfigType.TripNotStartedDetection tripNotStartedAntiDetectionConfig
   }
 let detection_violation_config = {=}
   with SEDAN = detection_violation_cab_config

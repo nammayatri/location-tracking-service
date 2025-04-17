@@ -353,6 +353,7 @@ async fn process_driver_locations(
                         ride_status: ride_status.to_owned(),
                         ride_info: driver_ride_info.clone(),
                         vehicle_type: vehicle_type.to_owned(),
+                        accuracy: latest_driver_location.acc.unwrap_or(Accuracy(0.0)),
                     };
 
                     if let (
@@ -366,6 +367,16 @@ async fn process_driver_locations(
                             .get(&base_vehicle_type)
                             .and_then(|inner_map| inner_map.get(&detection_type)),
                     ) {
+                        // Skip detection if accuracy is poor
+                        if context.accuracy > data.min_location_accuracy {
+                            return (
+                                detection_violation_state_map,
+                                detection_anti_violation_state_map,
+                                violation_trigger_flag_map,
+                                violation_detection_requests,
+                            );
+                        }
+
                         if let (
                             Some(detection_violation_state),
                             Some(detection_anti_violation_state),
@@ -415,43 +426,41 @@ async fn process_driver_locations(
         }
     };
 
-    let (stop_detected, stop_detection) = if let Some(stop_detection_config) =
-        data.stop_detection.get(&base_vehicle_type)
-    {
-        let stop_detection_config = match driver_ride_status {
-            Some(RideStatus::NEW) => stop_detection_config.get(&RideStatus::NEW),
-            Some(RideStatus::INPROGRESS) => stop_detection_config.get(&RideStatus::INPROGRESS),
-            _ => None,
-        };
-        if let Some(config) = stop_detection_config {
-            if (driver_ride_status == Some(RideStatus::NEW)
-                || (config.enable_onride_stop_detection
-                    && driver_ride_status == Some(RideStatus::INPROGRESS)))
-                && latest_driver_location.acc.unwrap_or(Accuracy(0.0)) <= data.min_location_accuracy
-            {
-                detect_stop(
-                    driver_location_details
-                        .as_ref()
-                        .map(|driver_location_details| {
-                            driver_location_details.stop_detection.to_owned()
-                        })
-                        .flatten(),
-                    DriverLocation {
-                        location: latest_driver_location.pt.to_owned(),
-                        timestamp: latest_driver_location.ts,
-                    },
-                    latest_driver_location.v,
-                    config,
-                )
+    let (stop_detected, stop_detection) =
+        if let Some(stop_detection_config) = data.stop_detection.get(&base_vehicle_type) {
+            let stop_detection_config = match driver_ride_status {
+                Some(RideStatus::NEW) => stop_detection_config.get(&RideStatus::NEW),
+                Some(RideStatus::INPROGRESS) => stop_detection_config.get(&RideStatus::INPROGRESS),
+                _ => None,
+            };
+            if let Some(config) = stop_detection_config {
+                if driver_ride_status == Some(RideStatus::NEW)
+                    || (config.enable_onride_stop_detection
+                        && driver_ride_status == Some(RideStatus::INPROGRESS))
+                {
+                    detect_stop(
+                        driver_location_details
+                            .as_ref()
+                            .map(|driver_location_details| {
+                                driver_location_details.stop_detection.to_owned()
+                            })
+                            .flatten(),
+                        DriverLocation {
+                            location: latest_driver_location.pt.to_owned(),
+                            timestamp: latest_driver_location.ts,
+                        },
+                        latest_driver_location.v,
+                        config,
+                    )
+                } else {
+                    (None, None)
+                }
             } else {
                 (None, None)
             }
         } else {
             (None, None)
-        }
-    } else {
-        (None, None)
-    };
+        };
 
     let (
         driver_ride_notification_status,

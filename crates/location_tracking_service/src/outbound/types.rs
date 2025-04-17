@@ -110,10 +110,24 @@ pub struct OverSpeedingDetectionData {
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
+pub struct TripNotStartedDetectionData {
+    pub location: Point,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct OppositeDirectionDetectionData {
+    pub location: Point,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
 pub enum DetectionData {
     RouteDeviationDetection(RouteDeviationDetectionData),
     StoppedDetection(StoppedDetectionData),
     OverSpeedingDetection(OverSpeedingDetectionData),
+    TripNotStartedDetection(TripNotStartedDetectionData),
+    OppositeDirectionDetection(OppositeDirectionDetectionData),
 }
 
 #[derive(Serialize, Deserialize, Debug)]
