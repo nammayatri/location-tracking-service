@@ -341,3 +341,75 @@ mod concurrency {
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
     }
 }
+
+#[tokio::test]
+pub async fn test_read_route_data() {
+    use location_tracking_service::common::types::*;
+    use location_tracking_service::common::utils::read_dhall_config;
+    use location_tracking_service::environment::AppState;
+    use tokio::sync::mpsc::{self, Receiver, Sender};
+
+    std::env::set_var("DEV", "true");
+    std::env::set_var("GEO_CONFIG", "../../geo_config");
+    std::env::set_var("BLACKLIST_GEO_CONFIG", "../../blacklist_geo_config");
+    std::env::set_var("ROUTE_GEO_JSON_CONFIG", "../../route_geo_json_config");
+
+    let dhall_config_path = "../../dhall-configs/dev/location_tracking_service.dhall".to_string();
+    let app_config = read_dhall_config(&dhall_config_path).unwrap_or_else(|err| {
+        println!("Dhall Config Reading Error : {}", err);
+        std::process::exit(1);
+    });
+
+    #[allow(clippy::type_complexity)]
+    let (sender, _): (
+        Sender<(Dimensions, Latitude, Longitude, TimeStamp, DriverId)>,
+        Receiver<(Dimensions, Latitude, Longitude, TimeStamp, DriverId)>,
+    ) = mpsc::channel(app_config.drainer_size);
+
+    let app_state = AppState::new(app_config.to_owned(), sender).await;
+
+    // Convert routes HashMap to GeoJSON format
+    let mut features = Vec::new();
+
+    for (route_code, route) in app_state.routes {
+        // Create stop features
+        for WaypointInfo { coordinate, stop } in route.waypoints {
+            // Determine color based on stop_type
+            let color = match stop.stop_type {
+                StopType::RouteCorrectionStop => "#FF0000",
+                StopType::UpcomingStop => "#0000FF20",
+                StopType::IntermediateStop => "#00FF00",
+            };
+
+            let feature = serde_json::json!({
+                "type": "Feature",
+                "geometry": {
+                    "type": "Point",
+                    "coordinates": [coordinate.lon, coordinate.lat]
+                },
+                "properties": {
+                    "route_code": route_code,
+                    "stop_id": stop.stop_code,
+                    "stop_name": stop.name,
+                    "stop_sequence": stop.stop_idx,
+                    "stop_type": stop.stop_type,
+                    "distance_to_upcoming_intermediate_stop": stop.distance_to_upcoming_intermediate_stop,
+                    "duration_to_upcoming_intermediate_stop": stop.duration_to_upcoming_intermediate_stop,
+                    "distance_from_previous_intermediate_stop": stop.distance_from_previous_intermediate_stop,
+                    "marker-color": color
+                }
+            });
+            features.push(feature);
+        }
+    }
+
+    let geojson = serde_json::json!({
+        "type": "FeatureCollection",
+        "features": features
+    });
+
+    println!(
+        "Routes as GeoJSON:\n{}",
+        serde_json::to_string_pretty(&geojson).unwrap()
+    );
+}

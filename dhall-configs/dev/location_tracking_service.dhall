@@ -223,6 +223,8 @@ in {
     driver_location_accuracy_buffer = 25.0,
     driver_reached_destination_buffer = 25.0,
     driver_reached_destination_callback_url = "http://127.0.0.1:8016/internal/destinationReached",
+    driver_source_departed_buffer = 100.0,
+    driver_source_departed_callback_url = "http://127.0.0.1:8016/internal/sourceDeparted",
     redis_expiry = 86400,
     last_location_timstamp_expiry = 86400,
     location_update_limit = 6000000000,

@@ -6,7 +6,7 @@
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 use super::types::*;
-use crate::tools::error::AppError;
+use crate::{environment::AppConfig, tools::error::AppError};
 use chrono::{DateTime, Utc};
 use geo::{point, Intersects};
 use std::{f64::consts::PI, time::Duration};
@@ -287,7 +287,10 @@ pub fn get_upcoming_stops_by_route_code(
                     Meters(distance_to_upcoming_intermediate_stop),
                 duration_to_upcoming_intermediate_stop:
                     Seconds(duration_to_upcoming_intermediate_stop),
+                distance_from_previous_intermediate_stop:
+                    Meters(distance_from_previous_intermediate_stop),
                 stop_type,
+                ..
             },
             delta,
         ) = if projection.projection_point_to_line_start_distance
@@ -316,10 +319,9 @@ pub fn get_upcoming_stops_by_route_code(
             distance_to_upcoming_intermediate_stop: Meters(
                 (distance_to_upcoming_intermediate_stop as f64 + delta) as u32,
             ),
-            duration_to_upcoming_intermediate_stop: Seconds(
-                ((duration_to_upcoming_intermediate_stop as f64
-                    * (distance_to_upcoming_intermediate_stop as f64 + delta))
-                    / distance_to_upcoming_intermediate_stop as f64) as u32,
+            duration_to_upcoming_intermediate_stop: Seconds(duration_to_upcoming_intermediate_stop),
+            distance_from_previous_intermediate_stop: Meters(
+                (distance_from_previous_intermediate_stop as f64 - delta) as u32,
             ),
             stop_type,
         };
@@ -346,6 +348,9 @@ pub fn get_upcoming_stops_by_route_code(
                         stop_idx: waypoint.stop.stop_idx,
                         distance_to_upcoming_intermediate_stop,
                         duration_to_upcoming_intermediate_stop,
+                        distance_from_previous_intermediate_stop: waypoint
+                            .stop
+                            .distance_from_previous_intermediate_stop,
                         stop_type: waypoint.stop.stop_type.to_owned(),
                     };
                     upcoming_stops.push(stop);
@@ -461,87 +466,54 @@ pub fn find_closest_point_on_route(
 
 pub fn estimated_upcoming_stops_eta(
     upcoming_stops_with_eta: Option<Vec<UpcomingStop>>,
-    _speed: Option<SpeedInMeterPerSecond>,
     upcoming_stops: &Vec<Stop>,
-    point: &Point,
 ) -> Option<Vec<UpcomingStop>> {
     let now = Utc::now();
-    let stop_threshold = 100.0; // TODO :: Make it configurable
-    if let Some(upcoming_stops_with_eta) = upcoming_stops_with_eta {
-        let delta = upcoming_stops_with_eta
-            .iter()
-            .find(|upcoming_stop| upcoming_stop.status == UpcomingStopStatus::Upcoming)
-            .and_then(|upcoming_stop_with_eta| {
-                if distance_between_in_meters(point, &upcoming_stop_with_eta.stop.coordinate)
-                    < stop_threshold
-                {
-                    let upcoming_stop_eta = upcoming_stop_with_eta.eta.inner();
-                    if now > upcoming_stop_eta {
-                        Some(abs_diff_utc_as_sec(upcoming_stop_eta, now))
-                    } else {
-                        Some(-abs_diff_utc_as_sec(now, upcoming_stop_eta))
-                    }
-                } else {
-                    None
-                }
-            });
-
-        Some(
-            upcoming_stops_with_eta
+    if let Some(prev_upcoming_stops_with_eta) = upcoming_stops_with_eta {
+        let mut upcoming_stops_with_eta = Vec::new();
+        let mut prev_reached_stop_delta = None;
+        for upcoming_stop_with_eta in prev_upcoming_stops_with_eta {
+            if let Some(upcoming_stop) = upcoming_stops
                 .iter()
-                .map(|upcoming_stop_with_eta| {
-                    if let Some(upcoming_stop) = upcoming_stops
-                        .iter()
-                        .find(|stop| stop.stop_idx == upcoming_stop_with_eta.stop.stop_idx)
-                    {
-                        let delta = if upcoming_stop_with_eta.eta.inner()
-                            + Duration::from_secs(
-                                upcoming_stop_with_eta.delta.map_or(0, |delta| delta as u64),
-                            )
-                            > now
-                        {
-                            upcoming_stop_with_eta.delta.map_or(0.0, |delta| delta)
-                        } else if let Some(delta) = upcoming_stops_with_eta
-                            .last()
-                            .and_then(|upcoming_stop: &UpcomingStop| upcoming_stop.delta)
-                        {
-                            if upcoming_stop_with_eta.eta.inner()
-                                + Duration::from_secs(delta as u64)
-                                > now
-                            {
-                                delta
-                            } else {
-                                abs_diff_utc_as_sec(upcoming_stop_with_eta.eta.inner(), now)
-                                    + upcoming_stop_with_eta
-                                        .stop
-                                        .duration_to_upcoming_intermediate_stop
-                                        .inner() as f64
-                            }
-                        } else {
-                            abs_diff_utc_as_sec(upcoming_stop_with_eta.eta.inner(), now)
-                                + upcoming_stop_with_eta
-                                    .stop
-                                    .duration_to_upcoming_intermediate_stop
-                                    .inner() as f64
-                        };
+                .find(|stop| stop.stop_idx == upcoming_stop_with_eta.stop.stop_idx)
+            {
+                let current_time_to_eta_diff = if now > upcoming_stop_with_eta.eta.inner() {
+                    abs_diff_utc_as_sec(upcoming_stop_with_eta.eta.inner(), now)
+                } else {
+                    -abs_diff_utc_as_sec(now, upcoming_stop_with_eta.eta.inner())
+                };
+                let static_duration_to_travel_remaining_distance =
+                    upcoming_stop.duration_to_upcoming_intermediate_stop.inner() as f64;
+                let delta = prev_reached_stop_delta
+                    .map(|delta| f64::max(0.0, delta))
+                    .unwrap_or(0.0)
+                    + f64::max(0.0, current_time_to_eta_diff)
+                    + static_duration_to_travel_remaining_distance;
 
-                        UpcomingStop {
-                            stop: upcoming_stop.to_owned(),
-                            eta: upcoming_stop_with_eta.eta,
-                            delta: Some(delta),
-                            status: UpcomingStopStatus::Upcoming,
-                        }
+                upcoming_stops_with_eta.push(UpcomingStop {
+                    stop: upcoming_stop.to_owned(),
+                    eta: upcoming_stop_with_eta.eta,
+                    delta,
+                    status: UpcomingStopStatus::Upcoming,
+                });
+            } else {
+                if upcoming_stop_with_eta.status == UpcomingStopStatus::Upcoming {
+                    prev_reached_stop_delta = Some(if now > upcoming_stop_with_eta.eta.inner() {
+                        abs_diff_utc_as_sec(upcoming_stop_with_eta.eta.inner(), now)
                     } else {
-                        UpcomingStop {
-                            stop: upcoming_stop_with_eta.stop.to_owned(),
-                            eta: upcoming_stop_with_eta.eta,
-                            delta: upcoming_stop_with_eta.delta.or(delta),
-                            status: UpcomingStopStatus::Reached,
-                        }
-                    }
-                })
-                .collect(),
-        )
+                        -abs_diff_utc_as_sec(now, upcoming_stop_with_eta.eta.inner())
+                    });
+                }
+                upcoming_stops_with_eta.push(UpcomingStop {
+                    stop: upcoming_stop_with_eta.stop.to_owned(),
+                    eta: upcoming_stop_with_eta.eta,
+                    delta: prev_reached_stop_delta.unwrap_or(upcoming_stop_with_eta.delta),
+                    status: UpcomingStopStatus::Reached,
+                });
+            }
+        }
+
+        Some(upcoming_stops_with_eta)
     } else if let Some(_upcoming_stop) = upcoming_stops.first() {
         let mut upcoming_stops_with_eta = Vec::new();
         let mut prev_stop_durations: u64 = 0;
@@ -550,7 +522,7 @@ pub fn estimated_upcoming_stops_eta(
             let upcoming_stop = UpcomingStop {
                 stop: stop.to_owned(),
                 eta: TimeStamp(Utc::now() + Duration::from_secs(prev_stop_durations)),
-                delta: None,
+                delta: 0.0,
                 status: UpcomingStopStatus::Upcoming,
             };
             upcoming_stops_with_eta.push(upcoming_stop);
@@ -559,5 +531,37 @@ pub fn estimated_upcoming_stops_eta(
         Some(upcoming_stops_with_eta)
     } else {
         None
+    }
+}
+
+/// Reads and parses a Dhall configuration file into an `AppConfig` struct.
+///
+/// This function attempts to read a Dhall configuration from the provided file path
+/// and then parse it into the `AppConfig` type. If any error occurs during reading
+/// or parsing, it returns an error message as a `String`.
+///
+/// # Arguments
+///
+/// * `config_path` - A string slice representing the path to the Dhall configuration file.
+///
+/// # Returns
+///
+/// * `Ok(AppConfig)` if the configuration is successfully read and parsed.
+/// * `Err(String)` if there's any error during reading or parsing, containing a descriptive error message.
+///
+/// # Example
+///
+/// ```rust
+/// let config_path = "/path/to/config.dhall";
+/// match read_dhall_config(config_path) {
+///     Ok(config) => println!("Successfully read config: {:?}", config),
+///     Err(err) => eprintln!("Failed to read config: {}", err),
+/// }
+/// ```
+pub fn read_dhall_config(config_path: &str) -> Result<AppConfig, String> {
+    let config = serde_dhall::from_file(config_path).parse::<AppConfig>();
+    match config {
+        Ok(config) => Ok(config),
+        Err(e) => Err(format!("Error reading config: {}", e)),
     }
 }

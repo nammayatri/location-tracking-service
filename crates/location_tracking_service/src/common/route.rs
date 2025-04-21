@@ -18,6 +18,7 @@ use rustc_hash::FxHashMap;
 use serde_json::from_str;
 use shared::redis::types::RedisConnectionPool;
 use shared::tools::aws::get_files_in_directory_from_s3;
+use std::cmp::max;
 use std::env::var;
 use std::fs;
 use std::fs::File;
@@ -32,8 +33,9 @@ pub async fn read_route_data(
     google_api_key: &str,
 ) -> FxHashMap<String, Route> {
     if var("DEV").is_ok() {
-        let config_path = "./route_geo_json_config";
-        let geometries = fs::read_dir(config_path).expect("Failed to read config path");
+        let config_path =
+            var("ROUTE_GEO_JSON_CONFIG").unwrap_or_else(|_| "./route_geo_json_config".to_string());
+        let geometries = fs::read_dir(&config_path).expect("Failed to read config path");
         let mut routes: FxHashMap<String, Route> = FxHashMap::default();
 
         for entry in geometries {
@@ -148,6 +150,7 @@ async fn parse_route_geojson(
                     coordinate: stop_point.to_owned(),
                     distance_to_upcoming_intermediate_stop: Meters(0),
                     duration_to_upcoming_intermediate_stop: Seconds(0),
+                    distance_from_previous_intermediate_stop: Meters(0),
                     stop_type: stop_type.to_owned(),
                     stop_idx: i,
                 }),
@@ -155,8 +158,25 @@ async fn parse_route_geojson(
         );
     }
 
+    let mut waypoints: Vec<(Point, Option<Stop>)> = waypoints
+        .into_iter()
+        .filter_map(|(coordinate, stop)| {
+            if stop.is_none() {
+                if stops.iter().any(|(_, _, stop_coordinate, _)| {
+                    distance_between_in_meters(stop_coordinate, &coordinate) as u64 == 0
+                }) {
+                    None
+                } else {
+                    Some((coordinate, stop))
+                }
+            } else {
+                Some((coordinate, stop))
+            }
+        })
+        .collect();
+
     // Iterate backwards in the waypoint to update the upcoming stop
-    let mut upcoming_route_correction_stop_duration = None;
+    let mut upcoming_stop_total_distance_duration = None;
     let mut upcoming_intermediate_stop: Option<Stop> = None;
     for i in (0..waypoints.len()).rev() {
         match (
@@ -172,16 +192,14 @@ async fn parse_route_geojson(
                         coordinate,
                         stop_type,
                         stop_idx,
-                        distance_to_upcoming_intermediate_stop:
-                            Meters(distance_to_upcoming_intermediate_stop),
                         ..
                     }),
                 ),
                 upcoming_stop,
             ) => {
                 if stop_type == StopType::IntermediateStop {
-                    let duration_to_upcoming_intermediate_stop =
-                        compute_duration_to_upcoming_intermediate_stop(
+                    upcoming_stop_total_distance_duration = Some(
+                        compute_distance_and_duration_to_upcoming_intermediate_stop(
                             redis,
                             &waypoints,
                             i,
@@ -189,48 +207,89 @@ async fn parse_route_geojson(
                             &coordinate,
                             google_compute_route_url,
                             google_api_key,
-                            &mut upcoming_route_correction_stop_duration,
                         )
-                        .await;
+                        .await,
+                    );
+
+                    let distance_from_previous_intermediate_stop =
+                        upcoming_stop_total_distance_duration
+                            .map(|(Meters(total_distance), _)| Meters(max(0, total_distance)))
+                            .unwrap_or(Meters(0));
 
                     upcoming_intermediate_stop = Some(Stop {
-                        name,
-                        stop_code,
+                        name: name.to_owned(),
+                        stop_code: stop_code.to_owned(),
                         coordinate: coordinate.to_owned(),
                         distance_to_upcoming_intermediate_stop: Meters(0),
-                        duration_to_upcoming_intermediate_stop,
+                        duration_to_upcoming_intermediate_stop: Seconds(0),
+                        distance_from_previous_intermediate_stop,
                         stop_type,
                         stop_idx,
                     });
+
+                    waypoints[i] = (
+                        waypoint_coordinate,
+                        Some(Stop {
+                            name: name.to_owned(),
+                            stop_code: stop_code.to_owned(),
+                            coordinate: coordinate.to_owned(),
+                            distance_to_upcoming_intermediate_stop: Meters(0),
+                            duration_to_upcoming_intermediate_stop: Seconds(0),
+                            distance_from_previous_intermediate_stop,
+                            stop_type: StopType::IntermediateStop,
+                            stop_idx,
+                        }),
+                    );
                 } else if stop_type == StopType::RouteCorrectionStop {
-                    if let Some(upcoming_stop) = upcoming_stop {
-                        let duration_to_upcoming_intermediate_stop =
-                            compute_duration_to_upcoming_intermediate_stop(
-                                redis,
+                    if let Some(Stop {
+                        name,
+                        stop_code,
+                        coordinate,
+                        distance_to_upcoming_intermediate_stop:
+                            Meters(distance_to_upcoming_intermediate_stop),
+                        duration_to_upcoming_intermediate_stop:
+                            Seconds(duration_to_upcoming_intermediate_stop),
+                        stop_type,
+                        stop_idx,
+                        ..
+                    }) = upcoming_stop
+                    {
+                        let (segment_distance, segment_duration) =
+                            get_segment_distance_duration_to_upcoming_intermediate_stop(
+                                &waypoint_coordinate,
                                 &waypoints,
                                 i,
-                                stop_code.to_owned() + &stop_idx.to_string(),
-                                &coordinate,
-                                google_compute_route_url,
-                                google_api_key,
-                                &mut upcoming_route_correction_stop_duration,
-                            )
-                            .await;
+                                &upcoming_stop_total_distance_duration,
+                            );
 
                         let distance_to_upcoming_intermediate_stop = Meters(
-                            distance_to_upcoming_intermediate_stop
-                                + distance_between_in_meters(&waypoint_coordinate, &coordinate)
-                                    as u32,
+                            distance_to_upcoming_intermediate_stop + segment_distance.inner(),
                         );
+                        let duration_to_upcoming_intermediate_stop = Seconds(
+                            duration_to_upcoming_intermediate_stop + segment_duration.inner(),
+                        );
+                        let distance_from_previous_intermediate_stop =
+                            upcoming_stop_total_distance_duration
+                                .map(|(Meters(total_distance), _)| {
+                                    Meters(max(
+                                        0,
+                                        total_distance
+                                            - distance_to_upcoming_intermediate_stop.inner(),
+                                    ))
+                                })
+                                .unwrap_or(Meters(0));
+
                         upcoming_intermediate_stop = Some(Stop {
-                            name: upcoming_stop.name.to_owned(),
-                            stop_code: upcoming_stop.stop_code.to_owned(),
-                            coordinate: upcoming_stop.coordinate.to_owned(),
+                            name: name.to_owned(),
+                            stop_code: stop_code.to_owned(),
+                            coordinate: coordinate.to_owned(),
                             distance_to_upcoming_intermediate_stop,
                             duration_to_upcoming_intermediate_stop,
-                            stop_type: upcoming_stop.stop_type.to_owned(),
-                            stop_idx: upcoming_stop.stop_idx,
+                            distance_from_previous_intermediate_stop,
+                            stop_type: stop_type.to_owned(),
+                            stop_idx,
                         });
+
                         waypoints[i] = (
                             waypoint_coordinate,
                             Some(Stop {
@@ -239,6 +298,7 @@ async fn parse_route_geojson(
                                 coordinate: coordinate.to_owned(),
                                 distance_to_upcoming_intermediate_stop,
                                 duration_to_upcoming_intermediate_stop,
+                                distance_from_previous_intermediate_stop,
                                 stop_type: StopType::RouteCorrectionStop,
                                 stop_idx,
                             }),
@@ -254,27 +314,50 @@ async fn parse_route_geojson(
                     coordinate,
                     distance_to_upcoming_intermediate_stop:
                         Meters(distance_to_upcoming_intermediate_stop),
-                    duration_to_upcoming_intermediate_stop,
+                    duration_to_upcoming_intermediate_stop:
+                        Seconds(duration_to_upcoming_intermediate_stop),
                     stop_type,
                     stop_idx,
+                    ..
                 }),
             ) => {
-                let distance_to_upcoming_intermediate_stop = Meters(
-                    distance_to_upcoming_intermediate_stop
-                        + waypoints
-                            .get(i + 1)
-                            .map(|(coordinate, _)| {
-                                distance_between_in_meters(&waypoint_coordinate, coordinate) as u32
-                            })
-                            .unwrap_or(0),
+                let (segment_distance, segment_duration) =
+                    get_segment_distance_duration_to_upcoming_intermediate_stop(
+                        &waypoint_coordinate,
+                        &waypoints,
+                        i,
+                        &upcoming_stop_total_distance_duration,
+                    );
+
+                println!(
+                    "[parse_route_geojson] upcoming_stop_code: {}, segment_distance: {}",
+                    stop_code,
+                    segment_distance.inner()
                 );
+
+                let distance_to_upcoming_intermediate_stop =
+                    Meters(distance_to_upcoming_intermediate_stop + segment_distance.inner());
+                let duration_to_upcoming_intermediate_stop =
+                    Seconds(duration_to_upcoming_intermediate_stop + segment_duration.inner());
+                let distance_from_previous_intermediate_stop =
+                    upcoming_stop_total_distance_duration
+                        .map(|(Meters(total_distance), _)| {
+                            Meters(max(
+                                0,
+                                total_distance as i32
+                                    - distance_to_upcoming_intermediate_stop.inner() as i32,
+                            ) as u32)
+                        })
+                        .unwrap_or(Meters(0));
+
                 upcoming_intermediate_stop = Some(Stop {
                     name: name.to_owned(),
                     stop_code: stop_code.to_owned(),
                     coordinate: coordinate.to_owned(),
                     distance_to_upcoming_intermediate_stop,
                     duration_to_upcoming_intermediate_stop,
-                    stop_type,
+                    distance_from_previous_intermediate_stop,
+                    stop_type: stop_type.to_owned(),
                     stop_idx,
                 });
                 waypoints[i] = (
@@ -285,6 +368,7 @@ async fn parse_route_geojson(
                         coordinate: coordinate.to_owned(),
                         distance_to_upcoming_intermediate_stop,
                         duration_to_upcoming_intermediate_stop,
+                        distance_from_previous_intermediate_stop,
                         stop_type: StopType::UpcomingStop,
                         stop_idx,
                     }),
@@ -311,8 +395,38 @@ async fn parse_route_geojson(
     }
 }
 
+fn get_segment_distance_duration_to_upcoming_intermediate_stop(
+    curr_waypoint_coordinate: &Point,
+    waypoints: &[(Point, Option<Stop>)],
+    i: usize,
+    upcoming_stop_total_distance_duration: &Option<(Meters, Seconds)>,
+) -> (Meters, Seconds) {
+    let segment_distance = Meters(
+        waypoints
+            .get(i + 1)
+            .map(|(next_waypoint_coordinate, _)| {
+                distance_between_in_meters(curr_waypoint_coordinate, next_waypoint_coordinate)
+                    as u32
+            })
+            .unwrap_or(0),
+    );
+
+    // 1000m -> 1 min
+    // 100m -> x min
+    // x = (100 * 1) / 1000 = 0.1 min
+    let segment_duration = Seconds(
+        upcoming_stop_total_distance_duration
+            .map(|(Meters(total_distance), Seconds(total_duration))| {
+                (segment_distance.inner() * total_duration) / max(1, total_distance)
+            })
+            .unwrap_or(0),
+    );
+
+    (segment_distance, segment_duration)
+}
+
 #[allow(clippy::too_many_arguments)]
-async fn compute_duration_to_upcoming_intermediate_stop(
+async fn compute_distance_and_duration_to_upcoming_intermediate_stop(
     redis: &RedisConnectionPool,
     waypoints: &[(Point, Option<Stop>)],
     i: usize,
@@ -320,78 +434,96 @@ async fn compute_duration_to_upcoming_intermediate_stop(
     destination_intermediate_stop_coordinate: &Point,
     google_compute_route_url: &Url,
     google_api_key: &str,
-    upcoming_route_correction_stop_duration: &mut Option<Seconds>,
-) -> Seconds {
-    let origin_intermediate_stop = waypoints.iter().take(i).rev().find(|(_, stop)| {
-        if let Some(stop) = stop {
-            stop.stop_type == StopType::RouteCorrectionStop
-                || stop.stop_type == StopType::IntermediateStop
-        } else {
+) -> (Meters, Seconds) {
+    let (origin_intermediate_stop_distance, origin_intermediate_stops, _) = waypoints.iter().take(i).rev().fold(
+        (
+            waypoints
+                .get(i)
+                .map(|(coordinate, _)| (coordinate.to_owned(), 0)),
+            vec![(destination_intermediate_stop_coordinate.to_owned(), destination_intermediate_stop_code.to_owned())],
             false
-        }
-    });
-
-    if let Some((origin_intermediate_stop_coordinate, Some(origin_intermediate_stop))) =
-        origin_intermediate_stop
-    {
-        let Seconds(duration) = if let Ok(Some(duration)) = get_google_stop_duration(
-            redis,
-            origin_intermediate_stop.stop_code.to_owned(),
-            destination_intermediate_stop_code.to_owned(),
-        )
-        .await
-        {
-            duration
-        } else if let Ok(routes_response) = compute_routes(
-            google_compute_route_url,
-            google_api_key,
-            origin_intermediate_stop_coordinate,
-            destination_intermediate_stop_coordinate,
-            vec![],
-            TravelMode::Drive,
-        )
-        .await
-        {
-            if let Some(route) = routes_response.routes.first() {
-                if let Ok(duration) = route.duration.replace("s", "").parse::<u32>() {
-                    let _ = cache_google_stop_duration(
-                        redis,
-                        origin_intermediate_stop.stop_code.to_owned(),
+        ),
+        |(acc_distance, mut acc_stop, is_intermediate_stop_reached), (coordinate, stop)| {
+            if is_intermediate_stop_reached {
+                (acc_distance, acc_stop, is_intermediate_stop_reached)
+            } else {
+                let distance = if let Some((coordinate_prev_stop, distance_prev_stop)) =
+                    acc_distance.as_ref()
+                {
+                    let distance = distance_prev_stop
+                        + distance_between_in_meters(coordinate, coordinate_prev_stop) as u32;
+                    println!(
+                        "[compute_distance_and_duration_to_upcoming_intermediate_stop] upcoming_stop_code: {}, segment_distance: {}",
                         destination_intermediate_stop_code,
-                        Seconds(duration),
-                    )
-                    .await;
-                    Seconds(duration)
+                       distance_between_in_meters(coordinate, coordinate_prev_stop) as u32
+                    );
+                    Some((coordinate.to_owned(), distance))
+                } else {
+                    Some((coordinate.to_owned(), 0))
+                };
+                if let Some(stop) = stop {
+                    if stop.stop_type == StopType::IntermediateStop {
+                        acc_stop.push((coordinate.to_owned(), stop.stop_code.to_owned()));
+                        (distance, acc_stop, true)
+                    } else if stop.stop_type == StopType::RouteCorrectionStop {
+                        acc_stop.push((coordinate.to_owned(), stop.stop_code.to_owned()));
+                        (distance, acc_stop, false)
+                    } else {
+                        (distance, acc_stop, false)
+                    }
+                } else {
+                    (distance, acc_stop, false)
+                }
+            }
+        },
+    );
+
+    if let Some((_, distance)) = origin_intermediate_stop_distance {
+        let mut total_duration = Seconds(0);
+        let mut stops_iter = origin_intermediate_stops.iter().rev();
+
+        while let (Some((origin_coordinate, origin_code)), Some((dest_coordinate, dest_code))) =
+            (stops_iter.next(), stops_iter.next())
+        {
+            let segment_duration = if let Ok(Some(duration)) =
+                get_google_stop_duration(redis, origin_code.to_owned(), dest_code.to_owned()).await
+            {
+                duration
+            } else if let Ok(routes_response) = compute_routes(
+                google_compute_route_url,
+                google_api_key,
+                origin_coordinate,
+                dest_coordinate,
+                vec![],
+                TravelMode::Drive,
+            )
+            .await
+            {
+                if let Some(route) = routes_response.routes.first() {
+                    if let Ok(duration) = route.duration.replace("s", "").parse::<u32>() {
+                        let _ = cache_google_stop_duration(
+                            redis,
+                            origin_code.to_owned(),
+                            dest_code.to_owned(),
+                            Seconds(duration),
+                        )
+                        .await;
+                        Seconds(duration)
+                    } else {
+                        Seconds(0)
+                    }
                 } else {
                     Seconds(0)
                 }
             } else {
                 Seconds(0)
-            }
-        } else {
-            Seconds(0)
-        };
+            };
 
-        let duration = if let Some(Seconds(upcoming_route_correction_stop_duration)) =
-            upcoming_route_correction_stop_duration
-        {
-            Seconds(duration + *upcoming_route_correction_stop_duration)
-        } else {
-            Seconds(duration)
-        };
-
-        match origin_intermediate_stop.stop_type {
-            StopType::RouteCorrectionStop => {
-                *upcoming_route_correction_stop_duration = Some(duration);
-            }
-            StopType::IntermediateStop => {
-                *upcoming_route_correction_stop_duration = None;
-            }
-            _ => {}
+            total_duration = Seconds(total_duration.inner() + segment_duration.inner());
         }
 
-        duration
+        (Meters(distance), total_duration)
     } else {
-        Seconds(0)
+        (Meters(0), Seconds(0))
     }
 }

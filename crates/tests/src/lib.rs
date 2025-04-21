@@ -7,3 +7,4 @@
 */
 
 pub mod location_tracking_service;
+pub mod stop_detection;

@@ -4024,12 +4024,17 @@ name = "tests"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "futures",
  "location_tracking_service",
  "rand",
+ "reqwest",
+ "serde",
  "serde_dhall",
  "serde_json",
  "shared",
+ "strum",
+ "strum_macros",
  "tokio",
  "tokio-stream",
  "tonic",

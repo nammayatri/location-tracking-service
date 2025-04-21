@@ -171,6 +171,29 @@ pub async fn driver_reached_destination(
     .map_err(|e| e.into())
 }
 
+pub async fn driver_source_departed(
+    driver_source_departed_callback_url: &Url,
+    location: &Point,
+    ride_id: RideId,
+    driver_id: DriverId,
+    vehicle_type: VehicleType,
+) -> Result<APISuccess, AppError> {
+    call_api::<APISuccess, DriverSourceDepartedReq>(
+        Protocol::Http1,
+        Method::POST,
+        driver_source_departed_callback_url,
+        vec![("content-type", "application/json")],
+        Some(DriverSourceDepartedReq {
+            location: location.to_owned(),
+            ride_id,
+            driver_id,
+            vehicle_variant: vehicle_type,
+        }),
+    )
+    .await
+    .map_err(|e| e.into())
+}
+
 /**
  * vehicleServiceTier
  * vehicleNumber
