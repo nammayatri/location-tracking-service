@@ -16,6 +16,7 @@ use crate::common::{sliding_window_rate_limiter::sliding_window_limiter, types::
 use crate::domain::types::ui::location::{DriverLocationResponse, UpdateDriverLocationRequest};
 use crate::environment::AppState;
 use crate::kafka::producers::kafka_stream_updates;
+use crate::outbound::external::driver_source_departed;
 use crate::outbound::external::trigger_detection_alert;
 use crate::outbound::external::{
     authenticate_dobpp, bulk_location_update_dobpp, driver_reached_destination, trigger_fcm_bap,
@@ -117,6 +118,7 @@ pub async fn update_driver_location(
     mut locations: Vec<UpdateDriverLocationRequest>,
     driver_mode: DriverMode,
 ) -> Result<HttpResponse, AppError> {
+    let current_ts = Utc::now();
     let (driver_id, merchant_id, merchant_operating_city_id) = if var("DEV").is_ok() {
         (
             DriverId(token.to_owned().inner()),
@@ -204,6 +206,7 @@ pub async fn update_driver_location(
             data.clone(),
             locations,
             latest_driver_location,
+            TimeStamp(current_ts),
             driver_location_details,
             driver_id,
             merchant_id,
@@ -224,6 +227,7 @@ async fn process_driver_locations(
         Data<AppState>,
         Vec<UpdateDriverLocationRequest>,
         UpdateDriverLocationRequest,
+        TimeStamp,
         Option<DriverAllDetails>,
         DriverId,
         MerchantId,
@@ -237,6 +241,7 @@ async fn process_driver_locations(
         data,
         locations,
         latest_driver_location,
+        current_ts,
         driver_location_details,
         driver_id,
         merchant_id,
@@ -281,13 +286,13 @@ async fn process_driver_locations(
             });
 
     let TimeStamp(latest_driver_location_ts) = latest_driver_location.ts;
-    let current_ts = Utc::now();
-    let latest_driver_location_ts = if latest_driver_location_ts > current_ts {
+    let latest_driver_location_ts = if latest_driver_location_ts > current_ts.inner() {
         warn!(
             "Latest driver location timestamp in future => {}, Switching to current time => {}",
-            latest_driver_location_ts, current_ts
+            latest_driver_location_ts,
+            current_ts.inner()
         );
-        TimeStamp(current_ts)
+        current_ts
     } else {
         TimeStamp(latest_driver_location_ts)
     };
@@ -526,7 +531,7 @@ async fn process_driver_locations(
         }
     })();
 
-    let locations = match driver_ride_info.as_ref() {
+    let (locations, upcoming_stops) = match driver_ride_info.as_ref() {
         Some(RideInfo::Bus {
             route_code,
             bus_number,
@@ -542,7 +547,7 @@ async fn process_driver_locations(
             let vehicle_route_location =
                 get_route_location_by_vehicle_number(&data.redis, &route_code, &bus_number).await?;
 
-            let upcoming_stops_with_eta = if let Some(upcoming_stops) = upcoming_stops {
+            let upcoming_stops_with_eta = if let Some(upcoming_stops) = upcoming_stops.as_ref() {
                 estimated_upcoming_stops_eta(
                     vehicle_route_location
                         .as_ref()
@@ -550,12 +555,7 @@ async fn process_driver_locations(
                             vehicle_route_location.upcoming_stops.to_owned()
                         })
                         .flatten(),
-                    vehicle_route_location
-                        .as_ref()
-                        .map(|vehicle_route_location| vehicle_route_location.speed.to_owned())
-                        .flatten(),
-                    &upcoming_stops,
-                    &latest_driver_location.pt,
+                    upcoming_stops,
                 )
             } else {
                 None
@@ -627,10 +627,13 @@ async fn process_driver_locations(
                 .into_iter()
                 .try_for_each(Result::from)?;
 
-            locations
-                .into_iter()
-                .map(|loc| (loc, LocationType::UNFILTERED))
-                .collect()
+            (
+                locations
+                    .into_iter()
+                    .map(|loc| (loc, LocationType::UNFILTERED))
+                    .collect(),
+                upcoming_stops,
+            )
         }
         _ => {
             let mut all_tasks: Vec<Pin<Box<dyn Future<Output = Result<(), AppError>>>>> =
@@ -822,28 +825,65 @@ async fn process_driver_locations(
                 .into_iter()
                 .try_for_each(Result::from)?;
 
-            locations
+            (locations, None)
         }
     };
 
     Arbiter::current().spawn(async move {
         match driver_ride_info {
-            Some(RideInfo::Bus { destination, .. }) => {
-                if let (Some(location), Some(ride_id)) =
-                    (stop_detected.as_ref(), driver_ride_id.as_ref())
-                {
-                    if distance_between_in_meters(&destination, &location)
-                        < data.driver_reached_destination_buffer
-                    {
-                        let _ = driver_reached_destination(
-                            &data.driver_reached_destination_callback_url,
-                            &location,
-                            ride_id.to_owned(),
-                            driver_id.to_owned(),
-                            vehicle_type.to_owned(),
-                        )
-                        .await;
+            Some(RideInfo::Bus {
+                source,
+                destination,
+                ..
+            }) => {
+                match driver_ride_status {
+                    Some(RideStatus::NEW) => {
+                        if let (Some(source), Some(ride_id), Some(upcoming_stops)) =
+                            (source, driver_ride_id.as_ref(), upcoming_stops.as_ref())
+                        {
+                            if let Some(upcoming_stop) = upcoming_stops.first() {
+                                if latest_driver_location.acc.is_some_and(|Accuracy(acc)| {
+                                    acc < data.driver_location_accuracy_buffer
+                                }) && distance_between_in_meters(
+                                    &source,
+                                    &latest_driver_location.pt,
+                                ) > data.driver_source_departed_buffer
+                                    && upcoming_stop
+                                        .distance_from_previous_intermediate_stop
+                                        .inner() as f64
+                                        > data.driver_source_departed_buffer
+                                {
+                                    let _ = driver_source_departed(
+                                        &data.driver_source_departed_callback_url,
+                                        &latest_driver_location.pt,
+                                        ride_id.to_owned(),
+                                        driver_id.to_owned(),
+                                        vehicle_type.to_owned(),
+                                    )
+                                    .await;
+                                }
+                            };
+                        }
                     }
+                    Some(RideStatus::INPROGRESS) => {
+                        if let (Some(location), Some(ride_id)) =
+                            (stop_detected.as_ref(), driver_ride_id.as_ref())
+                        {
+                            if distance_between_in_meters(&destination, &location)
+                                < data.driver_reached_destination_buffer
+                            {
+                                let _ = driver_reached_destination(
+                                    &data.driver_reached_destination_callback_url,
+                                    &location,
+                                    ride_id.to_owned(),
+                                    driver_id.to_owned(),
+                                    vehicle_type.to_owned(),
+                                )
+                                .await;
+                            }
+                        }
+                    }
+                    _ => {}
                 }
 
                 for violations in violation_detection_requests {
@@ -930,6 +970,7 @@ async fn process_driver_locations(
             &data.producer,
             &data.driver_location_update_topic,
             locations,
+            current_ts,
             merchant_id,
             merchant_operating_city_id,
             driver_ride_id,

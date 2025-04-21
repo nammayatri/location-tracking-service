@@ -10,7 +10,6 @@ use crate::{
     common::{kafka::push_to_kafka, types::*},
     domain::types::ui::location::UpdateDriverLocationRequest,
 };
-use chrono::Utc;
 use log::*;
 use rdkafka::producer::FutureProducer;
 
@@ -38,6 +37,7 @@ pub async fn kafka_stream_updates(
     producer: &Option<FutureProducer>,
     topic: &str,
     locations: Vec<(UpdateDriverLocationRequest, LocationType)>,
+    server_timestamp: TimeStamp,
     merchant_id: MerchantId,
     merchant_operating_city_id: MerchantOperatingCityId,
     ride_id: Option<RideId>,
@@ -72,7 +72,7 @@ pub async fn kafka_stream_updates(
             rid: ride_id.to_owned(),
             mocid: merchant_operating_city_id.to_owned(),
             ts: loc.ts,
-            st: TimeStamp(Utc::now()),
+            st: server_timestamp,
             lat: loc.pt.lat,
             lon: loc.pt.lon,
             speed: loc.v.unwrap_or(SpeedInMeterPerSecond(0.0)),

@@ -37,7 +37,7 @@ pub struct Longitude(pub f64);
 #[derive(Deserialize, Serialize, Clone, Debug, Eq, Hash, PartialEq)]
 #[macros::impl_getter]
 pub struct CityName(pub String);
-#[derive(Deserialize, Serialize, Clone, Copy, Debug, Eq, PartialEq, PartialOrd)]
+#[derive(Deserialize, Serialize, Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Hash, Ord)]
 #[macros::impl_getter]
 pub struct TimeStamp(pub DateTime<Utc>);
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Copy)]
@@ -191,8 +191,8 @@ pub enum RideInfo {
         route_code: String,
         route_long_name: Option<String>,
         bus_number: String,
+        source: Option<Point>,
         destination: Point,
-        polyline: Option<String>,
         driver_name: Option<String>,
     },
     #[serde(rename_all = "camelCase")]
@@ -387,7 +387,7 @@ pub struct UpcomingStop {
     pub stop: Stop,
     pub eta: TimeStamp,
     pub status: UpcomingStopStatus,
-    pub delta: Option<f64>,
+    pub delta: f64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
@@ -490,6 +490,7 @@ pub struct Stop {
     pub stop_idx: usize,
     pub distance_to_upcoming_intermediate_stop: Meters,
     pub duration_to_upcoming_intermediate_stop: Seconds,
+    pub distance_from_previous_intermediate_stop: Meters,
     pub stop_type: StopType,
 }
 
