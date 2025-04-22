@@ -194,6 +194,7 @@ pub enum RideInfo {
         source: Option<Point>,
         destination: Point,
         driver_name: Option<String>,
+        group_id: Option<String>,
     },
     #[serde(rename_all = "camelCase")]
     Car {
