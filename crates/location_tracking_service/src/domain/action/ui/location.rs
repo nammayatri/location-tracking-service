@@ -540,42 +540,67 @@ async fn process_driver_locations(
             let mut all_tasks: Vec<Pin<Box<dyn Future<Output = Result<(), AppError>>>>> =
                 Vec::new();
 
-            let upcoming_stops = data.routes.get(route_code).and_then(|route| {
-                get_upcoming_stops_by_route_code(route, &latest_driver_location.pt).ok()
+            let is_blacklist_for_special_zone = latest_driver_location.acc.is_some_and(|acc| {
+                acc.inner() < data.driver_location_accuracy_buffer
+                    && is_blacklist_for_special_zone(
+                        &merchant_id,
+                        &data.blacklist_merchants,
+                        &latest_driver_location.pt.lat,
+                        &latest_driver_location.pt.lon,
+                        &data.blacklist_polygon,
+                    )
             });
 
-            let vehicle_route_location =
-                get_route_location_by_vehicle_number(&data.redis, &route_code, &bus_number).await?;
-
-            let upcoming_stops_with_eta = if let Some(upcoming_stops) = upcoming_stops.as_ref() {
-                estimated_upcoming_stops_eta(
-                    vehicle_route_location
-                        .as_ref()
-                        .map(|vehicle_route_location| {
-                            vehicle_route_location.upcoming_stops.to_owned()
-                        })
-                        .flatten(),
-                    upcoming_stops,
-                )
+            let upcoming_stops = if !is_blacklist_for_special_zone {
+                data.routes.get(route_code).and_then(|route| {
+                    get_upcoming_stops_by_route_code(route, &latest_driver_location.pt).ok()
+                })
             } else {
                 None
             };
 
-            let set_route_location = async {
-                set_route_location(
-                    &data.redis,
-                    &route_code,
-                    &bus_number,
-                    &latest_driver_location.pt,
-                    &latest_driver_location.v,
-                    &latest_driver_location_ts,
-                    driver_ride_status.to_owned(),
-                    upcoming_stops_with_eta,
-                )
-                .await?;
-                Ok(())
-            };
-            all_tasks.push(Box::pin(set_route_location));
+            if !is_blacklist_for_special_zone {
+                let vehicle_route_location =
+                    get_route_location_by_vehicle_number(&data.redis, &route_code, &bus_number)
+                        .await?;
+
+                let upcoming_stops_with_eta = if let Some(upcoming_stops) = upcoming_stops.as_ref()
+                {
+                    estimated_upcoming_stops_eta(
+                        vehicle_route_location
+                            .as_ref()
+                            .map(|vehicle_route_location| {
+                                vehicle_route_location.upcoming_stops.to_owned()
+                            })
+                            .flatten(),
+                        upcoming_stops,
+                    )
+                } else {
+                    None
+                };
+
+                let set_route_location = async {
+                    set_route_location(
+                        &data.redis,
+                        &route_code,
+                        &bus_number,
+                        &latest_driver_location.pt,
+                        &latest_driver_location.v,
+                        &latest_driver_location_ts,
+                        driver_ride_status.to_owned(),
+                        upcoming_stops_with_eta,
+                    )
+                    .await?;
+                    Ok(())
+                };
+                all_tasks.push(Box::pin(set_route_location));
+            } else {
+                let remove_route_location = async {
+                    remove_route_location(&data.redis, &route_code, &bus_number).await?;
+                    Ok(())
+                };
+                all_tasks.push(Box::pin(remove_route_location));
+            }
 
             let set_driver_last_location_update = async {
                 set_driver_last_location_update(
@@ -639,41 +664,27 @@ async fn process_driver_locations(
             let mut all_tasks: Vec<Pin<Box<dyn Future<Output = Result<(), AppError>>>>> =
                 Vec::new();
 
-            let is_blacklist_for_special_zone = is_blacklist_for_special_zone(
-                &merchant_id,
-                &data.blacklist_merchants,
-                &latest_driver_location.pt.lat,
-                &latest_driver_location.pt.lon,
-                &data.blacklist_polygon,
-            );
+            let send_driver_location_to_drainer = async {
+                let _ = &data
+                    .sender
+                    .send((
+                        Dimensions {
+                            merchant_id: merchant_id.to_owned(),
+                            city: city.to_owned(),
+                            vehicle_type: vehicle_type.to_owned(),
+                            created_at: Utc::now(),
+                        },
+                        latest_driver_location.pt.lat,
+                        latest_driver_location.pt.lon,
+                        latest_driver_location_ts.to_owned(),
+                        driver_id.to_owned(),
+                    ))
+                    .await
+                    .map_err(|err| AppError::DrainerPushFailed(err.to_string()))?;
+                Ok(())
+            };
+            all_tasks.push(Box::pin(send_driver_location_to_drainer));
 
-            if !is_blacklist_for_special_zone {
-                let send_driver_location_to_drainer = async {
-                    let _ = &data
-                        .sender
-                        .send((
-                            Dimensions {
-                                merchant_id: merchant_id.to_owned(),
-                                city: city.to_owned(),
-                                vehicle_type: vehicle_type.to_owned(),
-                                created_at: Utc::now(),
-                            },
-                            latest_driver_location.pt.lat,
-                            latest_driver_location.pt.lon,
-                            latest_driver_location_ts.to_owned(),
-                            driver_id.to_owned(),
-                        ))
-                        .await
-                        .map_err(|err| AppError::DrainerPushFailed(err.to_string()))?;
-                    Ok(())
-                };
-                all_tasks.push(Box::pin(send_driver_location_to_drainer));
-            } else {
-                warn!(
-                    "Skipping GEOADD for special zone ({:?}) Driver Id : {:?}, Merchant Id : {:?}",
-                    latest_driver_location.pt, driver_id, merchant_id
-                );
-            }
             let driver_location_accuracy_buffer_to_use: f64 = match driver_ride_info {
                 Some(RideInfo::Car {
                     min_distance_between_two_points,
