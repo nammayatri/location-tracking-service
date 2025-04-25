@@ -129,6 +129,7 @@ pub struct AppState {
     pub drainer_size: usize,
     pub polygon: Vec<MultiPolygonBody>,
     pub blacklist_polygon: Vec<MultiPolygonBody>,
+    pub bus_depot_polygon: Vec<MultiPolygonBody>,
     pub auth_url: Url,
     pub auth_api_key: String,
     pub bulk_location_callback_url: Url,
@@ -236,6 +237,11 @@ impl AppState {
         let blacklist_polygons = read_geo_polygon(&blacklist_geo_config_path)
             .expect("Failed to read specialzone geoJSON");
 
+        let bus_depot_geo_config_path =
+            var("BUS_DEPOT_GEO_CONFIG").unwrap_or_else(|_| "./bus_depot_geo_config".to_string());
+        let bus_depot_polygons =
+            read_geo_polygon(&bus_depot_geo_config_path).expect("Failed to read bus depot geoJSON");
+
         let producer: Option<FutureProducer>;
 
         let result: Result<FutureProducer, KafkaError> = ClientConfig::new()
@@ -272,6 +278,7 @@ impl AppState {
             sender,
             polygon: polygons,
             blacklist_polygon: blacklist_polygons,
+            bus_depot_polygon: bus_depot_polygons,
             auth_url: Url::parse(app_config.auth_url.as_str()).expect("Failed to parse auth_url."),
             auth_api_key: app_config.auth_api_key,
             bulk_location_callback_url: Url::parse(app_config.bulk_location_callback_url.as_str())

@@ -56,52 +56,37 @@ pub fn get_city(
     }
 }
 
-/// Checks if a merchant is blacklisted for a special zone based on their ID and location,
-/// if blacklisted then their location will not be drained and will not be part of nearby driver pooling.
+/// Checks if a location is within a polygon.
 ///
 /// This function will first check if the merchant is in the blacklist, and if they are,
 /// it will further check if the merchant's location intersects with any of the given multi-polygon bodies.
 ///
 /// # Arguments
 ///
-/// * `merchant_id` - The ID of the merchant to check.
-/// * `blacklist_merchants` - A slice of blacklisted merchant IDs.
 /// * `lat` - Latitude of the merchant's location.
 /// * `lon` - Longitude of the merchant's location.
 /// * `polygon` - A vector of multi-polygon bodies representing restricted areas.
 ///
 /// # Returns
 ///
-/// Returns `true` if the merchant is blacklisted and their location intersects
+/// Returns `true` if the location intersects
 /// with any of the provided multi-polygon bodies. Otherwise, returns `false`.
-pub fn is_blacklist_for_special_zone(
-    merchant_id: &MerchantId,
-    blacklist_merchants: &[MerchantId],
-    lat: &Latitude,
-    lon: &Longitude,
-    polygon: &Vec<MultiPolygonBody>,
-) -> bool {
-    let blacklist_merchant = blacklist_merchants.contains(merchant_id);
+pub fn is_within_polygon(lat: &Latitude, lon: &Longitude, polygon: &Vec<MultiPolygonBody>) -> bool {
+    let mut intersection = false;
 
-    if blacklist_merchant {
-        let mut intersection = false;
+    let Latitude(lat) = *lat;
+    let Longitude(lon) = *lon;
 
-        let Latitude(lat) = *lat;
-        let Longitude(lon) = *lon;
-
-        for multi_polygon_body in polygon {
-            intersection = multi_polygon_body
-                .multipolygon
-                .intersects(&point!(x: lon, y: lat));
-            if intersection {
-                break;
-            }
+    for multi_polygon_body in polygon {
+        intersection = multi_polygon_body
+            .multipolygon
+            .intersects(&point!(x: lon, y: lat));
+        if intersection {
+            break;
         }
-
-        intersection
-    } else {
-        false
     }
+
+    intersection
 }
 
 /// Computes a bucket identifier for a given timestamp based on a specified expiry duration.

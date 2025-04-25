@@ -8,9 +8,10 @@
 #![allow(clippy::all)]
 use crate::common::detection::*;
 use crate::common::stop_detection::*;
+use crate::common::utils::is_within_polygon;
 use crate::common::utils::{
     distance_between_in_meters, estimated_upcoming_stops_eta, get_base_vehicle_type, get_city,
-    get_upcoming_stops_by_route_code, is_blacklist_for_special_zone,
+    get_upcoming_stops_by_route_code,
 };
 use crate::common::{sliding_window_rate_limiter::sliding_window_limiter, types::*};
 use crate::domain::types::ui::location::{DriverLocationResponse, UpdateDriverLocationRequest};
@@ -540,18 +541,16 @@ async fn process_driver_locations(
             let mut all_tasks: Vec<Pin<Box<dyn Future<Output = Result<(), AppError>>>>> =
                 Vec::new();
 
-            let is_blacklist_for_special_zone = latest_driver_location.acc.is_some_and(|acc| {
+            let is_blacklist_for_bus_depot = latest_driver_location.acc.is_some_and(|acc| {
                 acc.inner() < data.driver_location_accuracy_buffer
-                    && is_blacklist_for_special_zone(
-                        &merchant_id,
-                        &data.blacklist_merchants,
+                    && is_within_polygon(
                         &latest_driver_location.pt.lat,
                         &latest_driver_location.pt.lon,
-                        &data.blacklist_polygon,
+                        &data.bus_depot_polygon,
                     )
             });
 
-            let upcoming_stops = if !is_blacklist_for_special_zone {
+            let upcoming_stops = if !is_blacklist_for_bus_depot {
                 data.routes.get(route_code).and_then(|route| {
                     get_upcoming_stops_by_route_code(route, &latest_driver_location.pt).ok()
                 })
@@ -559,7 +558,7 @@ async fn process_driver_locations(
                 None
             };
 
-            if !is_blacklist_for_special_zone {
+            if !is_blacklist_for_bus_depot {
                 let vehicle_route_location =
                     get_route_location_by_vehicle_number(&data.redis, &route_code, &bus_number)
                         .await?;
@@ -664,26 +663,35 @@ async fn process_driver_locations(
             let mut all_tasks: Vec<Pin<Box<dyn Future<Output = Result<(), AppError>>>>> =
                 Vec::new();
 
-            let send_driver_location_to_drainer = async {
-                let _ = &data
-                    .sender
-                    .send((
-                        Dimensions {
-                            merchant_id: merchant_id.to_owned(),
-                            city: city.to_owned(),
-                            vehicle_type: vehicle_type.to_owned(),
-                            created_at: Utc::now(),
-                        },
-                        latest_driver_location.pt.lat,
-                        latest_driver_location.pt.lon,
-                        latest_driver_location_ts.to_owned(),
-                        driver_id.to_owned(),
-                    ))
-                    .await
-                    .map_err(|err| AppError::DrainerPushFailed(err.to_string()))?;
-                Ok(())
-            };
-            all_tasks.push(Box::pin(send_driver_location_to_drainer));
+            let is_blacklist_for_special_zone = data.blacklist_merchants.contains(&merchant_id)
+                && is_within_polygon(
+                    &latest_driver_location.pt.lat,
+                    &latest_driver_location.pt.lon,
+                    &data.blacklist_polygon,
+                );
+
+            if !is_blacklist_for_special_zone {
+                let send_driver_location_to_drainer = async {
+                    let _ = &data
+                        .sender
+                        .send((
+                            Dimensions {
+                                merchant_id: merchant_id.to_owned(),
+                                city: city.to_owned(),
+                                vehicle_type: vehicle_type.to_owned(),
+                                created_at: Utc::now(),
+                            },
+                            latest_driver_location.pt.lat,
+                            latest_driver_location.pt.lon,
+                            latest_driver_location_ts.to_owned(),
+                            driver_id.to_owned(),
+                        ))
+                        .await
+                        .map_err(|err| AppError::DrainerPushFailed(err.to_string()))?;
+                    Ok(())
+                };
+                all_tasks.push(Box::pin(send_driver_location_to_drainer));
+            }
 
             let driver_location_accuracy_buffer_to_use: f64 = match driver_ride_info {
                 Some(RideInfo::Car {
