@@ -678,6 +678,17 @@ pub async fn push_drainer_driver_location(
         .map_err(|err| AppError::InternalError(err.to_string()))
 }
 
+pub async fn remove_route_location(
+    redis: &RedisConnectionPool,
+    route_code: &str,
+    vehicle_number: &str,
+) -> Result<(), AppError> {
+    redis
+        .hdel(&driver_loc_based_on_route_key(route_code), vehicle_number)
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn set_route_location(
     redis: &RedisConnectionPool,
