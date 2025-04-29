@@ -205,7 +205,7 @@ pub async fn ride_details(
                 &None,
                 &None,
                 &None,
-                &driver_location.driver_pickup_distance,
+                &None,
                 &driver_location.driver_last_known_location.bear,
                 &driver_location.driver_last_known_location.vehicle_type,
             )

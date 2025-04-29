@@ -75,6 +75,8 @@ pub struct AppConfig {
     pub google_compute_route_url: Url,
     pub google_api_key: String,
     pub route_geo_json_config: S3Config,
+    #[serde(deserialize_with = "deserialize_url")]
+    pub osrm_distance_matrix_base_url: Url,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -169,6 +171,7 @@ pub struct AppState {
     pub routes: FxHashMap<String, Route>,
     pub google_compute_route_url: Url,
     pub google_api_key: String,
+    pub osrm_distance_matrix_base_url: Url,
 }
 
 impl AppState {
@@ -323,6 +326,7 @@ impl AppState {
             routes,
             google_compute_route_url: app_config.google_compute_route_url,
             google_api_key: app_config.google_api_key,
+            osrm_distance_matrix_base_url: app_config.osrm_distance_matrix_base_url,
         }
     }
 }

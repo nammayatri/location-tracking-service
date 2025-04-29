@@ -197,3 +197,21 @@ pub struct Route {
 pub struct Polyline {
     pub encoded_polyline: String,
 }
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct OsrmDistanceMatrixResponse {
+    pub code: String,
+    pub distances: Vec<Vec<f64>>,
+    pub durations: Vec<Vec<f64>>,
+    pub sources: Vec<OsrmWaypoint>,
+    pub destinations: Vec<OsrmWaypoint>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct OsrmWaypoint {
+    pub distance: f64,
+    pub name: String,
+    pub location: Vec<f64>,
+}

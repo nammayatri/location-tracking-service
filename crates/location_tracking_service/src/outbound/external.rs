@@ -352,3 +352,49 @@ pub async fn compute_routes(
     .await
     .map_err(|e| e.into())
 }
+
+/// Call the OSRM Distance Matrix API to get distances and durations between multiple points
+pub async fn get_distance_matrix(
+    sources: &[Point],
+    destinations: &[Point],
+    osrm_distance_matrix_base_url: &Url,
+) -> Result<OsrmDistanceMatrixResponse, AppError> {
+    let mut coordinates = String::new();
+    for point in sources.iter().chain(destinations.iter()) {
+        if !coordinates.is_empty() {
+            coordinates.push(';');
+        }
+        coordinates.push_str(&format!(
+            "{:.6},{:.6}",
+            point.lon.inner(),
+            point.lat.inner()
+        ));
+    }
+
+    let url = format!(
+        "{}table/v1/driving/{}?annotations=duration,distance&sources={}&destinations={}",
+        osrm_distance_matrix_base_url.as_str(),
+        coordinates,
+        (0..sources.len())
+            .map(|i| i.to_string())
+            .collect::<Vec<String>>()
+            .join(";"),
+        (sources.len()..sources.len() + destinations.len())
+            .map(|i| i.to_string())
+            .collect::<Vec<String>>()
+            .join(";")
+    );
+
+    let url =
+        Url::parse(&url).map_err(|e| AppError::InvalidRequest(format!("Invalid URL: {}", e)))?;
+
+    call_api::<OsrmDistanceMatrixResponse, ()>(
+        Protocol::Http1,
+        Method::GET,
+        &url,
+        vec![("content-type", "application/json")],
+        None,
+    )
+    .await
+    .map_err(|e| e.into())
+}

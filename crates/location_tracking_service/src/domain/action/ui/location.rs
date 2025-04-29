@@ -18,6 +18,7 @@ use crate::domain::types::ui::location::{DriverLocationResponse, UpdateDriverLoc
 use crate::environment::AppState;
 use crate::kafka::producers::kafka_stream_updates;
 use crate::outbound::external::driver_source_departed;
+use crate::outbound::external::get_distance_matrix;
 use crate::outbound::external::trigger_detection_alert;
 use crate::outbound::external::{
     authenticate_dobpp, bulk_location_update_dobpp, driver_reached_destination, trigger_fcm_bap,
@@ -472,7 +473,7 @@ async fn process_driver_locations(
         driver_ride_notification_status,
         is_driver_ride_notification_status_changed,
         driver_pickup_distance,
-    ) = (|| {
+    ) = async {
         if let Some(RideInfo::Car {
             pickup_location,
             min_distance_between_two_points: _,
@@ -482,8 +483,33 @@ async fn process_driver_locations(
                 distance_between_in_meters(pickup_location, &latest_driver_location.pt);
             if let Some(ride_notification_status) = driver_ride_notification_status {
                 if let Some(driver_pickup_distance) = driver_pickup_distance {
-                    if (driver_pickup_distance.inner() as f64 - 50.0) > pickup_distance {
+                    if std::cmp::max(
+                        std::cmp::max(
+                            driver_pickup_distance.inner().saturating_sub(50),
+                            data.pickup_notification_threshold as u32,
+                        ),
+                        data.arriving_notification_threshold as u32,
+                    ) as f64
+                        > pickup_distance
+                    {
                         if pickup_distance <= data.pickup_notification_threshold
+                            && get_distance_matrix(
+                                &[pickup_location.to_owned()],
+                                &[latest_driver_location.pt.to_owned()],
+                                &data.osrm_distance_matrix_base_url,
+                            )
+                            .await
+                            .map(|res| {
+                                res.distances
+                                    .get(0)
+                                    .and_then(|distances| {
+                                        distances.get(0).map(|distance| {
+                                            distance <= &data.pickup_notification_threshold
+                                        })
+                                    })
+                                    .unwrap_or(true)
+                            })
+                            .unwrap_or(true)
                             && RideNotificationStatus::DriverReached > ride_notification_status
                         {
                             return (
@@ -530,7 +556,8 @@ async fn process_driver_locations(
         } else {
             (None, false, None)
         }
-    })();
+    }
+    .await;
 
     let (locations, upcoming_stops) = match driver_ride_info.as_ref() {
         Some(RideInfo::Bus {

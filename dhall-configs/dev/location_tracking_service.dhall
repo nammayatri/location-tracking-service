@@ -252,5 +252,6 @@ in {
     route_geo_json_config = {
         bucket = "route-geojson",
         prefix = ""
-    }
+    },
+    osrm_distance_matrix_base_url = "http://127.0.0.1:5000" -- "http://router.project-osrm.org"
 }
