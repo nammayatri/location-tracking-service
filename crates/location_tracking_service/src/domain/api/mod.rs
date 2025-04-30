@@ -22,5 +22,6 @@ pub fn handler(config: &mut ServiceConfig) {
         .service(internal::ride::get_driver_locations)
         .service(internal::location::get_drivers_location)
         .service(internal::location::driver_block_till)
-        .service(internal::location::track_vehicles);
+        .service(internal::location::track_vehicles)
+        .service(internal::location::post_track_vehicles);
 }

@@ -63,3 +63,13 @@ async fn track_vehicles(
 
     Ok(Json(location::track_vehicles(data, request_body).await?))
 }
+
+#[post("/internal/trackVehicles")]
+async fn post_track_vehicles(
+    data: Data<AppState>,
+    param_obj: Json<TrackVehicleRequest>,
+) -> Result<Json<TrackVehiclesResponse>, AppError> {
+    let request_body = param_obj.into_inner();
+
+    Ok(Json(location::track_vehicles(data, request_body).await?))
+}

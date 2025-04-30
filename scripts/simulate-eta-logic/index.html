@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Vehicle Tracking Simulator</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+  <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+  <header>
+    <h1>Vehicle Tracking Simulator</h1>
+    <div class="vehicle-info">
+      <div class="info-item">
+        <span class="label">Vehicle ID:</span>
+        <span id="vehicle-id">WB052366</span>
+      </div>
+      <div class="info-item">
+        <span class="label">Route:</span>
+        <span id="current-route">AC1-D</span>
+      </div>
+      <div class="info-item">
+        <span class="label">Speed:</span>
+        <span id="current-speed">0 km/h</span>
+      </div>
+      <div class="info-item">
+        <span class="label">Next Stop:</span>
+        <span id="next-stop">Loading...</span>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <div class="map-container">
+      <div id="map"></div>
+      <div class="controls">
+        <button id="start-btn" class="btn primary">Start Tracking</button>
+        <button id="stop-btn" class="btn secondary" disabled>Stop Tracking</button>
+        <button id="reset-btn" class="btn tertiary">Reset</button>
+      </div>
+    </div>
+
+    <div class="eta-panel">
+      <div id="eta-list" class="eta-list">
+        <!-- ETA items will be added here dynamically -->
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    <p>Vehicle Tracking Simulator &copy; 2025</p>
+  </footer>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script src="script.js"></script>
+</body>
+
+</html>

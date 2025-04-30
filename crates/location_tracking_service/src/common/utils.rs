@@ -456,8 +456,8 @@ pub fn estimated_upcoming_stops_eta(
     let now = Utc::now();
     if let Some(prev_upcoming_stops_with_eta) = upcoming_stops_with_eta {
         let mut upcoming_stops_with_eta = Vec::new();
-        let mut prev_reached_stop_delta = None;
-        for upcoming_stop_with_eta in prev_upcoming_stops_with_eta {
+        let mut prev_stop_delta = None;
+        for upcoming_stop_with_eta in prev_upcoming_stops_with_eta.iter() {
             if let Some(upcoming_stop) = upcoming_stops
                 .iter()
                 .find(|stop| stop.stop_idx == upcoming_stop_with_eta.stop.stop_idx)
@@ -469,11 +469,16 @@ pub fn estimated_upcoming_stops_eta(
                 };
                 let static_duration_to_travel_remaining_distance =
                     upcoming_stop.duration_to_upcoming_intermediate_stop.inner() as f64;
-                let delta = prev_reached_stop_delta
-                    .map(|delta| f64::max(0.0, delta))
-                    .unwrap_or(0.0)
-                    + f64::max(0.0, current_time_to_eta_diff)
+                let delta = current_time_to_eta_diff
+                    + prev_stop_delta
+                        .map(|delta| f64::max(0.0, delta))
+                        .unwrap_or(0.0)
                     + static_duration_to_travel_remaining_distance;
+
+                prev_stop_delta = Some(abs_diff_utc_as_sec(
+                    now,
+                    upcoming_stop_with_eta.eta.inner() + Duration::from_secs(delta as u64),
+                ));
 
                 upcoming_stops_with_eta.push(UpcomingStop {
                     stop: upcoming_stop.to_owned(),
@@ -481,20 +486,21 @@ pub fn estimated_upcoming_stops_eta(
                     delta,
                     status: UpcomingStopStatus::Upcoming,
                 });
-            } else {
-                if upcoming_stop_with_eta.status == UpcomingStopStatus::Upcoming {
-                    prev_reached_stop_delta = Some(if now > upcoming_stop_with_eta.eta.inner() {
-                        abs_diff_utc_as_sec(upcoming_stop_with_eta.eta.inner(), now)
-                    } else {
-                        -abs_diff_utc_as_sec(now, upcoming_stop_with_eta.eta.inner())
-                    });
-                }
+            } else if upcoming_stop_with_eta.status == UpcomingStopStatus::Upcoming {
+                prev_stop_delta = Some(if now > upcoming_stop_with_eta.eta.inner() {
+                    abs_diff_utc_as_sec(upcoming_stop_with_eta.eta.inner(), now)
+                } else {
+                    -abs_diff_utc_as_sec(now, upcoming_stop_with_eta.eta.inner())
+                });
                 upcoming_stops_with_eta.push(UpcomingStop {
                     stop: upcoming_stop_with_eta.stop.to_owned(),
                     eta: upcoming_stop_with_eta.eta,
-                    delta: prev_reached_stop_delta.unwrap_or(upcoming_stop_with_eta.delta),
+                    delta: prev_stop_delta.unwrap_or(upcoming_stop_with_eta.delta),
                     status: UpcomingStopStatus::Reached,
                 });
+            } else {
+                prev_stop_delta = Some(upcoming_stop_with_eta.delta);
+                upcoming_stops_with_eta.push(upcoming_stop_with_eta.to_owned());
             }
         }
 

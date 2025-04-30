@@ -353,6 +353,7 @@ pub async fn test_read_route_data() {
     std::env::set_var("GEO_CONFIG", "../../geo_config");
     std::env::set_var("BLACKLIST_GEO_CONFIG", "../../blacklist_geo_config");
     std::env::set_var("ROUTE_GEO_JSON_CONFIG", "../../route_geo_json_config");
+    std::env::set_var("BUS_DEPOT_GEO_CONFIG", "../../bus_depot_geo_config");
 
     let dhall_config_path = "../../dhall-configs/dev/location_tracking_service.dhall".to_string();
     let app_config = read_dhall_config(&dhall_config_path).unwrap_or_else(|err| {
