@@ -11,74 +11,103 @@ use crate::common::types::{
     Latitude, Longitude, Point, Route, RouteFeature, RouteGeoJSON, Stop, StopFeature,
 };
 use crate::common::utils::*;
+use crate::environment::S3Config;
 use crate::outbound::external::compute_routes;
-use crate::redis::commands::{cache_google_stop_duration, get_google_stop_duration};
+use crate::redis::commands::{
+    cache_google_stop_duration, get_google_stop_duration, with_lock_redis,
+};
+use crate::redis::keys::google_route_duration_cache_processing_key;
+use crate::tools::error::AppError;
+use crate::{termination, tools::prometheus::TERMINATION};
+use chrono::{NaiveTime, Timelike};
 use reqwest::Url;
 use rustc_hash::FxHashMap;
 use serde_json::from_str;
 use shared::redis::types::RedisConnectionPool;
 use shared::tools::aws::get_files_in_directory_from_s3;
-use std::cmp::max;
-use std::env::var;
-use std::fs;
-use std::fs::File;
-use std::io::Read;
+use std::{cmp::max, env::var, fs, fs::File, io::Read, sync::Arc, time::Duration};
+use tokio::signal::unix::{signal, SignalKind};
+use tokio::sync::RwLock;
+use tokio::time::Instant;
+use tracing::*;
 
-#[allow(clippy::expect_used)]
 pub async fn read_route_data(
     redis: &RedisConnectionPool,
     config_bucket: &str,
     config_prefix: &str,
     google_compute_route_url: &Url,
     google_api_key: &str,
-) -> FxHashMap<String, Route> {
+    force_refresh: bool,
+) -> Result<FxHashMap<String, Route>, AppError> {
     if var("DEV").is_ok() {
         let config_path =
             var("ROUTE_GEO_JSON_CONFIG").unwrap_or_else(|_| "./route_geo_json_config".to_string());
-        let geometries = fs::read_dir(&config_path).expect("Failed to read config path");
+        let geometries = fs::read_dir(&config_path).map_err(|err| {
+            AppError::InternalError(format!("Failed to read config path: {}", err))
+        })?;
         let mut routes: FxHashMap<String, Route> = FxHashMap::default();
 
         for entry in geometries {
-            let entry = entry.expect("Failed to read entry");
+            let entry = entry
+                .map_err(|err| AppError::InternalError(format!("Failed to read entry: {}", err)))?;
             let file_name = entry.file_name().to_string_lossy().to_string();
 
             let file_path = config_path.to_owned() + "/" + &file_name;
-            let mut file = File::open(file_path).expect("Failed to open file");
+            let mut file = File::open(file_path)
+                .map_err(|err| AppError::InternalError(format!("Failed to open file: {}", err)))?;
             let mut contents = String::new();
-            file.read_to_string(&mut contents).expect("Failed to read");
+            file.read_to_string(&mut contents)
+                .map_err(|err| AppError::InternalError(format!("Failed to read file: {}", err)))?;
 
-            let route =
-                parse_route_geojson(redis, &contents, google_compute_route_url, google_api_key)
-                    .await;
+            let route = parse_route_geojson(
+                redis,
+                &contents,
+                google_compute_route_url,
+                google_api_key,
+                force_refresh,
+            )
+            .await?;
             routes.insert(route.route_code.clone(), route);
         }
 
-        routes
+        Ok(routes)
     } else {
         let geometries = get_files_in_directory_from_s3(config_bucket, config_prefix)
             .await
-            .expect("Failed to fetch files from S3");
+            .map_err(|err| {
+                AppError::InternalError(format!("Failed to fetch files from S3: {}", err))
+            })?;
 
         let mut routes: FxHashMap<String, Route> = FxHashMap::default();
         for (_, data) in geometries {
-            let data = String::from_utf8(data).expect("Failed to convert to string");
-            let route =
-                parse_route_geojson(redis, &data, google_compute_route_url, google_api_key).await;
+            let data = String::from_utf8(data).map_err(|err| {
+                AppError::InternalError(format!("Failed to convert to string: {}", err))
+            })?;
+            let route = parse_route_geojson(
+                redis,
+                &data,
+                google_compute_route_url,
+                google_api_key,
+                force_refresh,
+            )
+            .await?;
             routes.insert(route.route_code.clone(), route);
         }
 
-        routes
+        Ok(routes)
     }
 }
 
-#[allow(clippy::expect_used)]
 async fn parse_route_geojson(
     redis: &RedisConnectionPool,
     geojson_str: &str,
     google_compute_route_url: &Url,
     google_api_key: &str,
-) -> Route {
-    let route_geojson: RouteGeoJSON = from_str(geojson_str).expect("Failed to parse route geojson");
+    force_refresh: bool,
+) -> Result<Route, AppError> {
+    let route_geojson: RouteGeoJSON = from_str(geojson_str).map_err(|err| {
+        AppError::InternalError(format!("Failed to parse route geojson: {}", err))
+    })?;
 
     let mut route_feature: Option<RouteFeature> = None;
 
@@ -87,11 +116,19 @@ async fn parse_route_geojson(
     for feature in route_geojson.features {
         if feature["type"] == "Feature" {
             if feature["geometry"]["type"] == "LineString" {
-                route_feature = Some(serde_json::from_value(feature).expect("REASON"));
+                route_feature = Some(serde_json::from_value(feature).map_err(|err| {
+                    AppError::InternalError(format!("Failed to parse route feature: {}", err))
+                })?);
             } else if feature["geometry"]["type"] == "Point" {
-                let stop_feature: StopFeature = serde_json::from_value(feature).expect("REASON");
-                let stop_lat = stop_feature.geometry.coordinates.get(1).expect("REASON");
-                let stop_lon = stop_feature.geometry.coordinates.first().expect("REASON");
+                let stop_feature: StopFeature = serde_json::from_value(feature).map_err(|err| {
+                    AppError::InternalError(format!("Failed to parse stop feature: {}", err))
+                })?;
+                let stop_lat = stop_feature.geometry.coordinates.get(1).ok_or_else(|| {
+                    AppError::InternalError("Failed to get stop latitude".to_string())
+                })?;
+                let stop_lon = stop_feature.geometry.coordinates.first().ok_or_else(|| {
+                    AppError::InternalError("Failed to get stop longitude".to_string())
+                })?;
                 stops.push((
                     stop_feature.properties.stop_name.to_owned(),
                     stop_feature.properties.stop_code.to_owned(),
@@ -109,7 +146,8 @@ async fn parse_route_geojson(
         }
     }
 
-    let route_feature = route_feature.expect("Failed to parse route feature");
+    let route_feature = route_feature
+        .ok_or_else(|| AppError::InternalError("Failed to find route feature".to_string()))?;
 
     // Creation of WaypointInfo from the Route Coordinates
     let mut waypoints: Vec<(Point, Option<Stop>)> = route_feature
@@ -117,17 +155,21 @@ async fn parse_route_geojson(
         .coordinates
         .into_iter()
         .map(|coord| {
-            let coord_lat = coord.get(1).expect("REASON");
-            let coord_lon = coord.first().expect("REASON");
-            (
+            let coord_lat = coord.get(1).ok_or_else(|| {
+                AppError::InternalError("Failed to get coordinate latitude".to_string())
+            })?;
+            let coord_lon = coord.first().ok_or_else(|| {
+                AppError::InternalError("Failed to get coordinate longitude".to_string())
+            })?;
+            Ok((
                 Point {
                     lat: Latitude(*coord_lat),
                     lon: Longitude(*coord_lon),
                 },
                 None,
-            )
+            ))
         })
-        .collect();
+        .collect::<Result<Vec<_>, AppError>>()?;
 
     // Project stops onto route coordinates and put them in the waypoint vector
     for (i, (stop_name, stop_code, stop_point, stop_type)) in stops.iter().enumerate() {
@@ -135,7 +177,9 @@ async fn parse_route_geojson(
             stop_point,
             waypoints.iter().map(|(pt, _)| pt.to_owned()).collect(),
         )
-        .expect("Failed to find closest point on route");
+        .ok_or_else(|| {
+            AppError::InternalError("Failed to find closest point on route".to_string())
+        })?;
 
         // The projection gives us the coordinate of the projected point on the route
         // we need to insert that point between the index and the index + 1 (here index is the projection index)
@@ -207,8 +251,9 @@ async fn parse_route_geojson(
                             &coordinate,
                             google_compute_route_url,
                             google_api_key,
+                            force_refresh,
                         )
-                        .await,
+                        .await?,
                     );
 
                     let distance_from_previous_intermediate_stop =
@@ -329,12 +374,6 @@ async fn parse_route_geojson(
                         &upcoming_stop_total_distance_duration,
                     );
 
-                println!(
-                    "[parse_route_geojson] upcoming_stop_code: {}, segment_distance: {}",
-                    stop_code,
-                    segment_distance.inner()
-                );
-
                 let distance_to_upcoming_intermediate_stop =
                     Meters(distance_to_upcoming_intermediate_stop + segment_distance.inner());
                 let duration_to_upcoming_intermediate_stop =
@@ -388,11 +427,11 @@ async fn parse_route_geojson(
         })
         .collect();
 
-    Route {
+    Ok(Route {
         route_code: route_feature.properties.route_code,
         travel_mode: route_feature.properties.travel_mode,
         waypoints: waypoints_info,
-    }
+    })
 }
 
 fn get_segment_distance_duration_to_upcoming_intermediate_stop(
@@ -434,49 +473,49 @@ async fn compute_distance_and_duration_to_upcoming_intermediate_stop(
     destination_intermediate_stop_coordinate: &Point,
     google_compute_route_url: &Url,
     google_api_key: &str,
-) -> (Meters, Seconds) {
-    let (origin_intermediate_stop_distance, origin_intermediate_stops, _) = waypoints.iter().take(i).rev().fold(
-        (
-            waypoints
-                .get(i)
-                .map(|(coordinate, _)| (coordinate.to_owned(), 0)),
-            vec![(destination_intermediate_stop_coordinate.to_owned(), destination_intermediate_stop_code.to_owned())],
-            false
-        ),
-        |(acc_distance, mut acc_stop, is_intermediate_stop_reached), (coordinate, stop)| {
-            if is_intermediate_stop_reached {
-                (acc_distance, acc_stop, is_intermediate_stop_reached)
-            } else {
-                let distance = if let Some((coordinate_prev_stop, distance_prev_stop)) =
-                    acc_distance.as_ref()
-                {
-                    let distance = distance_prev_stop
-                        + distance_between_in_meters(coordinate, coordinate_prev_stop) as u32;
-                    println!(
-                        "[compute_distance_and_duration_to_upcoming_intermediate_stop] upcoming_stop_code: {}, segment_distance: {}",
-                        destination_intermediate_stop_code,
-                       distance_between_in_meters(coordinate, coordinate_prev_stop) as u32
-                    );
-                    Some((coordinate.to_owned(), distance))
+    force_refresh: bool,
+) -> Result<(Meters, Seconds), AppError> {
+    let (origin_intermediate_stop_distance, origin_intermediate_stops, _) =
+        waypoints.iter().take(i).rev().fold(
+            (
+                waypoints
+                    .get(i)
+                    .map(|(coordinate, _)| (coordinate.to_owned(), 0)),
+                vec![(
+                    destination_intermediate_stop_coordinate.to_owned(),
+                    destination_intermediate_stop_code.to_owned(),
+                )],
+                false,
+            ),
+            |(acc_distance, mut acc_stop, is_intermediate_stop_reached), (coordinate, stop)| {
+                if is_intermediate_stop_reached {
+                    (acc_distance, acc_stop, is_intermediate_stop_reached)
                 } else {
-                    Some((coordinate.to_owned(), 0))
-                };
-                if let Some(stop) = stop {
-                    if stop.stop_type == StopType::IntermediateStop {
-                        acc_stop.push((coordinate.to_owned(), stop.stop_code.to_owned()));
-                        (distance, acc_stop, true)
-                    } else if stop.stop_type == StopType::RouteCorrectionStop {
-                        acc_stop.push((coordinate.to_owned(), stop.stop_code.to_owned()));
-                        (distance, acc_stop, false)
+                    let distance = if let Some((coordinate_prev_stop, distance_prev_stop)) =
+                        acc_distance.as_ref()
+                    {
+                        let distance = distance_prev_stop
+                            + distance_between_in_meters(coordinate, coordinate_prev_stop) as u32;
+                        Some((coordinate.to_owned(), distance))
+                    } else {
+                        Some((coordinate.to_owned(), 0))
+                    };
+                    if let Some(stop) = stop {
+                        if stop.stop_type == StopType::IntermediateStop {
+                            acc_stop.push((coordinate.to_owned(), stop.stop_code.to_owned()));
+                            (distance, acc_stop, true)
+                        } else if stop.stop_type == StopType::RouteCorrectionStop {
+                            acc_stop.push((coordinate.to_owned(), stop.stop_code.to_owned()));
+                            (distance, acc_stop, false)
+                        } else {
+                            (distance, acc_stop, false)
+                        }
                     } else {
                         (distance, acc_stop, false)
                     }
-                } else {
-                    (distance, acc_stop, false)
                 }
-            }
-        },
-    );
+            },
+        );
 
     if let Some((_, distance)) = origin_intermediate_stop_distance {
         let mut total_duration = Seconds(0);
@@ -485,9 +524,11 @@ async fn compute_distance_and_duration_to_upcoming_intermediate_stop(
         while let (Some((origin_coordinate, origin_code)), Some((dest_coordinate, dest_code))) =
             (stops_iter.next(), stops_iter.next())
         {
-            let segment_duration = if let Ok(Some(duration)) =
+            let segment_duration = if let Ok(Some(duration)) = if !force_refresh {
                 get_google_stop_duration(redis, origin_code.to_owned(), dest_code.to_owned()).await
-            {
+            } else {
+                Ok(None)
+            } {
                 duration
             } else if let Ok(routes_response) = compute_routes(
                 google_compute_route_url,
@@ -522,8 +563,132 @@ async fn compute_distance_and_duration_to_upcoming_intermediate_stop(
             total_duration = Seconds(total_duration.inner() + segment_duration.inner());
         }
 
-        (Meters(distance), total_duration)
+        Ok((Meters(distance), total_duration))
     } else {
-        (Meters(0), Seconds(0))
+        Ok((Meters(0), Seconds(0)))
     }
+}
+
+pub async fn start_route_refresh_task(
+    redis: Arc<RedisConnectionPool>,
+    routes: Arc<RwLock<FxHashMap<String, Route>>>,
+    route_geo_json_config: S3Config,
+    google_compute_route_url: Url,
+    google_api_key: String,
+    duration_cache_time_slots: Vec<NaiveTime>,
+) -> Result<(), AppError> {
+    let mut sorted_durations: Vec<_> = duration_cache_time_slots.iter().collect();
+    sorted_durations.sort();
+
+    let mut sigterm = signal(SignalKind::terminate()).map_err(|err| {
+        AppError::InternalError(format!("Failed to create SIGTERM signal handler: {}", err))
+    })?;
+    let mut ctrl_c = signal(SignalKind::interrupt()).map_err(|err| {
+        AppError::InternalError(format!("Failed to create SIGINT signal handler: {}", err))
+    })?;
+
+    let get_sleep = || {
+        let now = chrono::Utc::now();
+        let current_time_slot = now.time();
+        if let Some(upcoming_time_slot) = sorted_durations
+            .iter()
+            .find(|&&slot| *slot > current_time_slot)
+        {
+            tokio::time::sleep(Duration::from_secs(
+                upcoming_time_slot.num_seconds_from_midnight() as u64
+                    - current_time_slot.num_seconds_from_midnight() as u64,
+            ))
+        } else if let Some(upcoming_time_slot) = sorted_durations.first() {
+            tokio::time::sleep(Duration::from_secs(
+                (86_400 + upcoming_time_slot.num_seconds_from_midnight() as u64)
+                    - current_time_slot.num_seconds_from_midnight() as u64,
+            ))
+        } else {
+            tokio::time::sleep(Duration::from_secs(86_400))
+        }
+    };
+
+    let mut sleep = get_sleep();
+    let mut is_route_refresh_ongoing = false;
+    let route_refresh_duration = Seconds(300);
+
+    info!(
+        "[ROUTE_REFRESH_TASK_STARTED] : {:?}",
+        sleep.deadline().duration_since(Instant::now()).as_secs()
+    );
+
+    loop {
+        tokio::select! {
+            _ = sleep => {
+                if !is_route_refresh_ongoing {
+                    match with_lock_redis(
+                        &redis,
+                        google_route_duration_cache_processing_key(),
+                        300,
+                        |args| async {
+                            let (redis, config_bucket, config_prefix, google_compute_route_url, google_api_key) = args;
+
+                            read_route_data(
+                                &redis,
+                                &config_bucket,
+                                &config_prefix,
+                                &google_compute_route_url,
+                                &google_api_key,
+                                true,
+                            )
+                            .await
+                        },
+                        (
+                            redis.clone(),
+                            route_geo_json_config.bucket.to_owned(),
+                            route_geo_json_config.prefix.to_owned(),
+                            google_compute_route_url.to_owned(),
+                            google_api_key.to_owned()
+                        )
+                    )
+                    .await {
+                        Ok(routes_data) => {
+                            is_route_refresh_ongoing = false;
+                            sleep = get_sleep();
+                            info!("[ROUTE_REFRESH_TASK_COMPLETED] : {:?}", routes_data);
+                            for (route_code, route_data) in routes_data {
+                                routes.write().await.insert(route_code.to_owned(), route_data.to_owned());
+                            }
+                        },
+                        Err(err) => {
+                            error!("[ROUTE_REFRESH_TASK_FAILED] : {:?}", err);
+                            is_route_refresh_ongoing = true;
+                            sleep = tokio::time::sleep(Duration::from_secs(route_refresh_duration.inner() as u64));
+                        }
+                    }
+                } else {
+                    is_route_refresh_ongoing = false;
+                    sleep = get_sleep();
+                    if let Ok(routes_data) = read_route_data(
+                        &redis,
+                        &route_geo_json_config.bucket,
+                        &route_geo_json_config.prefix,
+                        &google_compute_route_url,
+                        &google_api_key,
+                        false,
+                    )
+                    .await {
+                        for (route_code, route_data) in routes_data {
+                            routes.write().await.insert(route_code.to_owned(), route_data.to_owned());
+                        }
+                    }
+                }
+            },
+            _ = sigterm.recv() => {
+                termination!("graceful-termination", Instant::now());
+                break;
+            },
+            _ = ctrl_c.recv() => {
+                termination!("graceful-termination", Instant::now());
+                break;
+            }
+        }
+    }
+
+    Ok(())
 }

@@ -554,17 +554,17 @@ pub async fn get_driver_id(
 /// # Returns
 ///
 /// A `Result` indicating success or an `AppError` in case of failures, specifically if the lock limit is exceeded.
-pub async fn with_lock_redis<F, Args, Fut>(
+pub async fn with_lock_redis<F, Args, Fut, T>(
     redis: &RedisConnectionPool,
     key: String,
     expiry: i64,
     callback: F,
     args: Args,
-) -> Result<(), AppError>
+) -> Result<T, AppError>
 where
     F: Fn(Args) -> Fut,
     Args: Send + 'static,
-    Fut: Future<Output = Result<(), AppError>>,
+    Fut: Future<Output = Result<T, AppError>>,
 {
     // TODO :: This lock can be made optimistic by using counter approach
     match redis
@@ -591,10 +591,11 @@ where
                 Ok(false) => Err(AppError::UnderProcessing(key)),
                 Err(err) => {
                     error!("[Error] setnx_with_expiry : {:?}", err);
-                    redis
+                    let _ = redis
                         .delete_key(&key)
                         .await
-                        .map_err(|err| AppError::InternalError(err.to_string()))
+                        .map_err(|err| AppError::InternalError(err.to_string()));
+                    Err(AppError::InternalError(err.to_string()))
                 }
             }
         }

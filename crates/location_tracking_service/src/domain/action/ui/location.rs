@@ -39,6 +39,7 @@ use shared::redis::types::RedisConnectionPool;
 use std::collections::HashMap;
 use std::env::var;
 use std::pin::Pin;
+use std::time::Duration;
 use strum::IntoEnumIterator;
 use tracing::{debug, info, warn};
 
@@ -298,7 +299,16 @@ async fn process_driver_locations(
     } else {
         TimeStamp(latest_driver_location_ts)
     };
+
     let base_vehicle_type = get_base_vehicle_type(&vehicle_type);
+
+    let route = if let Some(RideInfo::Bus { route_code, .. }) = driver_ride_info.as_ref() {
+        data.routes.read().await.get(route_code).cloned()
+    } else {
+        None
+    };
+
+    tracing::error!("[ROUTE LTS] : {:?}", route);
 
     let (
         detection_state,
@@ -361,6 +371,7 @@ async fn process_driver_locations(
                         ride_info: driver_ride_info.clone(),
                         vehicle_type: vehicle_type.to_owned(),
                         accuracy: latest_driver_location.acc.unwrap_or(Accuracy(0.0)),
+                        route: route.as_ref(),
                     };
 
                     if let (
@@ -401,7 +412,6 @@ async fn process_driver_locations(
                                 .get(&detection_type)
                                 .cloned()
                                 .flatten(),
-                            data.clone(),
                         ) {
                             detection_violation_state_map
                                 .insert(detection_type.clone(), detection_violation_state);
@@ -559,7 +569,7 @@ async fn process_driver_locations(
     }
     .await;
 
-    let (locations, upcoming_stops) = match driver_ride_info.as_ref() {
+    let (locations, upcoming_stops_with_eta) = match driver_ride_info.as_ref() {
         Some(RideInfo::Bus {
             route_code,
             bus_number,
@@ -578,14 +588,14 @@ async fn process_driver_locations(
             });
 
             let upcoming_stops = if !is_blacklist_for_bus_depot {
-                data.routes.get(route_code).and_then(|route| {
+                route.as_ref().and_then(|route| {
                     get_upcoming_stops_by_route_code(route, &latest_driver_location.pt).ok()
                 })
             } else {
                 None
             };
 
-            if !is_blacklist_for_bus_depot {
+            let upcoming_stops_with_eta = if !is_blacklist_for_bus_depot {
                 let vehicle_route_location =
                     get_route_location_by_vehicle_number(&data.redis, &route_code, &bus_number)
                         .await?;
@@ -605,7 +615,7 @@ async fn process_driver_locations(
                     None
                 };
 
-                let set_route_location = async {
+                let set_route_location = |upcoming_stops_with_eta| async {
                     set_route_location(
                         &data.redis,
                         &route_code,
@@ -619,14 +629,20 @@ async fn process_driver_locations(
                     .await?;
                     Ok(())
                 };
-                all_tasks.push(Box::pin(set_route_location));
+                all_tasks.push(Box::pin(set_route_location(
+                    upcoming_stops_with_eta.to_owned(),
+                )));
+
+                upcoming_stops_with_eta
             } else {
                 let remove_route_location = async {
                     remove_route_location(&data.redis, &route_code, &bus_number).await?;
                     Ok(())
                 };
                 all_tasks.push(Box::pin(remove_route_location));
-            }
+
+                None
+            };
 
             let set_driver_last_location_update = async {
                 set_driver_last_location_update(
@@ -683,7 +699,7 @@ async fn process_driver_locations(
                     .into_iter()
                     .map(|loc| (loc, LocationType::UNFILTERED))
                     .collect(),
-                upcoming_stops,
+                upcoming_stops_with_eta,
             )
         }
         _ => {
@@ -884,17 +900,20 @@ async fn process_driver_locations(
             }) => {
                 match driver_ride_status {
                     Some(RideStatus::NEW) => {
-                        if let (Some(source), Some(ride_id), Some(upcoming_stops)) =
-                            (source, driver_ride_id.as_ref(), upcoming_stops.as_ref())
-                        {
-                            if let Some(upcoming_stop) = upcoming_stops.first() {
+                        if let (Some(source), Some(ride_id), Some(upcoming_stops_with_eta)) = (
+                            source,
+                            driver_ride_id.as_ref(),
+                            upcoming_stops_with_eta.as_ref(),
+                        ) {
+                            if let Some(upcoming_stop_with_eta) = upcoming_stops_with_eta.first() {
                                 if latest_driver_location.acc.is_some_and(|Accuracy(acc)| {
                                     acc < data.driver_location_accuracy_buffer
                                 }) && distance_between_in_meters(
                                     &source,
                                     &latest_driver_location.pt,
                                 ) > data.driver_source_departed_buffer
-                                    && upcoming_stop
+                                    && upcoming_stop_with_eta
+                                        .stop
                                         .distance_from_previous_intermediate_stop
                                         .inner() as f64
                                         > data.driver_source_departed_buffer
@@ -1012,6 +1031,18 @@ async fn process_driver_locations(
             }
         }
 
+        let next_upcoming_stop_eta = upcoming_stops_with_eta.and_then(|upcoming_stops_with_eta| {
+            upcoming_stops_with_eta
+                .iter()
+                .find(|stop| stop.status == UpcomingStopStatus::Upcoming)
+                .and_then(|upcoming_stop_with_eta| {
+                    Some(TimeStamp(
+                        upcoming_stop_with_eta.eta.inner()
+                            + Duration::from_secs(upcoming_stop_with_eta.delta as u64),
+                    ))
+                })
+        });
+
         kafka_stream_updates(
             &data.producer,
             &data.driver_location_update_topic,
@@ -1025,6 +1056,7 @@ async fn process_driver_locations(
             &driver_id,
             vehicle_type,
             stop_detected,
+            next_upcoming_stop_eta,
             // travelled_distance,
         )
         .await;

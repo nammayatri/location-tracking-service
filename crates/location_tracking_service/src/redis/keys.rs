@@ -184,3 +184,7 @@ pub fn driver_loc_based_on_trip_key(trip_id: &str) -> String {
 pub fn google_stop_duration_key(source_stop_code: &str, destination_stop_code: &str) -> String {
     format!("gsd:{source_stop_code}:{destination_stop_code}")
 }
+
+pub fn google_route_duration_cache_processing_key() -> String {
+    "grd:processing".to_string()
+}

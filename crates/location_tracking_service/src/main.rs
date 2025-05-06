@@ -8,7 +8,7 @@
 
 use actix_web::{web, App, HttpServer};
 use location_tracking_service::{
-    common::{types::*, utils::read_dhall_config},
+    common::{route::start_route_refresh_task, types::*, utils::read_dhall_config},
     domain::api,
     drainer::run_drainer,
     environment::AppState,
@@ -87,6 +87,33 @@ async fn start_server() -> std::io::Result<()> {
         graceful_termination_requested_sigint.store(true, Ordering::Relaxed);
     });
 
+    let (
+        redis,
+        routes,
+        route_geo_json_config,
+        google_compute_route_url,
+        google_api_key,
+        duration_cache_time_slots,
+    ) = (
+        data.redis.clone(),
+        data.routes.clone(),
+        data.route_geo_json_config.to_owned(),
+        data.google_compute_route_url.to_owned(),
+        data.google_api_key.to_owned(),
+        data.duration_cache_time_slots.to_owned(),
+    );
+    let route_refresh_thread = tokio::spawn(async move {
+        let _ = start_route_refresh_task(
+            redis,
+            routes,
+            route_geo_json_config,
+            google_compute_route_url,
+            google_api_key,
+            duration_cache_time_slots,
+        )
+        .await;
+    });
+
     let (drainer_size, drainer_delay, bucket_size, nearby_bucket_threshold, redis) = (
         data.drainer_size,
         data.drainer_delay,
@@ -131,11 +158,19 @@ async fn start_server() -> std::io::Result<()> {
     .run()
     .await?;
 
-    channel_thread
-        .await
-        .expect("Channel listener thread panicked");
+    tokio::select! {
+        res = channel_thread => {
+            error!("[CHANNEL_THREAD_ENDED] : {:?}", res);
+        }
+        res = route_refresh_thread => {
+            error!("[ROUTE_REFRESH_THREAD_ENDED] : {:?}", res);
+        }
+    }
 
-    Ok(())
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Other,
+        "[MAIN_THREAD_ENDED]",
+    ))
 }
 
 fn main() {

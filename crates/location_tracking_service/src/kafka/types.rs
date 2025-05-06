@@ -40,5 +40,6 @@ pub struct LocationUpdate {
     pub stop_lat: Option<Latitude>,
     pub stop_lon: Option<Longitude>,
     pub location_type: LocationType,
+    pub next_upcoming_stop_eta: Option<TimeStamp>,
     // pub travelled_distance: Meters,
 }

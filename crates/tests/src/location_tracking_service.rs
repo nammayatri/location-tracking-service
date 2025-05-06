@@ -372,7 +372,7 @@ pub async fn test_read_route_data() {
     // Convert routes HashMap to GeoJSON format
     let mut features = Vec::new();
 
-    for (route_code, route) in app_state.routes {
+    for (route_code, route) in app_state.routes.read().await.clone() {
         // Create stop features
         for WaypointInfo { coordinate, stop } in route.waypoints {
             // Determine color based on stop_type
@@ -413,4 +413,62 @@ pub async fn test_read_route_data() {
         "Routes as GeoJSON:\n{}",
         serde_json::to_string_pretty(&geojson).unwrap()
     );
+}
+
+#[test]
+fn test_nested_arc_by_cloning_reference() {
+    use std::collections::HashMap;
+    use std::sync::{Arc, RwLock};
+
+    // Create the original Arc-wrapped HashMap
+    let map_a: Arc<RwLock<HashMap<String, String>>> = Arc::new(RwLock::new(HashMap::new()));
+
+    // Create another reference to the SAME data (not nested)
+    let map_b = Arc::clone(&map_a); // This is the correct way
+
+    // Modify data through map_b
+    {
+        let mut write_guard = map_b.write().unwrap();
+        write_guard.insert(String::from("key1"), String::from("value1"));
+        println!("Added 'key1' through map_b");
+    }
+
+    // Read the data through map_a
+    {
+        let read_guard = map_a.read().unwrap();
+        println!("Reading from map_a: {:?}", read_guard.get("key1")); // Shows "value1"
+    }
+
+    // Check that they point to the same data by comparing pointers
+    println!("map_a pointer: {:p}", Arc::as_ptr(&map_a));
+    println!("map_b pointer: {:p}", Arc::as_ptr(&map_b)); // Same as map_a
+}
+
+#[test]
+fn test_nested_arc_by_creating_new_arc() {
+    use std::collections::HashMap;
+    use std::sync::{Arc, RwLock};
+
+    // Create the original Arc-wrapped HashMap
+    let map_a: Arc<RwLock<HashMap<String, String>>> = Arc::new(RwLock::new(HashMap::new()));
+
+    // Create a new Arc-wrapped HashMap by cloning the original
+    let map_b = Arc::new(map_a.clone());
+
+    // Modify data through map_b
+    {
+        let mut write_guard = map_b.write().unwrap();
+        write_guard.insert(String::from("key1"), String::from("value1"));
+        println!("Added 'key1' through map_b");
+    }
+
+    // Read the data through map_a
+    {
+        let read_guard = map_a.read().unwrap();
+        println!("Reading from map_a: {:?}", read_guard.get("key1")); // Shows "value1"
+    }
+
+    // Check that they point to the same data by comparing pointers
+    println!("map_a pointer: {:p}", Arc::as_ptr(&map_a));
+    println!("map_b pointer: {:p}", Arc::as_ptr(&map_b)); // Not same as map_a
 }

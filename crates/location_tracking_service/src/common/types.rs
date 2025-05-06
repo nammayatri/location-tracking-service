@@ -618,8 +618,8 @@ pub enum DetectionConfig {
     TripNotStartedDetection(TripNotStartedConfig),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DetectionContext {
+#[derive(Debug, Clone)]
+pub struct DetectionContext<'a> {
     pub driver_id: DriverId,
     pub ride_id: RideId,
     pub location: Point,
@@ -629,6 +629,7 @@ pub struct DetectionContext {
     pub ride_info: Option<RideInfo>,
     pub vehicle_type: VehicleType,
     pub accuracy: Accuracy,
+    pub route: Option<&'a Route>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

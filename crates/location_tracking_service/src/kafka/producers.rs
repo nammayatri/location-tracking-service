@@ -46,6 +46,7 @@ pub async fn kafka_stream_updates(
     DriverId(key): &DriverId,
     vehicle_type: VehicleType,
     stop_location: Option<Point>,
+    next_upcoming_stop_eta: Option<TimeStamp>,
     // travelled_distance: Meters,
 ) {
     let ride_status = match ride_status {
@@ -85,7 +86,8 @@ pub async fn kafka_stream_updates(
             is_stop_detected,
             stop_lat,
             stop_lon,
-            location_type, // travelled_distance: travelled_distance.to_owned(),
+            location_type,
+            next_upcoming_stop_eta, // travelled_distance: travelled_distance.to_owned(),
         };
         if let Err(err) = push_to_kafka(producer, topic, key.as_str(), message).await {
             error!("Error occured in push_to_kafka => {}", err.message())

@@ -10,7 +10,6 @@ use std::collections::VecDeque;
 
 use tracing::warn;
 
-use crate::environment::AppState;
 use crate::{
     common::types::*,
     common::utils::{distance_between_in_meters, get_upcoming_stops_by_route_code},
@@ -20,7 +19,6 @@ use crate::{
         ViolationDetectionReq,
     },
 };
-use actix_web::web::Data;
 
 use super::utils::find_closest_point_on_route;
 
@@ -31,24 +29,18 @@ pub fn check(
     detection_state: Option<ViolationDetectionState>,
     anti_detection_state: Option<ViolationDetectionState>,
     violation_detection_trigger_flag: Option<DetectionStatus>,
-    data: Data<AppState>,
 ) -> (
     Option<ViolationDetectionState>,
     Option<ViolationDetectionState>,
     Option<DetectionStatus>,
     Option<ViolationDetectionReq>,
 ) {
-    let violation_state_and_trigger = violation_check(
-        violation_config,
-        &context,
-        detection_state.to_owned(),
-        data.clone(),
-    );
+    let violation_state_and_trigger =
+        violation_check(violation_config, &context, detection_state.to_owned());
     let anti_violation_state_and_trigger = anti_violation_check(
         anti_violation_config,
         &context,
         anti_detection_state.to_owned(),
-        data,
     );
 
     let violation_state = violation_state_and_trigger.as_ref().map(|(state, _)| state);
@@ -85,7 +77,6 @@ fn violation_check(
     config: &ViolationDetectionConfig,
     context: &DetectionContext,
     state: Option<ViolationDetectionState>,
-    data: Data<AppState>,
 ) -> Option<(ViolationDetectionState, Option<bool>)> {
     match config.detection_config {
         DetectionConfig::OverspeedingDetection(OverspeedingConfig {
@@ -272,11 +263,12 @@ fn violation_check(
                             copy_list.push_back((current_avg_point, prev_batch_datapoints + 1));
                             total_datapoints += 1;
                             if total_datapoints == sample_size as u64 {
-                                if let Some(RideInfo::Bus { route_code, .. }) = &context.ride_info {
-                                    let points = data.routes.get(route_code);
-                                    if let Some((true, distance)) =
-                                        check_deviated(&copy_list, deviation_threshold, points)
-                                    {
+                                if let Some(RideInfo::Bus { .. }) = &context.ride_info {
+                                    if let Some((true, distance)) = check_deviated(
+                                        &copy_list,
+                                        deviation_threshold,
+                                        context.route,
+                                    ) {
                                         return Some((
                                             ViolationDetectionState::RouteDeviation(
                                                 RouteDeviationState {
@@ -287,9 +279,11 @@ fn violation_check(
                                             ),
                                             Some(true),
                                         ));
-                                    } else if let Some((false, distance)) =
-                                        check_deviated(&copy_list, deviation_threshold, points)
-                                    {
+                                    } else if let Some((false, distance)) = check_deviated(
+                                        &copy_list,
+                                        deviation_threshold,
+                                        context.route,
+                                    ) {
                                         return Some((
                                             ViolationDetectionState::RouteDeviation(
                                                 RouteDeviationState {
@@ -349,13 +343,12 @@ fn violation_check(
                                 copy_list.push_back((current_avg_point, prev_batch_size + 1));
                                 total_datapoints += 1;
                                 if total_datapoints == sample_size as u64 {
-                                    if let Some(RideInfo::Bus { route_code, .. }) =
-                                        &context.ride_info
-                                    {
-                                        let points = data.routes.get(route_code);
-                                        if let Some((true, distance)) =
-                                            check_deviated(&copy_list, deviation_threshold, points)
-                                        {
+                                    if let Some(RideInfo::Bus { .. }) = &context.ride_info {
+                                        if let Some((true, distance)) = check_deviated(
+                                            &copy_list,
+                                            deviation_threshold,
+                                            context.route,
+                                        ) {
                                             return Some((
                                                 ViolationDetectionState::RouteDeviation(
                                                     RouteDeviationState {
@@ -366,9 +359,11 @@ fn violation_check(
                                                 ),
                                                 Some(true),
                                             ));
-                                        } else if let Some((false, distance)) =
-                                            check_deviated(&copy_list, deviation_threshold, points)
-                                        {
+                                        } else if let Some((false, distance)) = check_deviated(
+                                            &copy_list,
+                                            deviation_threshold,
+                                            context.route,
+                                        ) {
                                             return Some((
                                                 ViolationDetectionState::RouteDeviation(
                                                     RouteDeviationState {
@@ -590,9 +585,8 @@ fn violation_check(
                 expected_count,
             })) = state
             {
-                if let Some(RideInfo::Bus { route_code, .. }) = &context.ride_info {
-                    let route = data.routes.get(route_code);
-                    if let Some(route) = route {
+                if let Some(RideInfo::Bus { .. }) = &context.ride_info {
+                    if let Some(route) = context.route {
                         let upcoming_stops =
                             get_upcoming_stops_by_route_code(route, &context.location);
                         if let Ok(upcoming) = upcoming_stops {
@@ -674,12 +668,11 @@ fn violation_check(
                             total_datapoints += 1;
 
                             if total_datapoints == sample_size as u64 && flag {
-                                if let Some(RideInfo::Bus { route_code, .. }) = &context.ride_info {
-                                    let points = data.routes.get(route_code);
+                                if let Some(RideInfo::Bus { .. }) = &context.ride_info {
                                     if let Some(true) = check_trip_not_started(
                                         &copy_list,
                                         deviation_threshold,
-                                        points,
+                                        context.route,
                                     ) {
                                         return Some((
                                             ViolationDetectionState::TripNotStarted(
@@ -693,7 +686,7 @@ fn violation_check(
                                     } else if let Some(false) = check_trip_not_started(
                                         &copy_list,
                                         deviation_threshold,
-                                        points,
+                                        context.route,
                                     ) {
                                         return Some((
                                             ViolationDetectionState::TripNotStarted(
@@ -752,14 +745,11 @@ fn violation_check(
                                 total_datapoints += 1;
 
                                 if total_datapoints == sample_size as u64 && flag {
-                                    if let Some(RideInfo::Bus { route_code, .. }) =
-                                        &context.ride_info
-                                    {
-                                        let points = data.routes.get(route_code);
+                                    if let Some(RideInfo::Bus { .. }) = &context.ride_info {
                                         if let Some(true) = check_trip_not_started(
                                             &copy_list,
                                             deviation_threshold,
-                                            points,
+                                            context.route,
                                         ) {
                                             return Some((
                                                 ViolationDetectionState::TripNotStarted(
@@ -773,7 +763,7 @@ fn violation_check(
                                         } else if let Some(false) = check_trip_not_started(
                                             &copy_list,
                                             deviation_threshold,
-                                            points,
+                                            context.route,
                                         ) {
                                             return Some((
                                                 ViolationDetectionState::TripNotStarted(
@@ -864,7 +854,6 @@ fn anti_violation_check(
     config: &ViolationDetectionConfig,
     context: &DetectionContext,
     state: Option<ViolationDetectionState>,
-    data: Data<AppState>,
 ) -> Option<(ViolationDetectionState, Option<bool>)> {
     match config.detection_config {
         DetectionConfig::OverspeedingDetection(OverspeedingConfig {
@@ -1053,11 +1042,12 @@ fn anti_violation_check(
                             copy_list.push_back((current_avg_point, prev_batch_datapoints + 1));
                             total_datapoints += 1;
                             if total_datapoints == sample_size as u64 {
-                                if let Some(RideInfo::Bus { route_code, .. }) = &context.ride_info {
-                                    let points = data.routes.get(route_code);
-                                    if let Some((true, distance)) =
-                                        check_deviated(&copy_list, deviation_threshold, points)
-                                    {
+                                if let Some(RideInfo::Bus { .. }) = &context.ride_info {
+                                    if let Some((true, distance)) = check_deviated(
+                                        &copy_list,
+                                        deviation_threshold,
+                                        context.route,
+                                    ) {
                                         return Some((
                                             ViolationDetectionState::RouteDeviation(
                                                 RouteDeviationState {
@@ -1068,9 +1058,11 @@ fn anti_violation_check(
                                             ),
                                             Some(false),
                                         ));
-                                    } else if let Some((false, distance)) =
-                                        check_deviated(&copy_list, deviation_threshold, points)
-                                    {
+                                    } else if let Some((false, distance)) = check_deviated(
+                                        &copy_list,
+                                        deviation_threshold,
+                                        context.route,
+                                    ) {
                                         return Some((
                                             ViolationDetectionState::RouteDeviation(
                                                 RouteDeviationState {
@@ -1130,13 +1122,12 @@ fn anti_violation_check(
                                 copy_list.push_back((current_avg_point, prev_batch_size + 1));
                                 total_datapoints += 1;
                                 if total_datapoints == sample_size as u64 {
-                                    if let Some(RideInfo::Bus { route_code, .. }) =
-                                        &context.ride_info
-                                    {
-                                        let points = data.routes.get(route_code);
-                                        if let Some((true, distance)) =
-                                            check_deviated(&copy_list, deviation_threshold, points)
-                                        {
+                                    if let Some(RideInfo::Bus { .. }) = &context.ride_info {
+                                        if let Some((true, distance)) = check_deviated(
+                                            &copy_list,
+                                            deviation_threshold,
+                                            context.route,
+                                        ) {
                                             return Some((
                                                 ViolationDetectionState::RouteDeviation(
                                                     RouteDeviationState {
@@ -1147,9 +1138,11 @@ fn anti_violation_check(
                                                 ),
                                                 Some(false),
                                             ));
-                                        } else if let Some((false, distance)) =
-                                            check_deviated(&copy_list, deviation_threshold, points)
-                                        {
+                                        } else if let Some((false, distance)) = check_deviated(
+                                            &copy_list,
+                                            deviation_threshold,
+                                            context.route,
+                                        ) {
                                             return Some((
                                                 ViolationDetectionState::RouteDeviation(
                                                     RouteDeviationState {
@@ -1385,9 +1378,8 @@ fn anti_violation_check(
                 expected_count,
             })) = state
             {
-                if let Some(RideInfo::Bus { route_code, .. }) = &context.ride_info {
-                    let route = data.routes.get(route_code);
-                    if let Some(route) = route {
+                if let Some(RideInfo::Bus { .. }) = &context.ride_info {
+                    if let Some(route) = context.route {
                         let upcoming_stops =
                             get_upcoming_stops_by_route_code(route, &context.location);
                         if let Ok(upcoming) = upcoming_stops {

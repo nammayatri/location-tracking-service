@@ -253,5 +253,6 @@ in {
         bucket = "route-geojson",
         prefix = ""
     },
-    osrm_distance_matrix_base_url = "http://127.0.0.1:5000" -- "http://router.project-osrm.org"
+    osrm_distance_matrix_base_url = "http://router.project-osrm.org",
+    duration_cache_time_slots = ["06:00:00", "12:00:00", "18:00:00", "19:55:00"]
 }

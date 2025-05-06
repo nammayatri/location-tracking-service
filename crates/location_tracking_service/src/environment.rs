@@ -9,16 +9,17 @@
 
 use std::{env::var, sync::Arc};
 
+use chrono::NaiveTime;
 use rdkafka::{error::KafkaError, producer::FutureProducer, ClientConfig};
 use reqwest::Url;
 use rustc_hash::FxHashMap;
 use serde::Deserialize;
 use shared::redis::types::{RedisConnectionPool, RedisSettings};
 use std::collections::HashMap;
-use tokio::sync::mpsc::Sender;
+use tokio::sync::{mpsc::Sender, RwLock};
 use tracing::info;
 
-use crate::common::{geo_polygon::read_geo_polygon, route::read_route_data, types::*};
+use crate::common::{geo_polygon::read_geo_polygon, types::*};
 
 use shared::tools::logger::LoggerConfig;
 
@@ -77,6 +78,7 @@ pub struct AppConfig {
     pub route_geo_json_config: S3Config,
     #[serde(deserialize_with = "deserialize_url")]
     pub osrm_distance_matrix_base_url: Url,
+    pub duration_cache_time_slots: Vec<NaiveTime>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -168,10 +170,12 @@ pub struct AppState {
         HashMap<VehicleType, HashMap<DetectionType, ViolationDetectionConfig>>,
     pub detection_anti_violation_config:
         HashMap<VehicleType, HashMap<DetectionType, ViolationDetectionConfig>>,
-    pub routes: FxHashMap<String, Route>,
+    pub routes: Arc<RwLock<FxHashMap<String, Route>>>,
     pub google_compute_route_url: Url,
     pub google_api_key: String,
+    pub route_geo_json_config: S3Config,
     pub osrm_distance_matrix_base_url: Url,
+    pub duration_cache_time_slots: Vec<NaiveTime>,
 }
 
 impl AppState {
@@ -223,17 +227,6 @@ impl AppState {
 
         let geo_config_path = var("GEO_CONFIG").unwrap_or_else(|_| "./geo_config".to_string());
         let polygons = read_geo_polygon(&geo_config_path).expect("Failed to read geoJSON");
-
-        let routes = read_route_data(
-            &redis,
-            &app_config.route_geo_json_config.bucket,
-            &app_config.route_geo_json_config.prefix,
-            &app_config.google_compute_route_url,
-            &app_config.google_api_key,
-        )
-        .await;
-
-        info!(tag = "[Route]", "Routes: {:?}", routes);
 
         let blacklist_geo_config_path =
             var("BLACKLIST_GEO_CONFIG").unwrap_or_else(|_| "./blacklist_geo_config".to_string());
@@ -323,10 +316,12 @@ impl AppState {
             detection_callback_url: app_config.detection_callback_url,
             detection_violation_config: app_config.detection_violation_config,
             detection_anti_violation_config: app_config.detection_anti_violation_config,
-            routes,
+            routes: Arc::new(RwLock::new(FxHashMap::default())),
             google_compute_route_url: app_config.google_compute_route_url,
             google_api_key: app_config.google_api_key,
+            route_geo_json_config: app_config.route_geo_json_config,
             osrm_distance_matrix_base_url: app_config.osrm_distance_matrix_base_url,
+            duration_cache_time_slots: app_config.duration_cache_time_slots,
         }
     }
 }
