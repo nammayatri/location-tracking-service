@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use tokio::sync::{mpsc::Sender, RwLock};
 use tracing::info;
 
-use crate::common::{geo_polygon::read_geo_polygon, types::*};
+use crate::common::{geo_polygon::read_geo_polygon, route::read_route_data, types::*};
 
 use shared::tools::logger::LoggerConfig;
 
@@ -228,6 +228,17 @@ impl AppState {
         let geo_config_path = var("GEO_CONFIG").unwrap_or_else(|_| "./geo_config".to_string());
         let polygons = read_geo_polygon(&geo_config_path).expect("Failed to read geoJSON");
 
+        let routes = read_route_data(
+            &redis,
+            &app_config.route_geo_json_config.bucket,
+            &app_config.route_geo_json_config.prefix,
+            &app_config.google_compute_route_url,
+            &app_config.google_api_key,
+            false,
+        )
+        .await
+        .expect("Failed to read route data");
+
         let blacklist_geo_config_path =
             var("BLACKLIST_GEO_CONFIG").unwrap_or_else(|_| "./blacklist_geo_config".to_string());
         let blacklist_polygons = read_geo_polygon(&blacklist_geo_config_path)
@@ -316,7 +327,7 @@ impl AppState {
             detection_callback_url: app_config.detection_callback_url,
             detection_violation_config: app_config.detection_violation_config,
             detection_anti_violation_config: app_config.detection_anti_violation_config,
-            routes: Arc::new(RwLock::new(FxHashMap::default())),
+            routes: Arc::new(RwLock::new(routes)),
             google_compute_route_url: app_config.google_compute_route_url,
             google_api_key: app_config.google_api_key,
             route_geo_json_config: app_config.route_geo_json_config,
