@@ -594,17 +594,17 @@ pub async fn start_route_refresh_task(
             .iter()
             .find(|&&slot| *slot > current_time_slot)
         {
-            tokio::time::sleep(Duration::from_secs(
+            Some(tokio::time::sleep(Duration::from_secs(
                 upcoming_time_slot.num_seconds_from_midnight() as u64
                     - current_time_slot.num_seconds_from_midnight() as u64,
-            ))
-        } else if let Some(upcoming_time_slot) = sorted_durations.first() {
-            tokio::time::sleep(Duration::from_secs(
-                (86_400 + upcoming_time_slot.num_seconds_from_midnight() as u64)
-                    - current_time_slot.num_seconds_from_midnight() as u64,
-            ))
+            )))
         } else {
-            tokio::time::sleep(Duration::from_secs(86_400))
+            sorted_durations.first().map(|upcoming_time_slot| {
+                tokio::time::sleep(Duration::from_secs(
+                    (86_400 + upcoming_time_slot.num_seconds_from_midnight() as u64)
+                        - current_time_slot.num_seconds_from_midnight() as u64,
+                ))
+            })
         }
     };
 
@@ -612,14 +612,9 @@ pub async fn start_route_refresh_task(
     let mut is_route_refresh_ongoing = false;
     let route_refresh_duration = Seconds(300);
 
-    info!(
-        "[ROUTE_REFRESH_TASK_STARTED] : {:?}",
-        sleep.deadline().duration_since(Instant::now()).as_secs()
-    );
-
-    loop {
+    while let Some(current_sleep) = sleep {
         tokio::select! {
-            _ = sleep => {
+                _ = current_sleep => {
                 if !is_route_refresh_ongoing {
                     match with_lock_redis(
                         &redis,
@@ -658,7 +653,7 @@ pub async fn start_route_refresh_task(
                         Err(err) => {
                             error!("[ROUTE_REFRESH_TASK_FAILED] : {:?}", err);
                             is_route_refresh_ongoing = true;
-                            sleep = tokio::time::sleep(Duration::from_secs(route_refresh_duration.inner() as u64));
+                            sleep = Some(tokio::time::sleep(Duration::from_secs(route_refresh_duration.inner() as u64)));
                         }
                     }
                 } else {

@@ -308,8 +308,6 @@ async fn process_driver_locations(
         None
     };
 
-    tracing::error!("[ROUTE LTS] : {:?}", route);
-
     let (
         detection_state,
         anti_detection_state,

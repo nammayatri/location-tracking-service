@@ -102,7 +102,8 @@ async fn start_server() -> std::io::Result<()> {
         data.google_api_key.to_owned(),
         data.duration_cache_time_slots.to_owned(),
     );
-    let route_refresh_thread = tokio::spawn(async move {
+
+    tokio::spawn(async move {
         let _ = start_route_refresh_task(
             redis,
             routes,
@@ -161,9 +162,6 @@ async fn start_server() -> std::io::Result<()> {
     tokio::select! {
         res = channel_thread => {
             error!("[CHANNEL_THREAD_ENDED] : {:?}", res);
-        }
-        res = route_refresh_thread => {
-            error!("[ROUTE_REFRESH_THREAD_ENDED] : {:?}", res);
         }
     }
 
