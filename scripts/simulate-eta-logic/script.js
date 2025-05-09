@@ -11,7 +11,7 @@ let routeCoordinates = [];
 let stops = [];
 let isTracking = false;
 let vehicleId = "WB052366";
-let routeCode = "S10-D";
+let routeCode = "EB12-U";
 let currentSpeed = 0;
 let maxSpeed = 120; // Changed to 120 km/h
 let nextStopIndex = 0;
@@ -23,6 +23,15 @@ let distanceCovered = 0; // Track total distance covered
 let previousETAs = new Map(); // Store previous ETAs for comparison
 let etaChangeCount = new Map(); // Track number of significant changes
 let etaTransitions = new Map(); // Track all ETA changes for each stop
+let speedMultiplier = 1; // Speed multiplier for simulation
+let pointSlider;
+let pointValue;
+
+// CSV simulation variables
+let waypoints = [];
+let currentWaypointIndex = 0;
+let isCSVSimulation = false;
+let simulationTimeout = null;
 
 // Initialize the map
 function initMap() {
@@ -109,7 +118,68 @@ function initMap() {
 }
 
 // Call initMap when the page loads
-document.addEventListener("DOMContentLoaded", initMap);
+document.addEventListener("DOMContentLoaded", function () {
+  initMap();
+
+  // Set up speed multiplier control
+  const multiplierSelect = document.getElementById("speed-multiplier");
+  multiplierSelect.addEventListener("change", function () {
+    speedMultiplier = parseInt(this.value);
+
+    // Update interval if tracking is active
+    if (isTracking && trackingInterval) {
+      clearInterval(trackingInterval);
+      const baseInterval = isCSVSimulation ? 2000 : 100;
+      trackingInterval = setInterval(
+        updateVehiclePosition,
+        baseInterval / speedMultiplier
+      );
+    }
+  });
+
+  // Set up point slider
+  pointSlider = document.getElementById("point-slider");
+  pointValue = document.getElementById("point-value");
+
+  pointSlider.addEventListener("input", function () {
+    if (isCSVSimulation && waypoints.length > 0) {
+      const index = parseInt(this.value);
+      currentWaypointIndex = index;
+      const waypoint = waypoints[index];
+
+      // Update vehicle position
+      vehicleMarker.setLatLng([waypoint.lat, waypoint.lng]);
+
+      // Update speed display
+      currentSpeed = waypoint.speed * 3.6;
+      document.getElementById(
+        "current-speed"
+      ).textContent = `${currentSpeed.toFixed(1)} km/h`;
+
+      // Calculate heading if not at last point
+      if (index < waypoints.length - 1) {
+        const nextWaypoint = waypoints[index + 1];
+        const heading = calculateHeading(
+          waypoint.lng,
+          waypoint.lat,
+          nextWaypoint.lng,
+          nextWaypoint.lat
+        );
+        const markerElement = vehicleMarker.getElement();
+        if (markerElement) {
+          const marker = markerElement.querySelector(".vehicle-marker");
+          if (marker) {
+            marker.style.transform = `rotate(${heading}deg)`;
+          }
+        }
+      }
+
+      // Update APIs
+      updateLocationAPI(waypoint.lat, waypoint.lng);
+      getEtaUpdatesAPI(waypoint.lat, waypoint.lng);
+    }
+  });
+});
 
 // Process route data from GeoJSON
 function processRouteData(data) {
@@ -187,8 +257,12 @@ function startTracking() {
     // Initialize ride with API calls
     initializeRide()
       .then(() => {
-        // Update more frequently for smooth animation (every 100ms)
-        trackingInterval = setInterval(updateVehiclePosition, 100);
+        // Update interval based on simulation type and speed multiplier
+        const baseInterval = isCSVSimulation ? 2000 : 100;
+        trackingInterval = setInterval(
+          updateVehiclePosition,
+          baseInterval / speedMultiplier
+        );
       })
       .catch((error) => {
         console.error("Failed to initialize ride:", error);
@@ -404,10 +478,66 @@ function resetTracking() {
     .catch((error) => {
       console.error("Failed to end ride:", error);
     });
+
+  // Reset point slider
+  if (isCSVSimulation) {
+    currentWaypointIndex = 0;
+    pointSlider.value = 0;
+    pointValue.textContent = `0/${waypoints.length - 1}`;
+  }
 }
 
 // Update vehicle position
 function updateVehiclePosition() {
+  if (!isTracking) return;
+
+  if (isCSVSimulation) {
+    if (currentWaypointIndex >= waypoints.length) {
+      stopTracking();
+      return;
+    }
+
+    const waypoint = waypoints[currentWaypointIndex];
+
+    // Update vehicle position
+    vehicleMarker.setLatLng([waypoint.lat, waypoint.lng]);
+
+    // Update speed display (convert m/s to km/h)
+    currentSpeed = waypoint.speed * 3.6;
+    document.getElementById(
+      "current-speed"
+    ).textContent = `${currentSpeed.toFixed(1)} km/h`;
+
+    // Calculate heading for vehicle rotation
+    if (currentWaypointIndex < waypoints.length - 1) {
+      const nextWaypoint = waypoints[currentWaypointIndex + 1];
+      const heading = calculateHeading(
+        waypoint.lng,
+        waypoint.lat,
+        nextWaypoint.lng,
+        nextWaypoint.lat
+      );
+      const markerElement = vehicleMarker.getElement();
+      if (markerElement) {
+        const marker = markerElement.querySelector(".vehicle-marker");
+        if (marker) {
+          marker.style.transform = `rotate(${heading}deg)`;
+        }
+      }
+    }
+
+    // Update APIs
+    updateLocationAPI(waypoint.lat, waypoint.lng);
+    getEtaUpdatesAPI(waypoint.lat, waypoint.lng);
+
+    // Update point slider
+    pointSlider.value = currentWaypointIndex;
+    pointValue.textContent = `${currentWaypointIndex}/${waypoints.length - 1}`;
+
+    currentWaypointIndex++;
+    return;
+  }
+
   if (routeCoordinates.length === 0) return;
 
   // Speed: 120 km/h = 5.56 m/s
@@ -480,9 +610,9 @@ function updateVehiclePosition() {
   });
 
   // Update UI
-  document.getElementById("current-speed").textContent = `${Math.round(
-    currentSpeed
-  )} km/h`;
+  document.getElementById(
+    "current-speed"
+  ).textContent = `${currentSpeed.toFixed(1)} km/h`;
 
   // Call APIs every second
   if (Math.floor(Date.now() / 1000) !== lastUpdateTime) {
@@ -635,7 +765,7 @@ function getEtaUpdatesAPI(lat, lng) {
         );
         if (nextStop) {
           document.getElementById("current-speed").textContent = currentSpeed
-            ? `${currentSpeed} km/h`
+            ? `${currentSpeed.toFixed(1)} km/h`
             : "0 km/h";
           document.getElementById("next-stop").textContent =
             nextStop.stop.name || "N/A";
@@ -881,4 +1011,97 @@ function createStopItem(stopData, parentElement) {
       .setContent(popupContent)
       .openOn(map);
   });
+}
+
+// CSV upload and processing
+document.addEventListener("DOMContentLoaded", function () {
+  const csvUpload = document.getElementById("csv-upload");
+  const uploadStatus = document.getElementById("upload-status");
+
+  csvUpload.addEventListener("change", function (e) {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = function (e) {
+        try {
+          processCSV(e.target.result);
+          uploadStatus.textContent =
+            "CSV loaded successfully! Click Start Tracking to begin simulation.";
+          uploadStatus.className = "upload-status success";
+        } catch (error) {
+          uploadStatus.textContent = "Error processing CSV: " + error.message;
+          uploadStatus.className = "upload-status error";
+        }
+      };
+      reader.onerror = function () {
+        uploadStatus.textContent = "Error reading file";
+        uploadStatus.className = "upload-status error";
+      };
+      reader.readAsText(file);
+    }
+  });
+});
+
+function processCSV(csvContent) {
+  // Reset simulation state
+  waypoints = [];
+  currentWaypointIndex = 0;
+  isCSVSimulation = false;
+  if (simulationTimeout) {
+    clearTimeout(simulationTimeout);
+  }
+
+  // Parse CSV
+  const lines = csvContent.split("\n");
+  const headers = lines[0].split(",");
+
+  // Validate headers
+  const requiredHeaders = ["Driver ID", "Rid", "Ts", "Lat", "Lon", "Speed"];
+  const headerValid = requiredHeaders.every((h) => headers.includes(h));
+
+  if (!headerValid) {
+    throw new Error(
+      "Invalid CSV format. Required columns: " + requiredHeaders.join(", ")
+    );
+  }
+
+  // Parse waypoints
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (line) {
+      const values = line.split(",");
+      waypoints.push({
+        driverId: values[0],
+        rideId: values[1],
+        ts: new Date(values[2]), // Keep original timestamp
+        lat: parseFloat(values[3]),
+        lng: parseFloat(values[4]),
+        speed: parseFloat(values[5]), // Speed in m/s
+      });
+    }
+  }
+
+  if (waypoints.length === 0) {
+    throw new Error("No valid waypoints found in CSV");
+  }
+
+  // Sort waypoints by timestamp
+  waypoints.sort((a, b) => a.ts - b.ts);
+
+  // Update point slider range
+  pointSlider.min = 0;
+  pointSlider.max = waypoints.length - 1;
+  pointSlider.value = 0;
+  pointSlider.disabled = false;
+  pointValue.textContent = `0/${waypoints.length - 1}`;
+
+  // Set initial vehicle position
+  if (waypoints.length > 0) {
+    const firstWaypoint = waypoints[0];
+    vehicleMarker.setLatLng([firstWaypoint.lat, firstWaypoint.lng]);
+    currentRideId = firstWaypoint.rideId;
+    map.setView([firstWaypoint.lat, firstWaypoint.lng], 13);
+  }
+
+  isCSVSimulation = true;
 }

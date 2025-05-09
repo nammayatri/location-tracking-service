@@ -585,30 +585,31 @@ async fn process_driver_locations(
                     )
             });
 
+            let vehicle_route_location =
+                get_route_location_by_vehicle_number(&data.redis, &route_code, &bus_number).await?;
+
+            let prev_upcoming_stops_with_eta = vehicle_route_location
+                .as_ref()
+                .map(|vehicle_route_location| vehicle_route_location.upcoming_stops.to_owned())
+                .flatten();
+
             let upcoming_stops = if !is_blacklist_for_bus_depot {
                 route.as_ref().and_then(|route| {
-                    get_upcoming_stops_by_route_code(route, &latest_driver_location.pt).ok()
+                    get_upcoming_stops_by_route_code(
+                        prev_upcoming_stops_with_eta.to_owned(),
+                        route,
+                        &latest_driver_location.pt,
+                    )
+                    .ok()
                 })
             } else {
                 None
             };
 
             let upcoming_stops_with_eta = if !is_blacklist_for_bus_depot {
-                let vehicle_route_location =
-                    get_route_location_by_vehicle_number(&data.redis, &route_code, &bus_number)
-                        .await?;
-
                 let upcoming_stops_with_eta = if let Some(upcoming_stops) = upcoming_stops.as_ref()
                 {
-                    estimated_upcoming_stops_eta(
-                        vehicle_route_location
-                            .as_ref()
-                            .map(|vehicle_route_location| {
-                                vehicle_route_location.upcoming_stops.to_owned()
-                            })
-                            .flatten(),
-                        upcoming_stops,
-                    )
+                    estimated_upcoming_stops_eta(prev_upcoming_stops_with_eta, upcoming_stops)
                 } else {
                     None
                 };

@@ -29,6 +29,21 @@
         <span class="label">Next Stop:</span>
         <span id="next-stop">Loading...</span>
       </div>
+      <div class="info-item">
+        <span class="label">Speed Multiplier:</span>
+        <select id="speed-multiplier" class="speed-select">
+          <option value="1">1x</option>
+          <option value="2">2x</option>
+          <option value="5">5x</option>
+          <option value="10">10x</option>
+          <option value="20">20x</option>
+        </select>
+      </div>
+      <div class="info-item">
+        <span class="label">Point:</span>
+        <input type="range" id="point-slider" min="0" value="0" step="1" disabled>
+        <span id="point-value">0/0</span>
+      </div>
     </div>
   </header>
 
@@ -36,6 +51,16 @@
     <div class="map-container">
       <div id="map"></div>
       <div class="controls">
+        <div class="csv-upload-container">
+          <div class="upload-box">
+            <input type="file" id="csv-upload" accept=".csv" class="file-input" />
+            <label for="csv-upload" class="upload-label">
+              <span class="upload-text">Upload Waypoints CSV</span>
+              <small class="upload-format">Format: Driver ID, Rid, Ts, Lat, Lon, Speed (m/s)</small>
+            </label>
+          </div>
+          <div id="upload-status" class="upload-status"></div>
+        </div>
         <button id="start-btn" class="btn primary">Start Tracking</button>
         <button id="stop-btn" class="btn secondary" disabled>Stop Tracking</button>
         <button id="reset-btn" class="btn tertiary">Reset</button>

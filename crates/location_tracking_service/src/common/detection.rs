@@ -588,7 +588,7 @@ fn violation_check(
                 if let Some(RideInfo::Bus { .. }) = &context.ride_info {
                     if let Some(route) = context.route {
                         let upcoming_stops =
-                            get_upcoming_stops_by_route_code(route, &context.location);
+                            get_upcoming_stops_by_route_code(None, route, &context.location);
                         if let Ok(upcoming) = upcoming_stops {
                             let count = upcoming.len() as u64;
                             if count <= expected_count {
@@ -1381,7 +1381,7 @@ fn anti_violation_check(
                 if let Some(RideInfo::Bus { .. }) = &context.ride_info {
                     if let Some(route) = context.route {
                         let upcoming_stops =
-                            get_upcoming_stops_by_route_code(route, &context.location);
+                            get_upcoming_stops_by_route_code(None, route, &context.location);
                         if let Ok(upcoming) = upcoming_stops {
                             let count = upcoming.len() as u64;
                             if count <= expected_count {

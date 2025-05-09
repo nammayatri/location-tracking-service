@@ -39,8 +39,10 @@ header h1 {
 
 .info-item {
     display: flex;
-    gap: 8px;
     align-items: center;
+    gap: 8px;
+    padding: 4px 12px;
+    border-right: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .label {
@@ -73,14 +75,21 @@ main {
 .controls {
     position: absolute;
     bottom: 20px;
-    right: 20px;
+    left: 20px;
     display: flex;
+    flex-direction: column;
     gap: 10px;
     z-index: 1000;
+    background: rgba(255, 255, 255, 0.9);
+    padding: 15px;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    max-width: 300px;
 }
 
 .btn {
-    padding: 10px 20px;
+    width: 100%;
+    padding: 10px;
     border: none;
     border-radius: 6px;
     cursor: pointer;
@@ -88,7 +97,7 @@ main {
     font-size: 14px;
     transition: all 0.2s ease;
     color: white;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    text-align: center;
 }
 
 .btn:disabled {
@@ -379,4 +388,156 @@ footer {
     white-space: nowrap;
     z-index: 1000;
     margin-right: 8px;
+}
+
+/* CSV Upload Styles */
+.csv-upload-container {
+    background: white;
+    border-radius: 6px;
+    margin-bottom: 10px;
+    width: 100%;
+}
+
+.upload-box {
+    border: 2px dashed #cbd5e1;
+    border-radius: 6px;
+    padding: 12px;
+    text-align: center;
+    transition: all 0.3s ease;
+    background: white;
+}
+
+.upload-box:hover {
+    border-color: #2563eb;
+    background: #f0f9ff;
+}
+
+.file-input {
+    display: none;
+}
+
+.upload-label {
+    cursor: pointer;
+    display: block;
+}
+
+.upload-text {
+    display: block;
+    font-size: 0.9em;
+    font-weight: 600;
+    color: #1e293b;
+    margin-bottom: 4px;
+}
+
+.upload-format {
+    display: block;
+    color: #64748b;
+    font-size: 0.8em;
+}
+
+.upload-status {
+    margin-top: 8px;
+    padding: 8px;
+    border-radius: 4px;
+    display: none;
+    font-size: 0.85em;
+}
+
+.upload-status.success {
+    display: block;
+    background: #dcfce7;
+    color: #166534;
+    border: 1px solid #86efac;
+}
+
+.upload-status.error {
+    display: block;
+    background: #fee2e2;
+    color: #991b1b;
+    border: 1px solid #fca5a5;
+}
+
+#speed-multiplier {
+    width: 100px;
+    height: 6px;
+    -webkit-appearance: none;
+    background: #e2e8f0;
+    border-radius: 3px;
+    outline: none;
+    cursor: pointer;
+}
+
+#speed-multiplier::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 16px;
+    height: 16px;
+    background: #2563eb;
+    border-radius: 50%;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+#speed-multiplier::-webkit-slider-thumb:hover {
+    transform: scale(1.1);
+}
+
+#multiplier-value {
+    min-width: 30px;
+    color: #2563eb;
+    font-weight: 600;
+}
+
+.speed-select {
+    background: rgba(255, 255, 255, 0.1);
+    color: #ffffff;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 14px;
+    cursor: pointer;
+    outline: none;
+}
+
+.speed-select:hover {
+    background: rgba(255, 255, 255, 0.15);
+}
+
+.speed-select option {
+    background: #1e2938;
+    color: #ffffff;
+}
+
+#point-slider {
+    width: 150px;
+    height: 6px;
+    -webkit-appearance: none;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+    outline: none;
+    cursor: pointer;
+}
+
+#point-slider:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+#point-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 16px;
+    height: 16px;
+    background: #2563eb;
+    border-radius: 50%;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+#point-slider::-webkit-slider-thumb:hover {
+    transform: scale(1.1);
+}
+
+#point-value {
+    min-width: 50px;
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 14px;
 }
