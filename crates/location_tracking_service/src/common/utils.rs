@@ -478,7 +478,15 @@ pub fn estimated_upcoming_stops_eta(
     prev_upcoming_stops_with_eta: Option<Vec<UpcomingStop>>,
     upcoming_stops: &Vec<Stop>,
 ) -> Option<Vec<UpcomingStop>> {
-    if let Some(prev_upcoming_stops_with_eta) = prev_upcoming_stops_with_eta {
+    if let Some(prev_upcoming_stops_with_eta) =
+        prev_upcoming_stops_with_eta.and_then(|prev_upcoming_stops_with_eta| {
+            if prev_upcoming_stops_with_eta.len() >= upcoming_stops.len() {
+                Some(prev_upcoming_stops_with_eta)
+            } else {
+                None
+            }
+        })
+    {
         let mut upcoming_stops_with_eta = Vec::new();
         let mut prev_stop_delta = None;
         let mut eta_time = TimeStamp(Utc::now());
