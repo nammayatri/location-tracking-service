@@ -73,6 +73,208 @@ pub fn check(
     )
 }
 
+fn update_numeric_batch(
+    avg_record: &mut VecDeque<(f64, u32)>,
+    total_datapoints: &mut u64,
+    current_value: f64,
+    sample_size: u32,
+    batch_count: u32,
+    check_fn: impl Fn(&VecDeque<(f64, u32)>, f64) -> Option<(bool, f64)>,
+    threshold: f64,
+) -> (bool, Option<bool>, f64) {
+    let max_batch_size = sample_size.div_ceil(batch_count);
+    let _is_sample_complete = *total_datapoints == sample_size as u64;
+    let mut result_value = 0.0;
+
+    if let Some(prev_tuple) = avg_record.back() {
+        let prev_avg = prev_tuple.0;
+        let prev_batch_size = prev_tuple.1;
+
+        if *total_datapoints < sample_size as u64 {
+            if prev_batch_size < max_batch_size {
+                // Update current batch
+                let current_avg = (prev_avg * prev_batch_size as f64 + current_value)
+                    / (prev_batch_size as f64 + 1.0);
+                avg_record.pop_back();
+                avg_record.push_back((current_avg, prev_batch_size + 1));
+                *total_datapoints += 1;
+
+                if *total_datapoints == sample_size as u64 {
+                    // Check condition when sample is complete
+                    if let Some((violation, value)) = check_fn(avg_record, threshold) {
+                        result_value = value;
+                        return (true, Some(violation), result_value);
+                    }
+                }
+                (false, None, result_value)
+            } else {
+                // Start new batch
+                avg_record.push_back((current_value, 1));
+                *total_datapoints += 1;
+                (false, None, result_value)
+            }
+        } else {
+            // Remove oldest batch and start sliding window
+            *total_datapoints -= max_batch_size as u64;
+            avg_record.pop_front();
+
+            if let Some(prev_tuple) = avg_record.back() {
+                let prev_avg = prev_tuple.0;
+                let prev_batch_size = prev_tuple.1;
+
+                if prev_batch_size < max_batch_size {
+                    // Update current batch
+                    let current_avg = (prev_avg * prev_batch_size as f64 + current_value)
+                        / (prev_batch_size as f64 + 1.0);
+                    avg_record.pop_back();
+                    avg_record.push_back((current_avg, prev_batch_size + 1));
+                    *total_datapoints += 1;
+
+                    if *total_datapoints == sample_size as u64 {
+                        // Check condition when sample is complete
+                        if let Some((violation, value)) = check_fn(avg_record, threshold) {
+                            result_value = value;
+                            return (true, Some(violation), result_value);
+                        }
+                    }
+                    (false, None, result_value)
+                } else {
+                    // Start new batch
+                    avg_record.push_back((current_value, 1));
+                    *total_datapoints += 1;
+                    (false, None, result_value)
+                }
+            } else {
+                // Reset if queue is empty
+                *total_datapoints = 1;
+                *avg_record = VecDeque::from([(current_value, 1)]);
+                (false, None, result_value)
+            }
+        }
+    } else {
+        // Initialize with first value
+        *total_datapoints = 1;
+        *avg_record = VecDeque::from([(current_value, 1)]);
+        (false, None, result_value)
+    }
+}
+
+/// Updates batch data and calculates new average for location points
+#[allow(clippy::too_many_arguments)]
+fn update_location_batch(
+    avg_record: &mut VecDeque<(Point, u32)>,
+    total_datapoints: &mut u64,
+    current_location: &Point,
+    sample_size: u32,
+    batch_count: u32,
+    check_fn: impl Fn(&VecDeque<(Point, u32)>, f64, Option<&Route>) -> Option<(bool, f64)>,
+    threshold: f64,
+    route: Option<&Route>,
+) -> (bool, Option<bool>, f64) {
+    let max_batch_size = sample_size.div_ceil(batch_count);
+    let _is_sample_complete = *total_datapoints == sample_size as u64;
+    let mut result_value = 0.0;
+
+    if let Some(prev_tuple) = avg_record.back() {
+        let prev_avg_point = &prev_tuple.0;
+        let prev_batch_size = prev_tuple.1;
+
+        if *total_datapoints < sample_size as u64 {
+            if prev_batch_size < max_batch_size {
+                // Update current batch with new average point
+                let current_avg_point = Point {
+                    lat: Latitude(
+                        (prev_avg_point.lat.inner() * prev_batch_size as f64
+                            + current_location.lat.inner())
+                            / (prev_batch_size as f64 + 1.0),
+                    ),
+                    lon: Longitude(
+                        (prev_avg_point.lon.inner() * prev_batch_size as f64
+                            + current_location.lon.inner())
+                            / (prev_batch_size as f64 + 1.0),
+                    ),
+                };
+                avg_record.pop_back();
+                avg_record.push_back((current_avg_point, prev_batch_size + 1));
+                *total_datapoints += 1;
+
+                if *total_datapoints == sample_size as u64 {
+                    // Check condition when sample is complete
+                    if let Some((violation, distance)) = check_fn(avg_record, threshold, route) {
+                        result_value = distance;
+                        return (true, Some(violation), result_value);
+                    }
+                }
+                (false, None, result_value)
+            } else {
+                // Start new batch
+                avg_record.push_back((current_location.clone(), 1));
+                *total_datapoints += 1;
+                (false, None, result_value)
+            }
+        } else {
+            // Remove oldest batch and start sliding window
+            *total_datapoints -= max_batch_size as u64;
+            avg_record.pop_front();
+
+            if let Some(prev_tuple) = avg_record.back() {
+                let prev_avg_point = &prev_tuple.0;
+                let prev_batch_size = prev_tuple.1;
+
+                if prev_batch_size < max_batch_size {
+                    // Update current batch with new average point
+                    let current_avg_point = Point {
+                        lat: Latitude(
+                            (prev_avg_point.lat.inner() * prev_batch_size as f64
+                                + current_location.lat.inner())
+                                / (prev_batch_size as f64 + 1.0),
+                        ),
+                        lon: Longitude(
+                            (prev_avg_point.lon.inner() * prev_batch_size as f64
+                                + current_location.lon.inner())
+                                / (prev_batch_size as f64 + 1.0),
+                        ),
+                    };
+                    avg_record.pop_back();
+                    avg_record.push_back((current_avg_point, prev_batch_size + 1));
+                    *total_datapoints += 1;
+
+                    if *total_datapoints == sample_size as u64 {
+                        // Check condition when sample is complete
+                        if let Some((violation, distance)) = check_fn(avg_record, threshold, route)
+                        {
+                            result_value = distance;
+                            return (true, Some(violation), result_value);
+                        }
+                    }
+                    (false, None, result_value)
+                } else {
+                    // Start new batch
+                    avg_record.push_back((current_location.clone(), 1));
+                    *total_datapoints += 1;
+                    (false, None, result_value)
+                }
+            } else {
+                // Reset if queue is empty
+                *total_datapoints = 1;
+                *avg_record = VecDeque::from([(current_location.clone(), 1)]);
+                (false, None, result_value)
+            }
+        }
+    } else {
+        // Initialize with first location
+        *total_datapoints = 1;
+        *avg_record = VecDeque::from([(current_location.clone(), 1)]);
+        (false, None, result_value)
+    }
+}
+
+/// Calculate average value from a collection of batch averages
+fn calculate_overall_average(records: &VecDeque<(f64, u32)>) -> f64 {
+    records.iter().map(|c| c.0).sum::<f64>() / (records.len() as f64)
+}
+
+// Modified violation_check function using common helpers
 fn violation_check(
     config: &ViolationDetectionConfig,
     context: &DetectionContext,
@@ -86,137 +288,34 @@ fn violation_check(
         }) => {
             if let Some(ViolationDetectionState::Overspeeding(OverspeedingState {
                 mut total_datapoints,
-                avg_speed_record,
+                mut avg_speed_record,
             })) = state
             {
-                if let (Some(prev_tuple), Some(current_speed)) =
-                    (avg_speed_record.back(), context.speed)
-                {
-                    let max_batch_size = sample_size.div_ceil(batch_count);
-                    let prev_avg_speed = prev_tuple.0;
-                    let prev_batch_datapoints = prev_tuple.1;
-                    if total_datapoints < sample_size as u64 {
-                        if prev_batch_datapoints < max_batch_size {
-                            let current_avg_speed = (prev_avg_speed * prev_batch_datapoints as f64
-                                + current_speed.inner())
-                                / (prev_batch_datapoints as f64 + 1.0);
-                            let mut copy_list = avg_speed_record.clone();
-                            copy_list.pop_back();
-                            copy_list.push_back((current_avg_speed, prev_batch_datapoints + 1));
-                            total_datapoints += 1;
-                            if total_datapoints == sample_size as u64 {
-                                // get this by the average of the values fro the list in the state
-                                let current_average_speed =
-                                    copy_list.iter().map(|c| c.0).sum::<f64>()
-                                        / (copy_list.len() as f64);
-                                if current_average_speed > speed_limit {
-                                    return Some((
-                                        ViolationDetectionState::Overspeeding(OverspeedingState {
-                                            total_datapoints,
-                                            avg_speed_record: copy_list,
-                                        }),
-                                        Some(true),
-                                    ));
-                                } else {
-                                    return Some((
-                                        ViolationDetectionState::Overspeeding(OverspeedingState {
-                                            total_datapoints,
-                                            avg_speed_record: copy_list,
-                                        }),
-                                        Some(false),
-                                    ));
-                                }
-                            }
-                            return Some((
-                                ViolationDetectionState::Overspeeding(OverspeedingState {
-                                    total_datapoints,
-                                    avg_speed_record: copy_list,
-                                }),
-                                None,
-                            ));
-                        } else {
-                            let mut copy_list = avg_speed_record.clone();
-                            copy_list.push_back((current_speed.inner(), 1));
-                            total_datapoints += 1;
-                            return Some((
-                                ViolationDetectionState::Overspeeding(OverspeedingState {
-                                    total_datapoints,
-                                    avg_speed_record: copy_list,
-                                }),
-                                None,
-                            ));
-                        }
-                    } else {
-                        let mut copy_list = avg_speed_record;
-                        total_datapoints -= max_batch_size as u64;
-                        copy_list.pop_front();
-                        if let Some(prev_tuple) = copy_list.back() {
-                            let prev_average_speed = prev_tuple.0;
-                            let prev_batch_size = prev_tuple.1;
-                            if prev_batch_size < max_batch_size {
-                                let current_avg_speed = (prev_average_speed
-                                    * prev_batch_size as f64
-                                    + current_speed.inner())
-                                    / (prev_batch_size as f64 + 1.0);
-                                copy_list.pop_back();
-                                copy_list.push_back((current_avg_speed, prev_batch_datapoints + 1));
-                                total_datapoints += 1;
-                                if total_datapoints == sample_size as u64 {
-                                    // get this by the average of the values fro the list in the state
-                                    let current_average_speed =
-                                        copy_list.iter().map(|c| c.0).sum::<f64>()
-                                            / (copy_list.len() as f64);
-                                    if current_average_speed > speed_limit {
-                                        return Some((
-                                            ViolationDetectionState::Overspeeding(
-                                                OverspeedingState {
-                                                    total_datapoints,
-                                                    avg_speed_record: copy_list,
-                                                },
-                                            ),
-                                            Some(true),
-                                        ));
-                                    } else {
-                                        return Some((
-                                            ViolationDetectionState::Overspeeding(
-                                                OverspeedingState {
-                                                    total_datapoints,
-                                                    avg_speed_record: copy_list,
-                                                },
-                                            ),
-                                            Some(false),
-                                        ));
-                                    }
-                                }
-                                return Some((
-                                    ViolationDetectionState::Overspeeding(OverspeedingState {
-                                        total_datapoints,
-                                        avg_speed_record: copy_list,
-                                    }),
-                                    None,
-                                ));
-                            } else {
-                                copy_list.push_back((current_speed.inner(), 1));
-                                total_datapoints += 1;
-                                return Some((
-                                    ViolationDetectionState::Overspeeding(OverspeedingState {
-                                        total_datapoints,
-                                        avg_speed_record: copy_list,
-                                    }),
-                                    None,
-                                ));
-                            }
-                        } else {
-                            total_datapoints = 1;
-                            return Some((
-                                ViolationDetectionState::Overspeeding(OverspeedingState {
-                                    total_datapoints,
-                                    avg_speed_record: VecDeque::from([(current_speed.inner(), 1)]),
-                                }),
-                                None,
-                            ));
-                        }
-                    }
+                if let Some(current_speed) = context.speed {
+                    // Check function for overspeeding
+                    let check_speed =
+                        |records: &VecDeque<(f64, u32)>, limit: f64| -> Option<(bool, f64)> {
+                            let avg_speed = calculate_overall_average(records);
+                            Some((avg_speed > limit, avg_speed))
+                        };
+
+                    let (is_complete, violation, _) = update_numeric_batch(
+                        &mut avg_speed_record,
+                        &mut total_datapoints,
+                        current_speed.inner(),
+                        sample_size,
+                        batch_count,
+                        check_speed,
+                        speed_limit,
+                    );
+
+                    return Some((
+                        ViolationDetectionState::Overspeeding(OverspeedingState {
+                            total_datapoints,
+                            avg_speed_record,
+                        }),
+                        if is_complete { violation } else { None },
+                    ));
                 }
             } else if let Some(current_speed) = context.speed {
                 return Some((
@@ -229,178 +328,50 @@ fn violation_check(
             }
             None
         }
+
         DetectionConfig::RouteDeviationDetection(RouteDeviationConfig {
             batch_count,
             deviation_threshold,
             sample_size,
         }) => {
             if let Some(ViolationDetectionState::RouteDeviation(RouteDeviationState {
-                deviation_distance, // update this value down in the code below
+                deviation_distance,
                 mut total_datapoints,
-                avg_deviation_record,
+                mut avg_deviation_record,
             })) = state
             {
-                if let Some(prev_tuple) = avg_deviation_record.back() {
-                    let max_batch_size = sample_size.div_ceil(batch_count);
-                    let prev_avg_point = prev_tuple.0.clone();
-                    let prev_batch_datapoints = prev_tuple.1;
-                    if total_datapoints < sample_size as u64 {
-                        if prev_batch_datapoints < max_batch_size {
-                            let current_avg_point = Point {
-                                lat: Latitude(
-                                    (prev_avg_point.lat.inner() * prev_batch_datapoints as f64
-                                        + context.location.lat.inner())
-                                        / (prev_batch_datapoints as f64 + 1.0),
-                                ),
-                                lon: Longitude(
-                                    (prev_avg_point.lon.inner() * prev_batch_datapoints as f64
-                                        + context.location.lon.inner())
-                                        / (prev_batch_datapoints as f64 + 1.0),
-                                ),
-                            };
-                            let mut copy_list = avg_deviation_record.clone();
-                            copy_list.pop_back();
-                            copy_list.push_back((current_avg_point, prev_batch_datapoints + 1));
-                            total_datapoints += 1;
-                            if total_datapoints == sample_size as u64 {
-                                if let Some(RideInfo::Bus { .. }) = &context.ride_info {
-                                    if let Some((true, distance)) = check_deviated(
-                                        &copy_list,
-                                        deviation_threshold,
-                                        context.route,
-                                    ) {
-                                        return Some((
-                                            ViolationDetectionState::RouteDeviation(
-                                                RouteDeviationState {
-                                                    total_datapoints,
-                                                    avg_deviation_record: copy_list,
-                                                    deviation_distance: distance,
-                                                },
-                                            ),
-                                            Some(true),
-                                        ));
-                                    } else if let Some((false, distance)) = check_deviated(
-                                        &copy_list,
-                                        deviation_threshold,
-                                        context.route,
-                                    ) {
-                                        return Some((
-                                            ViolationDetectionState::RouteDeviation(
-                                                RouteDeviationState {
-                                                    total_datapoints,
-                                                    avg_deviation_record: copy_list,
-                                                    deviation_distance: distance,
-                                                },
-                                            ),
-                                            Some(false),
-                                        ));
-                                    }
-                                }
-                            }
-                            return Some((
-                                ViolationDetectionState::RouteDeviation(RouteDeviationState {
-                                    total_datapoints,
-                                    avg_deviation_record: copy_list,
-                                    deviation_distance,
-                                }),
-                                None,
-                            ));
+                // Check function for route deviation - properly wrap the call to check_deviated
+                let check_route_deviation =
+                    |records: &VecDeque<(Point, u32)>, threshold: f64, route: Option<&Route>| {
+                        check_deviated(records, threshold as u32, route)
+                    };
+
+                let (is_complete, violation, new_distance) = update_location_batch(
+                    &mut avg_deviation_record,
+                    &mut total_datapoints,
+                    &context.location,
+                    sample_size,
+                    batch_count,
+                    check_route_deviation,
+                    deviation_threshold.into(), // Convert u32 to f64
+                    context.route,
+                );
+
+                return Some((
+                    ViolationDetectionState::RouteDeviation(RouteDeviationState {
+                        total_datapoints,
+                        avg_deviation_record,
+                        deviation_distance: if is_complete {
+                            new_distance
                         } else {
-                            let mut copy_list = avg_deviation_record.clone();
-                            copy_list.push_back((context.location.clone(), 1));
-                            total_datapoints += 1;
-                            return Some((
-                                ViolationDetectionState::RouteDeviation(RouteDeviationState {
-                                    total_datapoints,
-                                    avg_deviation_record: copy_list,
-                                    deviation_distance,
-                                }),
-                                None,
-                            ));
-                        }
-                    } else {
-                        let mut copy_list = avg_deviation_record.clone();
-                        total_datapoints -= max_batch_size as u64;
-                        copy_list.pop_front();
-                        if let Some(prev_tuple) = copy_list.back() {
-                            let prev_average_point = prev_tuple.0.clone();
-                            let prev_batch_size = prev_tuple.1;
-                            if prev_batch_size < max_batch_size {
-                                let current_avg_point = Point {
-                                    lat: Latitude(
-                                        (prev_average_point.lat.inner() * prev_batch_size as f64
-                                            + context.location.lat.inner())
-                                            / (prev_batch_size as f64 + 1.0),
-                                    ),
-                                    lon: Longitude(
-                                        (prev_average_point.lon.inner() * prev_batch_size as f64
-                                            + context.location.lon.inner())
-                                            / (prev_batch_size as f64 + 1.0),
-                                    ),
-                                };
-                                let mut copy_list = avg_deviation_record.clone();
-                                copy_list.pop_back();
-                                copy_list.push_back((current_avg_point, prev_batch_size + 1));
-                                total_datapoints += 1;
-                                if total_datapoints == sample_size as u64 {
-                                    if let Some(RideInfo::Bus { .. }) = &context.ride_info {
-                                        if let Some((true, distance)) = check_deviated(
-                                            &copy_list,
-                                            deviation_threshold,
-                                            context.route,
-                                        ) {
-                                            return Some((
-                                                ViolationDetectionState::RouteDeviation(
-                                                    RouteDeviationState {
-                                                        total_datapoints,
-                                                        avg_deviation_record: copy_list,
-                                                        deviation_distance: distance,
-                                                    },
-                                                ),
-                                                Some(true),
-                                            ));
-                                        } else if let Some((false, distance)) = check_deviated(
-                                            &copy_list,
-                                            deviation_threshold,
-                                            context.route,
-                                        ) {
-                                            return Some((
-                                                ViolationDetectionState::RouteDeviation(
-                                                    RouteDeviationState {
-                                                        total_datapoints,
-                                                        avg_deviation_record: copy_list,
-                                                        deviation_distance: distance,
-                                                    },
-                                                ),
-                                                Some(false),
-                                            ));
-                                        }
-                                    }
-                                }
-                                return Some((
-                                    ViolationDetectionState::RouteDeviation(RouteDeviationState {
-                                        total_datapoints,
-                                        avg_deviation_record: copy_list,
-                                        deviation_distance,
-                                    }),
-                                    None,
-                                ));
-                            } else {
-                                copy_list.push_back((context.location.clone(), 1));
-                                total_datapoints += 1;
-                                return Some((
-                                    ViolationDetectionState::RouteDeviation(RouteDeviationState {
-                                        total_datapoints,
-                                        avg_deviation_record: copy_list,
-                                        deviation_distance,
-                                    }),
-                                    None,
-                                ));
-                            }
-                        }
-                    }
-                }
+                            deviation_distance
+                        },
+                    }),
+                    if is_complete { violation } else { None },
+                ));
             }
+
+            // Initialize state
             Some((
                 ViolationDetectionState::RouteDeviation(RouteDeviationState {
                     total_datapoints: 1,
@@ -410,6 +381,7 @@ fn violation_check(
                 None,
             ))
         }
+
         DetectionConfig::StoppedDetection(StoppedDetectionConfig {
             batch_count,
             max_eligible_speed: _,
@@ -419,157 +391,37 @@ fn violation_check(
             if let Some(ViolationDetectionState::StopDetection(StopDetectionState {
                 avg_speed: _,
                 mut total_datapoints,
-                avg_coord_mean,
+                mut avg_coord_mean,
             })) = state
             {
-                if let Some(prev_tuple) = avg_coord_mean.back() {
-                    let max_batch_size = sample_size.div_ceil(batch_count);
-                    let prev_avg_point = prev_tuple.0.clone();
-                    let prev_batch_datapoints = prev_tuple.1;
-                    if total_datapoints < sample_size as u64 {
-                        if prev_batch_datapoints < max_batch_size {
-                            let current_avg_point = Point {
-                                lat: Latitude(
-                                    (prev_avg_point.lat.inner() * prev_batch_datapoints as f64
-                                        + context.location.lat.inner())
-                                        / (prev_batch_datapoints as f64 + 1.0),
-                                ),
-                                lon: Longitude(
-                                    (prev_avg_point.lon.inner() * prev_batch_datapoints as f64
-                                        + context.location.lon.inner())
-                                        / (prev_batch_datapoints as f64 + 1.0),
-                                ),
-                            };
-                            let mut copy_list = avg_coord_mean.clone();
-                            copy_list.pop_back();
-                            copy_list.push_back((current_avg_point, prev_batch_datapoints + 1));
-                            total_datapoints += 1;
-                            if total_datapoints == sample_size as u64 {
-                                if let Some(true) = check_stopped(&copy_list, max_eligible_distance)
-                                {
-                                    return Some((
-                                        ViolationDetectionState::StopDetection(
-                                            StopDetectionState {
-                                                total_datapoints,
-                                                avg_speed: None,
-                                                avg_coord_mean: copy_list,
-                                            },
-                                        ),
-                                        Some(true),
-                                    ));
-                                } else if let Some(false) =
-                                    check_stopped(&copy_list, max_eligible_distance)
-                                {
-                                    return Some((
-                                        ViolationDetectionState::StopDetection(
-                                            StopDetectionState {
-                                                total_datapoints,
-                                                avg_speed: None,
-                                                avg_coord_mean: copy_list,
-                                            },
-                                        ),
-                                        Some(false),
-                                    ));
-                                }
-                            }
-                            return Some((
-                                ViolationDetectionState::StopDetection(StopDetectionState {
-                                    total_datapoints,
-                                    avg_speed: None,
-                                    avg_coord_mean: copy_list,
-                                }),
-                                None,
-                            ));
-                        } else {
-                            let mut copy_list = avg_coord_mean.clone();
-                            copy_list.push_back((context.location.clone(), 1));
-                            total_datapoints += 1;
-                            return Some((
-                                ViolationDetectionState::StopDetection(StopDetectionState {
-                                    total_datapoints,
-                                    avg_speed: None,
-                                    avg_coord_mean: copy_list,
-                                }),
-                                None,
-                            ));
-                        }
-                    } else {
-                        let mut copy_list = avg_coord_mean.clone();
-                        total_datapoints -= max_batch_size as u64;
-                        copy_list.pop_front();
-                        if let Some(prev_tuple) = copy_list.back() {
-                            let prev_average_point = prev_tuple.0.clone();
-                            let prev_batch_size = prev_tuple.1;
-                            if prev_batch_size < max_batch_size {
-                                let current_avg_point = Point {
-                                    lat: Latitude(
-                                        (prev_average_point.lat.inner() * prev_batch_size as f64
-                                            + context.location.lat.inner())
-                                            / (prev_batch_size as f64 + 1.0),
-                                    ),
-                                    lon: Longitude(
-                                        (prev_average_point.lon.inner() * prev_batch_size as f64
-                                            + context.location.lon.inner())
-                                            / (prev_batch_size as f64 + 1.0),
-                                    ),
-                                };
-                                let mut copy_list = avg_coord_mean.clone();
-                                copy_list.pop_back();
-                                copy_list.push_back((current_avg_point, prev_batch_size + 1));
-                                total_datapoints += 1;
-                                if total_datapoints == sample_size as u64 {
-                                    if let Some(true) =
-                                        check_stopped(&copy_list, max_eligible_distance)
-                                    {
-                                        return Some((
-                                            ViolationDetectionState::StopDetection(
-                                                StopDetectionState {
-                                                    total_datapoints,
-                                                    avg_speed: None,
-                                                    avg_coord_mean: copy_list,
-                                                },
-                                            ),
-                                            Some(true),
-                                        ));
-                                    } else if let Some(false) =
-                                        check_stopped(&copy_list, max_eligible_distance)
-                                    {
-                                        return Some((
-                                            ViolationDetectionState::StopDetection(
-                                                StopDetectionState {
-                                                    total_datapoints,
-                                                    avg_speed: None,
-                                                    avg_coord_mean: copy_list,
-                                                },
-                                            ),
-                                            Some(false),
-                                        ));
-                                    }
-                                }
-                                return Some((
-                                    ViolationDetectionState::StopDetection(StopDetectionState {
-                                        total_datapoints,
-                                        avg_speed: None,
-                                        avg_coord_mean: copy_list,
-                                    }),
-                                    None,
-                                ));
-                            } else {
-                                copy_list.push_back((context.location.clone(), 1));
-                                total_datapoints += 1;
-                                return Some((
-                                    ViolationDetectionState::StopDetection(StopDetectionState {
-                                        total_datapoints,
-                                        avg_speed: None,
-                                        avg_coord_mean: copy_list,
-                                    }),
-                                    None,
-                                ));
-                            }
-                        }
-                    }
-                }
+                // Check function for stopped - properly wrap the call to check_stopped
+                let check_stop =
+                    |records: &VecDeque<(Point, u32)>, threshold: f64, _: Option<&Route>| {
+                        check_stopped(records, threshold as u32).map(|is_stopped| (is_stopped, 0.0))
+                    };
+
+                let (is_complete, violation, _) = update_location_batch(
+                    &mut avg_coord_mean,
+                    &mut total_datapoints,
+                    &context.location,
+                    sample_size,
+                    batch_count,
+                    check_stop,
+                    max_eligible_distance.into(), // Convert u32 to f64
+                    None,
+                );
+
+                return Some((
+                    ViolationDetectionState::StopDetection(StopDetectionState {
+                        total_datapoints,
+                        avg_speed: None,
+                        avg_coord_mean,
+                    }),
+                    if is_complete { violation } else { None },
+                ));
             }
+
+            // Initialize state
             Some((
                 ViolationDetectionState::StopDetection(StopDetectionState {
                     total_datapoints: 1,
@@ -579,6 +431,67 @@ fn violation_check(
                 None,
             ))
         }
+
+        DetectionConfig::TripNotStartedDetection(TripNotStartedConfig {
+            deviation_threshold,
+            sample_size,
+            batch_count,
+        }) => {
+            let flag = context.ride_status == RideStatus::NEW;
+
+            if let Some(ViolationDetectionState::TripNotStarted(TripNotStartedState {
+                mut total_datapoints,
+                mut avg_coord_mean,
+            })) = state
+            {
+                // Only check if ride status is NEW
+                if !flag {
+                    return Some((
+                        ViolationDetectionState::TripNotStarted(TripNotStartedState {
+                            total_datapoints,
+                            avg_coord_mean,
+                        }),
+                        None,
+                    ));
+                }
+
+                // Check function for trip not started - properly wrap the call to check_trip_not_started
+                let check_trip =
+                    |records: &VecDeque<(Point, u32)>, threshold: f64, route: Option<&Route>| {
+                        check_trip_not_started(records, threshold as u32, route)
+                            .map(|is_not_started| (is_not_started, 0.0))
+                    };
+
+                let (is_complete, violation, _) = update_location_batch(
+                    &mut avg_coord_mean,
+                    &mut total_datapoints,
+                    &context.location,
+                    sample_size,
+                    batch_count,
+                    check_trip,
+                    deviation_threshold.into(), // Convert u32 to f64
+                    context.route,
+                );
+
+                return Some((
+                    ViolationDetectionState::TripNotStarted(TripNotStartedState {
+                        total_datapoints,
+                        avg_coord_mean,
+                    }),
+                    if is_complete { violation } else { None },
+                ));
+            }
+
+            // Initialize state
+            Some((
+                ViolationDetectionState::TripNotStarted(TripNotStartedState {
+                    total_datapoints: 1,
+                    avg_coord_mean: VecDeque::from([(context.location.clone(), 1)]),
+                }),
+                None,
+            ))
+        }
+
         DetectionConfig::OppositeDirectionDetection(OppositeDirectionConfig {}) => {
             if let Some(ViolationDetectionState::OppositeDirection(OppositeDirectionState {
                 total_datapoints,
@@ -623,6 +536,8 @@ fn violation_check(
                     }
                 }
             }
+
+            // Initialize state
             Some((
                 ViolationDetectionState::OppositeDirection(OppositeDirectionState {
                     total_datapoints: 0,
@@ -631,175 +546,8 @@ fn violation_check(
                 None,
             ))
         }
-        DetectionConfig::TripNotStartedDetection(TripNotStartedConfig {
-            deviation_threshold,
-            sample_size,
-            batch_count,
-        }) => {
-            if let Some(ViolationDetectionState::TripNotStarted(TripNotStartedState {
-                mut total_datapoints,
-                avg_coord_mean,
-            })) = state
-            {
-                let max_batch_size = sample_size.div_ceil(batch_count);
-                let flag = context.ride_status == RideStatus::NEW;
-
-                if let Some(prev_tuple) = avg_coord_mean.back() {
-                    let prev_avg_point = prev_tuple.0.clone();
-                    let prev_batch_datapoints = prev_tuple.1;
-
-                    if total_datapoints < sample_size as u64 {
-                        if prev_batch_datapoints < max_batch_size {
-                            let current_avg_point = Point {
-                                lat: Latitude(
-                                    (prev_avg_point.lat.inner() * prev_batch_datapoints as f64
-                                        + context.location.lat.inner())
-                                        / (prev_batch_datapoints as f64 + 1.0),
-                                ),
-                                lon: Longitude(
-                                    (prev_avg_point.lon.inner() * prev_batch_datapoints as f64
-                                        + context.location.lon.inner())
-                                        / (prev_batch_datapoints as f64 + 1.0),
-                                ),
-                            };
-                            let mut copy_list = avg_coord_mean.clone();
-                            copy_list.pop_back();
-                            copy_list.push_back((current_avg_point, prev_batch_datapoints + 1));
-                            total_datapoints += 1;
-
-                            if total_datapoints == sample_size as u64 && flag {
-                                if let Some(RideInfo::Bus { .. }) = &context.ride_info {
-                                    if let Some(true) = check_trip_not_started(
-                                        &copy_list,
-                                        deviation_threshold,
-                                        context.route,
-                                    ) {
-                                        return Some((
-                                            ViolationDetectionState::TripNotStarted(
-                                                TripNotStartedState {
-                                                    total_datapoints,
-                                                    avg_coord_mean: copy_list,
-                                                },
-                                            ),
-                                            Some(true),
-                                        ));
-                                    } else if let Some(false) = check_trip_not_started(
-                                        &copy_list,
-                                        deviation_threshold,
-                                        context.route,
-                                    ) {
-                                        return Some((
-                                            ViolationDetectionState::TripNotStarted(
-                                                TripNotStartedState {
-                                                    total_datapoints,
-                                                    avg_coord_mean: copy_list,
-                                                },
-                                            ),
-                                            Some(false),
-                                        ));
-                                    }
-                                }
-                            }
-                            return Some((
-                                ViolationDetectionState::TripNotStarted(TripNotStartedState {
-                                    total_datapoints,
-                                    avg_coord_mean: copy_list,
-                                }),
-                                None,
-                            ));
-                        } else {
-                            let mut copy_list = avg_coord_mean.clone();
-                            copy_list.push_back((context.location.clone(), 1));
-                            total_datapoints += 1;
-                            return Some((
-                                ViolationDetectionState::TripNotStarted(TripNotStartedState {
-                                    total_datapoints,
-                                    avg_coord_mean: copy_list,
-                                }),
-                                None,
-                            ));
-                        }
-                    } else {
-                        let mut copy_list = avg_coord_mean.clone();
-                        total_datapoints -= max_batch_size as u64;
-                        copy_list.pop_front();
-                        if let Some(prev_tuple) = copy_list.back() {
-                            let prev_average_point = prev_tuple.0.clone();
-                            let prev_batch_size = prev_tuple.1;
-                            if prev_batch_size < max_batch_size {
-                                let current_avg_point = Point {
-                                    lat: Latitude(
-                                        (prev_average_point.lat.inner() * prev_batch_size as f64
-                                            + context.location.lat.inner())
-                                            / (prev_batch_size as f64 + 1.0),
-                                    ),
-                                    lon: Longitude(
-                                        (prev_average_point.lon.inner() * prev_batch_size as f64
-                                            + context.location.lon.inner())
-                                            / (prev_batch_size as f64 + 1.0),
-                                    ),
-                                };
-                                let mut copy_list = avg_coord_mean.clone();
-                                copy_list.pop_back();
-                                copy_list.push_back((current_avg_point, prev_batch_size + 1));
-                                total_datapoints += 1;
-
-                                if total_datapoints == sample_size as u64 && flag {
-                                    if let Some(RideInfo::Bus { .. }) = &context.ride_info {
-                                        if let Some(true) = check_trip_not_started(
-                                            &copy_list,
-                                            deviation_threshold,
-                                            context.route,
-                                        ) {
-                                            return Some((
-                                                ViolationDetectionState::TripNotStarted(
-                                                    TripNotStartedState {
-                                                        total_datapoints,
-                                                        avg_coord_mean: copy_list,
-                                                    },
-                                                ),
-                                                Some(true),
-                                            ));
-                                        } else if let Some(false) = check_trip_not_started(
-                                            &copy_list,
-                                            deviation_threshold,
-                                            context.route,
-                                        ) {
-                                            return Some((
-                                                ViolationDetectionState::TripNotStarted(
-                                                    TripNotStartedState {
-                                                        total_datapoints,
-                                                        avg_coord_mean: copy_list,
-                                                    },
-                                                ),
-                                                Some(false),
-                                            ));
-                                        }
-                                    }
-                                }
-                                return Some((
-                                    ViolationDetectionState::TripNotStarted(TripNotStartedState {
-                                        total_datapoints,
-                                        avg_coord_mean: copy_list,
-                                    }),
-                                    None,
-                                ));
-                            }
-                        }
-                    }
-                }
-            }
-            Some((
-                ViolationDetectionState::TripNotStarted(TripNotStartedState {
-                    total_datapoints: 1,
-                    avg_coord_mean: VecDeque::from([(context.location.clone(), 1)]),
-                }),
-                None,
-            ))
-        }
     }
 }
-
 /// Checks if a vehicle has stopped by comparing the distance between the first and last point
 /// in the provided list of coordinates. If the distance is less than max_eligible_distance,
 /// the vehicle is considered to have stopped.
