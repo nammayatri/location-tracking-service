@@ -604,8 +604,7 @@ pub struct TripNotStartedConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ViolationDetectionConfig {
-    pub enabled_on_pick_up: bool,
-    pub enabled_on_ride: bool,
+    pub enabled: bool,
     pub detection_config: DetectionConfig,
 }
 

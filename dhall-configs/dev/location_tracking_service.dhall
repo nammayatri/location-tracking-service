@@ -136,66 +136,54 @@ let DetectionConfigType =
       | TripNotStartedDetection : tripNotStartedDetectionConfigT >
 let detection_violation_cab_config = {=}
   with Stopped = {
-    enabled_on_pick_up = False,
-    enabled_on_ride = False,
+    enabled = False,
     detection_config = DetectionConfigType.StoppedDetection stoppedDetectionConfig
   }
 let detection_violation_bus_config = {=}
   with Stopped = {
-    enabled_on_pick_up = True,
-    enabled_on_ride = True,
+    enabled = True,
     detection_config = DetectionConfigType.StoppedDetection stoppedDetectionConfig
   }
   with RouteDeviation = {
-    enabled_on_pick_up = True,
-    enabled_on_ride = True,
+    enabled = True,
     detection_config = DetectionConfigType.RouteDeviationDetection routeDeviationDetectionConfig
   }
   with Overspeeding = {
-    enabled_on_pick_up = True,
-    enabled_on_ride = True,
+    enabled = True,
     detection_config = DetectionConfigType.OverspeedingDetection overspeedingDetectionConfig
   }
   with OppositeDirection = {
-    enabled_on_pick_up = True,
-    enabled_on_ride = True,
+    enabled = True,
     detection_config = DetectionConfigType.OppositeDirectionDetection oppositeDirectionDetectionConfig
   }
   with TripNotStarted = {
-    enabled_on_pick_up = True,
-    enabled_on_ride = True,
+    enabled = False,
     detection_config = DetectionConfigType.TripNotStartedDetection tripNotStartedDetectionConfig
   }
 let detection_anti_violation_cab_config = {=}
   with Stopped = {
-    enabled_on_pick_up = False,
-    enabled_on_ride = False,
+    enabled = False,
     detection_config = DetectionConfigType.StoppedDetection stoppedAntiDetectionConfig
   }
 let detection_anti_violation_bus_config = {=}
   with Stopped = {
-    enabled_on_pick_up = True,
-    enabled_on_ride = True,
+    enabled = True,
     detection_config = DetectionConfigType.StoppedDetection stoppedAntiDetectionConfig
   }
   with RouteDeviation = {
-    enabled_on_pick_up = True,
-    enabled_on_ride = True,
+    enabled = True,
     detection_config = DetectionConfigType.RouteDeviationDetection routeDeviationAntiDetectionConfig
   }
   with Overspeeding = {
-    enabled_on_pick_up = True,
-    enabled_on_ride = True,
+    enabled = True,
     detection_config = DetectionConfigType.OverspeedingDetection overspeedingAntiDetectionConfig
   }
   with OppositeDirection = {
-    enabled_on_pick_up = True,
-    enabled_on_ride = True,
+   enabled = True,
     detection_config = DetectionConfigType.OppositeDirectionDetection oppositeDirectionAntiDetectionConfig
   }
   with TripNotStarted = {
-    enabled_on_pick_up = True,
-    enabled_on_ride = True,
+    enabled = False,
     detection_config = DetectionConfigType.TripNotStartedDetection tripNotStartedAntiDetectionConfig
   }
 let detection_violation_config = {=}

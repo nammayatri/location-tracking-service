@@ -418,8 +418,12 @@ async fn process_driver_locations(
                             violation_trigger_flag_map
                                 .insert(detection_type.clone(), violation_trigger_flag);
 
-                            if let Some(violation_detection_request) = violation_detection_req {
-                                violation_detection_requests.push(violation_detection_request)
+                            if detection_violation_config.enabled
+                                && detection_anti_violation_config.enabled
+                            {
+                                if let Some(violation_detection_request) = violation_detection_req {
+                                    violation_detection_requests.push(violation_detection_request)
+                                }
                             }
                         }
                     }

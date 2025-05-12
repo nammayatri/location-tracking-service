@@ -15,8 +15,7 @@ use crate::{
     common::utils::{distance_between_in_meters, get_upcoming_stops_by_route_code},
     outbound::types::{
         DetectionData, OppositeDirectionDetectionData, OverSpeedingDetectionData,
-        RouteDeviationDetectionData, StoppedDetectionData, TripNotStartedDetectionData,
-        ViolationDetectionReq,
+        RouteDeviationDetectionData, StoppedDetectionData, ViolationDetectionReq,
     },
 };
 
@@ -1488,18 +1487,6 @@ fn get_triggered_state_req(
                     }),
                 })
             }
-            Some(ViolationDetectionState::TripNotStarted(TripNotStartedState { .. })) => {
-                Some(ViolationDetectionReq {
-                    ride_id: context.ride_id,
-                    driver_id: context.driver_id,
-                    is_violated: true,
-                    detection_data: DetectionData::TripNotStartedDetection(
-                        TripNotStartedDetectionData {
-                            location: context.location,
-                        },
-                    ),
-                })
-            }
             Some(ViolationDetectionState::OppositeDirection(OppositeDirectionState { .. })) => {
                 Some(ViolationDetectionReq {
                     ride_id: context.ride_id,
@@ -1630,6 +1617,39 @@ fn check_trip_not_started(
             .map(|w| w.coordinate.clone())
             .collect::<Vec<Point>>();
 
+        let mut previous_distance = 1e6_f64;
+        let mut index_projected = -1;
+        for (point, _) in coord_list.iter() {
+            if let Some(projected_point) = find_closest_point_on_route(point, points.clone()) {
+                let waypoint_info = if projected_point.projection_point_to_line_end_distance
+                    > projected_point.projection_point_to_line_start_distance
+                {
+                    route.waypoints[projected_point.segment_index as usize].clone()
+                } else {
+                    route.waypoints[projected_point.segment_index as usize + 1].clone()
+                };
+                let current_distance = waypoint_info
+                    .stop
+                    .distance_to_upcoming_intermediate_stop
+                    .inner()
+                    .into();
+                if index_projected != -1 {
+                    if index_projected != waypoint_info.stop.stop_idx as i32 {
+                        previous_distance = current_distance;
+                        index_projected = waypoint_info.stop.stop_idx as i32;
+                    } else {
+                        if current_distance > previous_distance {
+                            return Some(false);
+                        }
+                        previous_distance = current_distance;
+                        index_projected = waypoint_info.stop.stop_idx as i32;
+                    }
+                } else {
+                    previous_distance = current_distance;
+                    index_projected = waypoint_info.stop.stop_idx as i32;
+                }
+            }
+        }
         // Check each point's distance from the route
         for (point, _) in coord_list.iter() {
             let projected_point = find_closest_point_on_route(point, points.clone());
