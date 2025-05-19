@@ -42,6 +42,7 @@ pub async fn authenticate_dobpp(
             ("api-key", auth_api_key),
         ],
         None,
+        None,
         Box::new(|resp| {
             if resp.status() == StatusCode::BAD_REQUEST {
                 AppError::DriverAppAuthFailed
@@ -85,6 +86,7 @@ pub async fn bulk_location_update_dobpp(
             driver_id,
             loc: on_ride_driver_locations.clone(),
         }),
+        None,
     )
     .await
     .map_err(|e| e.into())
@@ -101,6 +103,7 @@ pub async fn trigger_fcm_dobpp(
         trigger_fcm_callback_url,
         vec![("content-type", "application/json")],
         Some(TriggerFcmReq { ride_id, driver_id }),
+        None,
     )
     .await
     .map_err(|e| e.into())
@@ -122,6 +125,7 @@ pub async fn trigger_fcm_bap(
             driver_id,
             ride_notification_status,
         }),
+        None,
     )
     .await
     .map_err(|e| e.into())
@@ -143,6 +147,7 @@ pub async fn trigger_stop_detection_event(
             ride_id,
             driver_id,
         }),
+        None,
     )
     .await
     .map_err(|e| e.into())
@@ -166,6 +171,7 @@ pub async fn driver_reached_destination(
             driver_id,
             vehicle_variant: vehicle_type,
         }),
+        None,
     )
     .await
     .map_err(|e| e.into())
@@ -189,6 +195,7 @@ pub async fn driver_source_departed(
             driver_id,
             vehicle_variant: vehicle_type,
         }),
+        None,
     )
     .await
     .map_err(|e| e.into())
@@ -257,6 +264,7 @@ pub async fn trigger_liveactivity(
                 alert: HashMap::new(),
             },
         }),
+        None,
     )
     .await
     .map_err::<AppError, _>(|e| e.into())?;
@@ -274,6 +282,7 @@ pub async fn trigger_detection_alert(
         alert_url,
         vec![("content-type", "application/json")],
         Some(unified_alert_req),
+        None,
     )
     .await
     .map_err(|e| e.into())
@@ -348,6 +357,7 @@ pub async fn compute_routes(
             ("X-Goog-FieldMask", "routes.legs.*,routes.distanceMeters,routes.duration,routes.viewport.*,routes.polyline.*,routes.routeLabels.*"),
         ],
         Some(request),
+        None,
     )
     .await
     .map_err(|e| e.into())
@@ -394,6 +404,7 @@ pub async fn get_distance_matrix(
         &url,
         vec![("content-type", "application/json")],
         None,
+        Some("osrm-table"),
     )
     .await
     .map_err(|e| e.into())

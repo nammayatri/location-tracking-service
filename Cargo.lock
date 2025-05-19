@@ -2649,7 +2649,7 @@ dependencies = [
 [[package]]
 name = "macros"
 version = "0.1.0"
-source = "git+https://github.com/nammayatri/shared-kernel-rs?rev=809fe45#809fe45e2411bce597d0728a30064e0c0f45ee14"
+source = "git+https://github.com/nammayatri/shared-kernel-rs?rev=0197a77#0197a7744271c49f578c143470a625b73108b73c"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3788,7 +3788,7 @@ dependencies = [
 [[package]]
 name = "shared"
 version = "0.1.0"
-source = "git+https://github.com/nammayatri/shared-kernel-rs?rev=809fe45#809fe45e2411bce597d0728a30064e0c0f45ee14"
+source = "git+https://github.com/nammayatri/shared-kernel-rs?rev=0197a77#0197a7744271c49f578c143470a625b73108b73c"
 dependencies = [
  "actix-web",
  "actix-web-prom",
