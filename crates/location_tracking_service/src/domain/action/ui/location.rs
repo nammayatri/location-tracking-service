@@ -505,6 +505,7 @@ async fn process_driver_locations(
                         > pickup_distance
                     {
                         if pickup_distance <= data.pickup_notification_threshold
+                            && RideNotificationStatus::DriverReached > ride_notification_status
                             && get_distance_matrix(
                                 &[pickup_location.to_owned()],
                                 &[latest_driver_location.pt.to_owned()],
@@ -522,7 +523,6 @@ async fn process_driver_locations(
                                     .unwrap_or(true)
                             })
                             .unwrap_or(true)
-                            && RideNotificationStatus::DriverReached > ride_notification_status
                         {
                             return (
                                 Some(RideNotificationStatus::DriverReached),
