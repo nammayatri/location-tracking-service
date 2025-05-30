@@ -82,6 +82,7 @@ pub async fn kafka_stream_updates(
             on_ride: ride_status != DriverRideStatus::IDLE,
             active: true,
             mode: driver_mode.to_owned(),
+            bear: loc.bear,
             vehicle_variant: vehicle_type.to_owned(),
             is_stop_detected,
             stop_lat,
