@@ -638,3 +638,27 @@ pub enum DetectionStatus {
     Violated,
     AntiViolated,
 }
+
+#[derive(
+    Serialize,
+    Deserialize,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Clone,
+    Copy,
+    EnumIter,
+    EnumString,
+    Display,
+    Hash,
+)]
+pub enum SafetyAlertStatus {
+    #[strum(serialize = "RIDE_STOPPAGE")]
+    #[serde(rename = "RIDE_STOPPAGE")]
+    RideStoppage = 0,
+    #[strum(serialize = "RIDE_STOPPAGE_FOR_DRIVER")]
+    #[serde(rename = "RIDE_STOPPAGE_FOR_DRIVER")]
+    RideStoppageForDriver = 1,
+}
