@@ -56,6 +56,15 @@ pub struct StopDetectionReq {
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
+pub struct StopDetectionReqBap {
+    pub location: Point,
+    pub ride_id: RideId,
+    pub driver_id: DriverId,
+    pub safety_alert_status: SafetyAlertStatus,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
 pub struct DriverReachedDestinationReq {
     pub location: Point,
     pub ride_id: RideId,
