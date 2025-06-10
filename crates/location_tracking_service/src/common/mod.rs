@@ -7,6 +7,7 @@
 */
 
 pub mod detection;
+pub mod flow;
 pub mod geo_polygon;
 pub mod heap_size;
 pub mod kafka;
