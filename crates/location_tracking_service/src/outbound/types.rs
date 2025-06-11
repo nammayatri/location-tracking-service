@@ -136,6 +136,7 @@ pub enum DetectionData {
     OverSpeedingDetection(OverSpeedingDetectionData),
     TripNotStartedDetection(TripNotStartedDetectionData),
     OppositeDirectionDetection(OppositeDirectionDetectionData),
+    SafetyCheckDetection(SafetyCheckDetectionData),
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -214,4 +215,10 @@ pub struct OsrmWaypoint {
     pub distance: f64,
     pub name: String,
     pub location: Vec<f64>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct SafetyCheckDetectionData {
+    pub location: Point,
 }

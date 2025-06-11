@@ -9,6 +9,8 @@ use super::types::*;
 use crate::{environment::AppConfig, tools::error::AppError};
 use chrono::{DateTime, Utc};
 use geo::{point, Intersects};
+use reqwest::Url;
+use serde::{Serialize, Serializer};
 use std::{f64::consts::PI, time::Duration};
 
 /// Retrieves the name of the city based on latitude and longitude coordinates.
@@ -589,4 +591,11 @@ pub fn read_dhall_config(config_path: &str) -> Result<AppConfig, String> {
         Ok(config) => Ok(config),
         Err(e) => Err(format!("Error reading config: {}", e)),
     }
+}
+
+pub fn serialize_url<S>(url: &Url, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    url.as_str().serialize(serializer)
 }

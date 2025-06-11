@@ -66,12 +66,10 @@ pub struct AppConfig {
     pub trigger_fcm_callback_url: String,
     pub trigger_fcm_callback_url_bap: String,
     pub apns_url: String,
-    #[serde(deserialize_with = "deserialize_url")]
-    pub detection_callback_url: Url,
     pub detection_violation_config:
-        HashMap<VehicleType, HashMap<DetectionType, ViolationDetectionConfig>>,
+        HashMap<VehicleType, HashMap<RideStatus, HashMap<DetectionType, ViolationDetectionConfig>>>,
     pub detection_anti_violation_config:
-        HashMap<VehicleType, HashMap<DetectionType, ViolationDetectionConfig>>,
+        HashMap<VehicleType, HashMap<RideStatus, HashMap<DetectionType, ViolationDetectionConfig>>>,
     #[serde(deserialize_with = "deserialize_url")]
     pub google_compute_route_url: Url,
     pub google_api_key: String,
@@ -117,7 +115,7 @@ pub struct StopDetectionConfig {
     pub enable_onride_stop_detection: bool,
 }
 
-fn deserialize_url<'de, D>(deserializer: D) -> Result<Url, D::Error>
+pub fn deserialize_url<'de, D>(deserializer: D) -> Result<Url, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
@@ -165,11 +163,10 @@ pub struct AppState {
     pub apns_url: Url,
     pub pickup_notification_threshold: f64,
     pub arriving_notification_threshold: f64,
-    pub detection_callback_url: Url,
     pub detection_violation_config:
-        HashMap<VehicleType, HashMap<DetectionType, ViolationDetectionConfig>>,
+        HashMap<VehicleType, HashMap<RideStatus, HashMap<DetectionType, ViolationDetectionConfig>>>,
     pub detection_anti_violation_config:
-        HashMap<VehicleType, HashMap<DetectionType, ViolationDetectionConfig>>,
+        HashMap<VehicleType, HashMap<RideStatus, HashMap<DetectionType, ViolationDetectionConfig>>>,
     pub routes: Arc<RwLock<FxHashMap<String, Route>>>,
     pub google_compute_route_url: Url,
     pub google_api_key: String,
@@ -278,6 +275,10 @@ impl AppState {
             .map(MerchantId)
             .collect::<Vec<MerchantId>>();
 
+        // Keep detection configs with RideStatus layer
+        let detection_violation_config = app_config.detection_violation_config;
+        let detection_anti_violation_config = app_config.detection_anti_violation_config;
+
         AppState {
             redis,
             drainer_delay: app_config.drainer_delay,
@@ -324,9 +325,8 @@ impl AppState {
             apns_url: Url::parse(app_config.apns_url.as_str()).expect("Failed to parse apns_url."),
             pickup_notification_threshold: app_config.pickup_notification_threshold,
             arriving_notification_threshold: app_config.arriving_notification_threshold,
-            detection_callback_url: app_config.detection_callback_url,
-            detection_violation_config: app_config.detection_violation_config,
-            detection_anti_violation_config: app_config.detection_anti_violation_config,
+            detection_violation_config,
+            detection_anti_violation_config,
             routes: Arc::new(RwLock::new(routes)),
             google_compute_route_url: app_config.google_compute_route_url,
             google_api_key: app_config.google_api_key,

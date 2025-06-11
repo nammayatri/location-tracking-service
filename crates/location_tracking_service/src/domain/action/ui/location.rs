@@ -317,7 +317,7 @@ async fn process_driver_locations(
         ViolationDetectionStateMap,
         ViolationDetectionStateMap,
         ViolationDetectionTriggerMap,
-        Vec<ViolationDetectionReq>,
+        Vec<(Url, ViolationDetectionReq)>,
     ) = {
         if let (Some(ride_status), Some(ride_id)) = (
             driver_location_details
@@ -378,9 +378,11 @@ async fn process_driver_locations(
                     ) = (
                         data.detection_violation_config
                             .get(&base_vehicle_type)
+                            .and_then(|ride_status_map| ride_status_map.get(&ride_status))
                             .and_then(|inner_map| inner_map.get(&detection_type)),
                         data.detection_anti_violation_config
                             .get(&base_vehicle_type)
+                            .and_then(|ride_status_map| ride_status_map.get(&ride_status))
                             .and_then(|inner_map| inner_map.get(&detection_type)),
                     ) {
                         // Skip detection if accuracy is poor
@@ -422,7 +424,12 @@ async fn process_driver_locations(
                                 && detection_anti_violation_config.enabled
                             {
                                 if let Some(violation_detection_request) = violation_detection_req {
-                                    violation_detection_requests.push(violation_detection_request)
+                                    violation_detection_requests.push((
+                                        detection_violation_config
+                                            .detection_callback_url
+                                            .to_owned(),
+                                        violation_detection_request,
+                                    ))
                                 }
                             }
                         }
@@ -954,11 +961,10 @@ async fn process_driver_locations(
                     _ => {}
                 }
 
-                for violations in violation_detection_requests {
-                    if let Err(err) =
-                        trigger_detection_alert(&data.detection_callback_url, violations)
-                            .await
-                            .map_err(|err| AppError::AlertRequestFailed(err.message()))
+                for (callback_url, violation) in violation_detection_requests {
+                    if let Err(err) = trigger_detection_alert(&callback_url, violation)
+                        .await
+                        .map_err(|err| AppError::AlertRequestFailed(err.message()))
                     {
                         warn!("Violation Alert could not be sent. {} ", err);
                     }
@@ -1004,6 +1010,15 @@ async fn process_driver_locations(
                         )
                         .await
                         .map_err(|err| AppError::DriverSendingFCMFailed(err.message()));
+                    }
+                }
+
+                for (callback_url, violation) in violation_detection_requests {
+                    if let Err(err) = trigger_detection_alert(&callback_url, violation)
+                        .await
+                        .map_err(|err| AppError::AlertRequestFailed(err.message()))
+                    {
+                        warn!("Violation Alert could not be sent. {} ", err);
                     }
                 }
             }

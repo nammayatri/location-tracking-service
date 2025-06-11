@@ -5,9 +5,12 @@
     or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more details. You should have received a copy of
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
+use crate::common::utils::serialize_url;
+use crate::environment::deserialize_url;
 use chrono::{DateTime, Utc};
 use fred::types::GeoValue;
 use geo::MultiPolygon;
+use reqwest::Url;
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::VecDeque;
@@ -527,6 +530,7 @@ pub enum DetectionType {
     Overspeeding,
     OppositeDirection,
     TripNotStarted,
+    SafetyCheck,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -536,6 +540,7 @@ pub enum ViolationDetectionState {
     Overspeeding(OverspeedingState),
     OppositeDirection(OppositeDirectionState),
     TripNotStarted(TripNotStartedState),
+    SafetyCheck(SafetyCheckState),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -568,6 +573,13 @@ pub struct OppositeDirectionState {
 pub struct TripNotStartedState {
     pub total_datapoints: u64,
     pub avg_coord_mean: VecDeque<(Point, u32)>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SafetyCheckState {
+    pub avg_speed: Option<VecDeque<(f64, u32)>>,
+    pub avg_coord_mean: VecDeque<(Point, u32)>,
+    pub total_datapoints: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -605,6 +617,8 @@ pub struct TripNotStartedConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ViolationDetectionConfig {
     pub enabled: bool,
+    #[serde(deserialize_with = "deserialize_url", serialize_with = "serialize_url")]
+    pub detection_callback_url: Url,
     pub detection_config: DetectionConfig,
 }
 
@@ -615,6 +629,15 @@ pub enum DetectionConfig {
     RouteDeviationDetection(RouteDeviationConfig),
     OppositeDirectionDetection(OppositeDirectionConfig),
     TripNotStartedDetection(TripNotStartedConfig),
+    SafetyCheckDetection(SafetyCheckConfig),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SafetyCheckConfig {
+    pub batch_count: u32,
+    pub sample_size: u32,
+    pub max_eligible_speed: Option<SpeedInMeterPerSecond>,
+    pub max_eligible_distance: u32,
 }
 
 #[derive(Debug, Clone)]

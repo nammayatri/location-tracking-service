@@ -123,72 +123,282 @@ let tripNotStartedAntiDetectionConfig = {
     sample_size = 60,
     batch_count = 6
   }
+let safetyCheckDetectionConfig = {
+  batch_count = 3,
+  sample_size = 15,
+  max_eligible_speed = Some 2,
+  max_eligible_distance = 25
+}
 let stoppedDetectionConfigT = { max_eligible_distance : Natural, max_eligible_speed : Optional Natural, batch_count : Natural, sample_size : Natural }
 let routeDeviationDetectionConfigT = { deviation_threshold : Natural, sample_size : Natural, batch_count : Natural}
 let overspeedingDetectionConfigT = { sample_size : Natural, speed_limit : Double, batch_count : Natural }
 let oppositeDirectionDetectionConfigT = { sample_size : Natural, batch_count : Natural }
 let tripNotStartedDetectionConfigT = { deviation_threshold : Natural, sample_size : Natural, batch_count : Natural }
+let safetyCheckDetectionConfigT = {max_eligible_distance : Natural, max_eligible_speed : Optional Natural, batch_count : Natural, sample_size : Natural }
 let DetectionConfigType =
       < StoppedDetection : stoppedDetectionConfigT
       | RouteDeviationDetection : routeDeviationDetectionConfigT
       | OverspeedingDetection : overspeedingDetectionConfigT
       | OppositeDirectionDetection : oppositeDirectionDetectionConfigT
-      | TripNotStartedDetection : tripNotStartedDetectionConfigT >
-let detection_violation_cab_config = {=}
+      | TripNotStartedDetection : tripNotStartedDetectionConfigT
+      | SafetyCheckDetection : safetyCheckDetectionConfigT >
+let detection_violation_cab_config_new = {=}
   with Stopped = {
     enabled = False,
-    detection_config = DetectionConfigType.StoppedDetection stoppedDetectionConfig
-  }
-let detection_violation_bus_config = {=}
-  with Stopped = {
-    enabled = True,
+    detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
     detection_config = DetectionConfigType.StoppedDetection stoppedDetectionConfig
   }
   with RouteDeviation = {
     enabled = True,
+    detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
     detection_config = DetectionConfigType.RouteDeviationDetection routeDeviationDetectionConfig
   }
   with Overspeeding = {
     enabled = True,
+    detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
     detection_config = DetectionConfigType.OverspeedingDetection overspeedingDetectionConfig
   }
   with OppositeDirection = {
     enabled = True,
+    detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
     detection_config = DetectionConfigType.OppositeDirectionDetection oppositeDirectionDetectionConfig
   }
   with TripNotStarted = {
     enabled = False,
+    detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
     detection_config = DetectionConfigType.TripNotStartedDetection tripNotStartedDetectionConfig
   }
-let detection_anti_violation_cab_config = {=}
+  with SafetyCheck = {
+    enabled = False,
+    detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
+    detection_config = DetectionConfigType.SafetyCheckDetection safetyCheckDetectionConfig
+  }
+
+let detection_violation_cab_config_inprogress = {=}
   with Stopped = {
     enabled = False,
-    detection_config = DetectionConfigType.StoppedDetection stoppedAntiDetectionConfig
+    detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
+    detection_config = DetectionConfigType.StoppedDetection stoppedDetectionConfig
   }
-let detection_anti_violation_bus_config = {=}
+  with RouteDeviation = {
+    enabled = True,
+    detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
+    detection_config = DetectionConfigType.RouteDeviationDetection routeDeviationDetectionConfig
+  }
+  with Overspeeding = {
+    enabled = True,
+    detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
+    detection_config = DetectionConfigType.OverspeedingDetection overspeedingDetectionConfig
+  }
+  with OppositeDirection = {
+    enabled = True,
+    detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
+    detection_config = DetectionConfigType.OppositeDirectionDetection oppositeDirectionDetectionConfig
+  }
+  with TripNotStarted = {
+    enabled = False,
+    detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
+    detection_config = DetectionConfigType.TripNotStartedDetection tripNotStartedDetectionConfig
+  }
+  with SafetyCheck = {
+    enabled = True,
+    detection_callback_url = "http://127.0.0.1:8013/internal/violationDetection",
+    detection_config = DetectionConfigType.SafetyCheckDetection safetyCheckDetectionConfig
+  }
+
+let detection_violation_bus_config_new = {=}
   with Stopped = {
     enabled = True,
+    detection_callback_url = "http://127.0.0.1:8013/internal/violationDetection",
+    detection_config = DetectionConfigType.StoppedDetection stoppedDetectionConfig
+  }
+  with RouteDeviation = {
+    enabled = True,
+    detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
+    detection_config = DetectionConfigType.RouteDeviationDetection routeDeviationDetectionConfig
+  }
+  with Overspeeding = {
+    enabled = True,
+    detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
+    detection_config = DetectionConfigType.OverspeedingDetection overspeedingDetectionConfig
+  }
+  with OppositeDirection = {
+    enabled = True,
+    detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
+    detection_config = DetectionConfigType.OppositeDirectionDetection oppositeDirectionDetectionConfig
+  }
+  with TripNotStarted = {
+    enabled = False,
+    detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
+    detection_config = DetectionConfigType.TripNotStartedDetection tripNotStartedDetectionConfig
+  }
+
+let detection_violation_bus_config_inprogress = {=}
+  with Stopped = {
+    enabled = True,
+    detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
+    detection_config = DetectionConfigType.StoppedDetection stoppedDetectionConfig
+  }
+  with RouteDeviation = {
+    enabled = True,
+    detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
+    detection_config = DetectionConfigType.RouteDeviationDetection routeDeviationDetectionConfig
+  }
+  with Overspeeding = {
+    enabled = True,
+    detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
+    detection_config = DetectionConfigType.OverspeedingDetection overspeedingDetectionConfig
+  }
+  with OppositeDirection = {
+    enabled = True,
+    detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
+    detection_config = DetectionConfigType.OppositeDirectionDetection oppositeDirectionDetectionConfig
+  }
+  with TripNotStarted = {
+    enabled = False,
+    detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
+    detection_config = DetectionConfigType.TripNotStartedDetection tripNotStartedDetectionConfig
+  }
+
+let detection_anti_violation_cab_config_new = {=}
+  with Stopped = {
+    enabled = False,
+    detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
     detection_config = DetectionConfigType.StoppedDetection stoppedAntiDetectionConfig
   }
   with RouteDeviation = {
     enabled = True,
+    detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
     detection_config = DetectionConfigType.RouteDeviationDetection routeDeviationAntiDetectionConfig
   }
   with Overspeeding = {
     enabled = True,
+    detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
     detection_config = DetectionConfigType.OverspeedingDetection overspeedingAntiDetectionConfig
   }
   with OppositeDirection = {
-   enabled = True,
+    enabled = True,
+    detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
     detection_config = DetectionConfigType.OppositeDirectionDetection oppositeDirectionAntiDetectionConfig
   }
   with TripNotStarted = {
     enabled = False,
+    detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
     detection_config = DetectionConfigType.TripNotStartedDetection tripNotStartedAntiDetectionConfig
   }
+  with SafetyCheck = {
+    enabled = False,
+    detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
+    detection_config = DetectionConfigType.SafetyCheckDetection safetyCheckDetectionConfig
+  }
+
+
+let detection_anti_violation_cab_config_inprogress = {=}
+  with Stopped = {
+    enabled = False,
+    detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
+    detection_config = DetectionConfigType.StoppedDetection stoppedAntiDetectionConfig
+  }
+  with RouteDeviation = {
+    enabled = True,
+    detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
+    detection_config = DetectionConfigType.RouteDeviationDetection routeDeviationAntiDetectionConfig
+  }
+  with Overspeeding = {
+    enabled = True,
+    detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
+    detection_config = DetectionConfigType.OverspeedingDetection overspeedingAntiDetectionConfig
+  }
+  with OppositeDirection = {
+    enabled = True,
+    detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
+    detection_config = DetectionConfigType.OppositeDirectionDetection oppositeDirectionAntiDetectionConfig
+  }
+  with TripNotStarted = {
+    enabled = False,
+    detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
+    detection_config = DetectionConfigType.TripNotStartedDetection tripNotStartedAntiDetectionConfig
+  }
+  with SafetyCheck = {
+    enabled = True,
+    detection_callback_url = "http://127.0.0.1:8013/internal/violationDetection",
+    detection_config = DetectionConfigType.SafetyCheckDetection safetyCheckDetectionConfig
+  }
+
+let detection_anti_violation_bus_config_new = {=}
+  with Stopped = {
+    enabled = True,
+    detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
+    detection_config = DetectionConfigType.StoppedDetection stoppedAntiDetectionConfig
+  }
+  with RouteDeviation = {
+    enabled = True,
+    detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
+    detection_config = DetectionConfigType.RouteDeviationDetection routeDeviationAntiDetectionConfig
+  }
+  with Overspeeding = {
+    enabled = True,
+    detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
+    detection_config = DetectionConfigType.OverspeedingDetection overspeedingAntiDetectionConfig
+  }
+  with OppositeDirection = {
+    enabled = True,
+    detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
+    detection_config = DetectionConfigType.OppositeDirectionDetection oppositeDirectionAntiDetectionConfig
+  }
+  with TripNotStarted = {
+    enabled = False,
+    detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
+    detection_config = DetectionConfigType.TripNotStartedDetection tripNotStartedAntiDetectionConfig
+  }
+
+let detection_anti_violation_bus_config_inprogress = {=}
+  with Stopped = {
+    enabled = True,
+    detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
+    detection_config = DetectionConfigType.StoppedDetection stoppedAntiDetectionConfig
+  }
+  with RouteDeviation = {
+    enabled = True,
+    detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
+    detection_config = DetectionConfigType.RouteDeviationDetection routeDeviationAntiDetectionConfig
+  }
+  with Overspeeding = {
+    enabled = True,
+    detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
+    detection_config = DetectionConfigType.OverspeedingDetection overspeedingAntiDetectionConfig
+  }
+  with OppositeDirection = {
+    enabled = True,
+    detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
+    detection_config = DetectionConfigType.OppositeDirectionDetection oppositeDirectionAntiDetectionConfig
+  }
+  with TripNotStarted = {
+    enabled = False,
+    detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
+    detection_config = DetectionConfigType.TripNotStartedDetection tripNotStartedAntiDetectionConfig
+  }
+
+let detection_violation_cab_config = {=}
+  with NEW = detection_violation_cab_config_new
+  with INPROGRESS = detection_violation_cab_config_inprogress
+
+let detection_violation_bus_config = {=}
+  with NEW = detection_violation_bus_config_new
+  with INPROGRESS = detection_violation_bus_config_inprogress
+
+let detection_anti_violation_cab_config = {=}
+  with NEW = detection_anti_violation_cab_config_new
+  with INPROGRESS = detection_anti_violation_cab_config_inprogress
+
+let detection_anti_violation_bus_config = {=}
+  with NEW = detection_anti_violation_bus_config_new
+  with INPROGRESS = detection_anti_violation_bus_config_inprogress
+
 let detection_violation_config = {=}
   with SEDAN = detection_violation_cab_config
   with BUS_AC = detection_violation_bus_config
+
 let detection_anti_violation_config = {=}
   with SEDAN = detection_anti_violation_cab_config
   with BUS_AC = detection_anti_violation_bus_config
