@@ -22,6 +22,7 @@ use crate::{
 };
 
 use super::utils::find_closest_point_on_route;
+use crate::outbound::types::RideStopReachedDetectionData;
 
 pub fn check(
     violation_config: &ViolationDetectionConfig,
@@ -657,7 +658,158 @@ fn violation_check(
             false,
             true,
         ),
+        DetectionConfig::RideStopReachedDetection(RideStopReachedConfig {
+            sample_size,
+            batch_count,
+            stop_reach_threshold,
+            min_stop_duration,
+        }) => handle_ride_stop_reached_check(
+            state,
+            context,
+            sample_size,
+            batch_count,
+            stop_reach_threshold,
+            min_stop_duration,
+            false,
+        ),
     }
+}
+/*
+Detects when a driver has reached a specific ride stop.
+This function works by:
+1. Collecting location data in batches over a sample_size period
+2. Calculating distance to the next stop in the route
+3. Triggering detection when driver is within stop_reach_threshold meters of the stop
+*/
+fn handle_ride_stop_reached_check(
+    state: Option<ViolationDetectionState>,
+    context: &DetectionContext,
+    sample_size: u32,
+    batch_count: u32,
+    stop_reach_threshold: u32,
+    min_stop_duration: u32,
+    is_anti_violation: bool,
+) -> Option<(ViolationDetectionState, Option<bool>)> {
+    let ride_stops = context.ride_stops?;
+
+    let _stop_duration = min_stop_duration;
+
+    if ride_stops.is_empty() {
+        return None;
+    }
+
+    let (current_stop_index, reached_stops, mut total_datapoints, mut avg_coord_mean) =
+        if let Some(ViolationDetectionState::RideStopReached(RideStopReachedState {
+            current_stop_index,
+            reached_stops,
+            total_datapoints,
+            avg_coord_mean,
+        })) = state
+        {
+            (
+                current_stop_index,
+                reached_stops,
+                total_datapoints,
+                avg_coord_mean,
+            )
+        } else {
+            (0, vec![], 0, VecDeque::new())
+        };
+
+    if current_stop_index >= ride_stops.len() {
+        return None;
+    }
+
+    let next_stop = &ride_stops[current_stop_index];
+    let distance_to_stop = distance_between_in_meters(&context.location, next_stop);
+
+    total_datapoints += 1;
+
+    if let Some(prev_tuple) = avg_coord_mean.back() {
+        let max_batch_size = sample_size.div_ceil(batch_count);
+        let prev_avg_point = prev_tuple.0.clone();
+        let prev_batch_datapoints = prev_tuple.1;
+
+        if prev_batch_datapoints < max_batch_size {
+            let current_avg_point = Point {
+                lat: Latitude(
+                    (prev_avg_point.lat.inner() * prev_batch_datapoints as f64
+                        + context.location.lat.inner())
+                        / (prev_batch_datapoints as f64 + 1.0),
+                ),
+                lon: Longitude(
+                    (prev_avg_point.lon.inner() * prev_batch_datapoints as f64
+                        + context.location.lon.inner())
+                        / (prev_batch_datapoints as f64 + 1.0),
+                ),
+            };
+            let mut copy_list = avg_coord_mean.clone();
+            copy_list.pop_back();
+            copy_list.push_back((current_avg_point, prev_batch_datapoints + 1));
+            avg_coord_mean = copy_list;
+        } else {
+            avg_coord_mean.push_back((context.location.clone(), 1));
+        }
+    } else {
+        avg_coord_mean.push_back((context.location.clone(), 1));
+    }
+
+    if total_datapoints >= sample_size as u64 {
+        let is_at_stop = distance_to_stop <= stop_reach_threshold as f64;
+
+        let should_trigger = if is_anti_violation {
+            !is_at_stop
+        } else {
+            is_at_stop
+        };
+
+        if should_trigger {
+            if !is_anti_violation && is_at_stop {
+                let mut new_reached_stops = reached_stops.clone();
+                new_reached_stops.push(format!("stop_{}", current_stop_index));
+
+                return Some((
+                    ViolationDetectionState::RideStopReached(RideStopReachedState {
+                        total_datapoints: 0,
+                        reached_stops: new_reached_stops,
+                        current_stop_index: current_stop_index + 1,
+                        avg_coord_mean: VecDeque::new(),
+                    }),
+                    Some(true),
+                ));
+            } else {
+                return Some((
+                    ViolationDetectionState::RideStopReached(RideStopReachedState {
+                        total_datapoints: 0,
+                        reached_stops,
+                        current_stop_index,
+                        avg_coord_mean: VecDeque::new(),
+                    }),
+                    Some(false),
+                ));
+            }
+        } else {
+            return Some((
+                ViolationDetectionState::RideStopReached(RideStopReachedState {
+                    total_datapoints: 0,
+                    reached_stops,
+                    current_stop_index,
+                    avg_coord_mean: VecDeque::new(),
+                }),
+                Some(false),
+            ));
+        }
+    }
+
+    Some((
+        ViolationDetectionState::RideStopReached(RideStopReachedState {
+            total_datapoints,
+            reached_stops,
+            current_stop_index,
+            avg_coord_mean,
+        }),
+        None,
+    ))
 }
 
 /// Checks if a vehicle has deviated from the route by using the average of the points in the list
@@ -1129,6 +1281,20 @@ fn anti_violation_check(
             true,
             true,
         ),
+        DetectionConfig::RideStopReachedDetection(RideStopReachedConfig {
+            sample_size,
+            batch_count,
+            stop_reach_threshold,
+            min_stop_duration,
+        }) => handle_ride_stop_reached_check(
+            state,
+            context,
+            sample_size,
+            batch_count,
+            stop_reach_threshold,
+            min_stop_duration,
+            true,
+        ),
     }
 }
 
@@ -1204,6 +1370,45 @@ fn get_triggered_state_req(
                     }),
                 })
             }
+            Some(ViolationDetectionState::RideStopReached(RideStopReachedState {
+                reached_stops,
+                current_stop_index: _,
+                ..
+            })) => {
+                if let Some(ride_stops) = context.ride_stops {
+                    let last_reached_stop_index = if !reached_stops.is_empty() {
+                        reached_stops
+                            .last()
+                            .and_then(|stop_str| stop_str.strip_prefix("stop_"))
+                            .and_then(|index_str| index_str.parse::<usize>().ok())
+                            .unwrap_or(0)
+                    } else {
+                        0
+                    };
+
+                    if last_reached_stop_index < ride_stops.len() {
+                        let reached_stop = &ride_stops[last_reached_stop_index];
+                        Some(ViolationDetectionReq {
+                            ride_id: context.ride_id,
+                            driver_id: context.driver_id,
+                            is_violated: true,
+                            detection_data: DetectionData::RideStopReachedDetection(
+                                RideStopReachedDetectionData {
+                                    location: reached_stop.clone(),
+                                    stop_name: format!("Stop {}", last_reached_stop_index + 1),
+                                    stop_code: format!("STOP_{}", last_reached_stop_index + 1),
+                                    stop_index: last_reached_stop_index,
+                                    reached_at: context.timestamp,
+                                },
+                            ),
+                        })
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }
             _ => None,
         },
         Some(DetectionStatus::AntiViolated) => match curr_anti_violation_state {
@@ -1270,6 +1475,35 @@ fn get_triggered_state_req(
                         location: context.location,
                     }),
                 })
+            }
+            Some(ViolationDetectionState::RideStopReached(RideStopReachedState {
+                reached_stops: _,
+                current_stop_index,
+                ..
+            })) => {
+                if let Some(ride_stops) = context.ride_stops {
+                    if *current_stop_index < ride_stops.len() {
+                        let current_stop = &ride_stops[*current_stop_index];
+                        Some(ViolationDetectionReq {
+                            ride_id: context.ride_id,
+                            driver_id: context.driver_id,
+                            is_violated: false,
+                            detection_data: DetectionData::RideStopReachedDetection(
+                                RideStopReachedDetectionData {
+                                    location: current_stop.clone(),
+                                    stop_name: format!("Stop {}", current_stop_index + 1),
+                                    stop_code: format!("STOP_{}", current_stop_index + 1),
+                                    stop_index: *current_stop_index,
+                                    reached_at: context.timestamp,
+                                },
+                            ),
+                        })
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
             }
             _ => None,
         },
