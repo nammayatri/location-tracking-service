@@ -203,6 +203,7 @@ pub enum RideInfo {
     Car {
         pickup_location: Point,
         min_distance_between_two_points: Option<i32>,
+        ride_stops: Option<Vec<Point>>,
     },
 }
 
@@ -531,6 +532,7 @@ pub enum DetectionType {
     OppositeDirection,
     TripNotStarted,
     SafetyCheck,
+    RideStopReached,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -541,6 +543,7 @@ pub enum ViolationDetectionState {
     OppositeDirection(OppositeDirectionState),
     TripNotStarted(TripNotStartedState),
     SafetyCheck(SafetyCheckState),
+    RideStopReached(RideStopReachedState),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -580,6 +583,14 @@ pub struct SafetyCheckState {
     pub avg_speed: Option<VecDeque<(f64, u32)>>,
     pub avg_coord_mean: VecDeque<(Point, u32)>,
     pub total_datapoints: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RideStopReachedState {
+    pub total_datapoints: u64,
+    pub reached_stops: Vec<String>,
+    pub current_stop_index: usize,
+    pub avg_coord_mean: VecDeque<(Point, u32)>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -630,6 +641,7 @@ pub enum DetectionConfig {
     OppositeDirectionDetection(OppositeDirectionConfig),
     TripNotStartedDetection(TripNotStartedConfig),
     SafetyCheckDetection(SafetyCheckConfig),
+    RideStopReachedDetection(RideStopReachedConfig),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -638,6 +650,14 @@ pub struct SafetyCheckConfig {
     pub sample_size: u32,
     pub max_eligible_speed: Option<SpeedInMeterPerSecond>,
     pub max_eligible_distance: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RideStopReachedConfig {
+    pub sample_size: u32,
+    pub batch_count: u32,
+    pub stop_reach_threshold: u32,
+    pub min_stop_duration: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -652,6 +672,7 @@ pub struct DetectionContext<'a> {
     pub vehicle_type: VehicleType,
     pub accuracy: Accuracy,
     pub route: Option<&'a Route>,
+    pub ride_stops: Option<&'a Vec<Point>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

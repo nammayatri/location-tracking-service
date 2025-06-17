@@ -129,19 +129,27 @@ let safetyCheckDetectionConfig = {
   max_eligible_speed = Some 2,
   max_eligible_distance = 25
 }
+let rideStopReachedDetectionConfig = {
+    sample_size = 10,
+    batch_count = 2,
+    stop_reach_threshold = 100,
+    min_stop_duration = 10,
+}
 let stoppedDetectionConfigT = { max_eligible_distance : Natural, max_eligible_speed : Optional Natural, batch_count : Natural, sample_size : Natural }
 let routeDeviationDetectionConfigT = { deviation_threshold : Natural, sample_size : Natural, batch_count : Natural}
 let overspeedingDetectionConfigT = { sample_size : Natural, speed_limit : Double, batch_count : Natural }
 let oppositeDirectionDetectionConfigT = { sample_size : Natural, batch_count : Natural }
 let tripNotStartedDetectionConfigT = { deviation_threshold : Natural, sample_size : Natural, batch_count : Natural }
 let safetyCheckDetectionConfigT = {max_eligible_distance : Natural, max_eligible_speed : Optional Natural, batch_count : Natural, sample_size : Natural }
+let rideStopReachedDetectionConfigT = { sample_size: Natural, batch_count: Natural , stop_reach_threshold : Natural, min_stop_duration : Natural}
 let DetectionConfigType =
       < StoppedDetection : stoppedDetectionConfigT
       | RouteDeviationDetection : routeDeviationDetectionConfigT
       | OverspeedingDetection : overspeedingDetectionConfigT
       | OppositeDirectionDetection : oppositeDirectionDetectionConfigT
       | TripNotStartedDetection : tripNotStartedDetectionConfigT
-      | SafetyCheckDetection : safetyCheckDetectionConfigT >
+      | SafetyCheckDetection : safetyCheckDetectionConfigT
+      | RideStopReachedDetection : rideStopReachedDetectionConfigT >
 let detection_violation_cab_config_new = {=}
   with Stopped = {
     enabled = False,
@@ -172,6 +180,11 @@ let detection_violation_cab_config_new = {=}
     enabled = False,
     detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
     detection_config = DetectionConfigType.SafetyCheckDetection safetyCheckDetectionConfig
+  }
+  with RideStopReached = {
+    enabled = True,
+    detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
+    detection_config = DetectionConfigType.RideStopReachedDetection rideStopReachedDetectionConfig
   }
 
 let detection_violation_cab_config_inprogress = {=}
@@ -204,6 +217,11 @@ let detection_violation_cab_config_inprogress = {=}
     enabled = True,
     detection_callback_url = "http://127.0.0.1:8013/internal/violationDetection",
     detection_config = DetectionConfigType.SafetyCheckDetection safetyCheckDetectionConfig
+  }
+  with RideStopReached = {
+    enabled = True,
+    detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
+    detection_config = DetectionConfigType.RideStopReachedDetection rideStopReachedDetectionConfig
   }
 
 let detection_violation_bus_config_new = {=}
@@ -291,6 +309,11 @@ let detection_anti_violation_cab_config_new = {=}
     detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
     detection_config = DetectionConfigType.SafetyCheckDetection safetyCheckDetectionConfig
   }
+  with RideStopReached = {
+    enabled = True,
+    detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
+    detection_config = DetectionConfigType.RideStopReachedDetection rideStopReachedDetectionConfig
+  }
 
 
 let detection_anti_violation_cab_config_inprogress = {=}
@@ -324,6 +347,11 @@ let detection_anti_violation_cab_config_inprogress = {=}
     detection_callback_url = "http://127.0.0.1:8013/internal/violationDetection",
     detection_config = DetectionConfigType.SafetyCheckDetection safetyCheckDetectionConfig
   }
+  with RideStopReached = {
+    enabled = True,
+    detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
+    detection_config = DetectionConfigType.RideStopReachedDetection rideStopReachedDetectionConfig
+  }
 
 let detection_anti_violation_bus_config_new = {=}
   with Stopped = {
@@ -351,6 +379,11 @@ let detection_anti_violation_bus_config_new = {=}
     detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
     detection_config = DetectionConfigType.TripNotStartedDetection tripNotStartedAntiDetectionConfig
   }
+  with RideStopReached = {
+    enabled = False,
+    detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
+    detection_config = DetectionConfigType.RideStopReachedDetection rideStopReachedDetectionConfig
+  }
 
 let detection_anti_violation_bus_config_inprogress = {=}
   with Stopped = {
@@ -377,6 +410,11 @@ let detection_anti_violation_bus_config_inprogress = {=}
     enabled = False,
     detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
     detection_config = DetectionConfigType.TripNotStartedDetection tripNotStartedAntiDetectionConfig
+  }
+  with RideStopReached = {
+    enabled = False,
+    detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
+    detection_config = DetectionConfigType.RideStopReachedDetection rideStopReachedDetectionConfig
   }
 
 let detection_violation_cab_config = {=}

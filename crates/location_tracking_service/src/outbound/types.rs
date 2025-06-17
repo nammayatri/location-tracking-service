@@ -137,6 +137,7 @@ pub enum DetectionData {
     TripNotStartedDetection(TripNotStartedDetectionData),
     OppositeDirectionDetection(OppositeDirectionDetectionData),
     SafetyCheckDetection(SafetyCheckDetectionData),
+    RideStopReachedDetection(RideStopReachedDetectionData),
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -221,4 +222,14 @@ pub struct OsrmWaypoint {
 #[serde(rename_all = "camelCase")]
 pub struct SafetyCheckDetectionData {
     pub location: Point,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct RideStopReachedDetectionData {
+    pub location: Point,
+    pub stop_name: String,
+    pub stop_code: String,
+    pub stop_index: usize,
+    pub reached_at: TimeStamp,
 }

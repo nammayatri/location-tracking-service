@@ -308,6 +308,13 @@ async fn process_driver_locations(
         None
     };
 
+    let ride_stops = driver_ride_info
+        .as_ref()
+        .and_then(|ride_info| match ride_info {
+            RideInfo::Car { ride_stops, .. } => ride_stops.as_ref(),
+            RideInfo::Bus { .. } => None,
+        });
+
     let (
         detection_state,
         anti_detection_state,
@@ -370,6 +377,7 @@ async fn process_driver_locations(
                         vehicle_type: vehicle_type.to_owned(),
                         accuracy: latest_driver_location.acc.unwrap_or(Accuracy(0.0)),
                         route: route.as_ref(),
+                        ride_stops: ride_stops,
                     };
 
                     if let (
@@ -496,6 +504,7 @@ async fn process_driver_locations(
         if let Some(RideInfo::Car {
             pickup_location,
             min_distance_between_two_points: _,
+            ride_stops: _,
         }) = driver_ride_info.as_ref()
         {
             let pickup_distance =
@@ -973,6 +982,7 @@ async fn process_driver_locations(
             Some(RideInfo::Car {
                 pickup_location: _,
                 min_distance_between_two_points: _,
+                ride_stops: _,
             }) => {
                 if let (Some(location), Some(ride_id)) =
                     (stop_detected.as_ref(), driver_ride_id.as_ref())
