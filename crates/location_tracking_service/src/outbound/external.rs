@@ -153,6 +153,29 @@ pub async fn trigger_stop_detection_event(
     .map_err(|e| e.into())
 }
 
+pub async fn trigger_stop_detection_event_bap(
+    stop_detection_bap_callback_url: &Url,
+    location: &Point,
+    ride_id: RideId,
+    driver_id: DriverId,
+) -> Result<APISuccess, AppError> {
+    call_api::<APISuccess, StopDetectionReqBap>(
+        Protocol::Http1,
+        Method::POST,
+        stop_detection_bap_callback_url,
+        vec![("content-type", "application/json")],
+        Some(StopDetectionReqBap {
+            location: location.to_owned(),
+            ride_id,
+            driver_id,
+            safety_alert_status: SafetyAlertStatus::RideStoppage,
+        }),
+        None,
+    )
+    .await
+    .map_err(|e| e.into())
+}
+
 pub async fn driver_reached_destination(
     driver_reached_destination_callback_url: &Url,
     location: &Point,
