@@ -333,6 +333,8 @@ pub async fn set_driver_last_location_update(
     driver_pickup_distance: &Option<Meters>,
     bear: &Option<Direction>,
     vehicle_type: &Option<VehicleType>,
+    group_id: &Option<String>,
+    group_id2: &Option<String>,
 ) -> Result<DriverLastKnownLocation, AppError> {
     let last_known_location = DriverLastKnownLocation {
         location: Point {
@@ -343,6 +345,8 @@ pub async fn set_driver_last_location_update(
         merchant_id: merchant_id.to_owned(),
         bear: *bear,
         vehicle_type: *vehicle_type,
+        group_id: group_id.clone(),
+        group_id2: group_id2.clone(),
     };
 
     let value = DriverAllDetails {
@@ -355,6 +359,7 @@ pub async fn set_driver_last_location_update(
         detection_state: detection_state.to_owned(),
         violation_trigger_flag: violation_trigger_flag.clone(),
         anti_detection_state: anti_detection_state.clone(),
+        group_id: group_id.clone(),
     };
 
     redis
