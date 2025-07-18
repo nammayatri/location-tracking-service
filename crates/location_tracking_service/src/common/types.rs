@@ -300,6 +300,8 @@ pub struct DriverLastKnownLocation {
     pub merchant_id: MerchantId,
     pub bear: Option<Direction>,
     pub vehicle_type: Option<VehicleType>,
+    pub group_id: Option<String>,
+    pub group_id2: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -329,6 +331,7 @@ pub struct DriverAllDetails {
     pub violation_trigger_flag: Option<ViolationDetectionTriggerMap>,
     pub detection_state: Option<ViolationDetectionStateMap>,
     pub anti_detection_state: Option<ViolationDetectionStateMap>,
+    pub group_id: Option<String>,
 }
 
 #[derive(
