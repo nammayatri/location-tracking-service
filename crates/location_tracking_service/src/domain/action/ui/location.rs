@@ -120,12 +120,15 @@ pub async fn update_driver_location(
     data: Data<AppState>,
     mut locations: Vec<UpdateDriverLocationRequest>,
     driver_mode: DriverMode,
+    group_id: Option<String>,
+    group_id2: Option<String>,
+    req_merchant_id: Option<MerchantId>,
 ) -> Result<HttpResponse, AppError> {
     let current_ts = Utc::now();
     let (driver_id, merchant_id, merchant_operating_city_id) = if var("DEV").is_ok() {
         (
             DriverId(token.to_owned().inner()),
-            MerchantId("dev".to_string()),
+            req_merchant_id.unwrap_or_else(|| MerchantId("dev".to_string())),
             MerchantOperatingCityId("dev".to_string()),
         )
     } else {
@@ -217,6 +220,8 @@ pub async fn update_driver_location(
             vehicle_type,
             city,
             driver_mode,
+            group_id,
+            group_id2,
         ),
     )
     .await?;
@@ -238,6 +243,8 @@ async fn process_driver_locations(
         VehicleType,
         CityName,
         DriverMode,
+        Option<String>,
+        Option<String>,
     ),
 ) -> Result<(), AppError> {
     let (
@@ -252,6 +259,8 @@ async fn process_driver_locations(
         vehicle_type,
         city,
         driver_mode,
+        group_id,
+        group_id2,
     ) = args;
 
     let driver_ride_details = get_ride_details(&data.redis, &driver_id, &merchant_id).await?;
@@ -681,6 +690,8 @@ async fn process_driver_locations(
                     &driver_pickup_distance,
                     &None,
                     &Some(vehicle_type.clone()),
+                    &group_id,
+                    &group_id2,
                 )
                 .await?;
                 Ok(())
@@ -832,6 +843,8 @@ async fn process_driver_locations(
                     &driver_pickup_distance,
                     &latest_driver_location.bear,
                     &Some(vehicle_type.clone()),
+                    &group_id,
+                    &group_id2,
                 )
                 .await?;
                 Ok(())
