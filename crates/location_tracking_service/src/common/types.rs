@@ -131,6 +131,9 @@ pub enum VehicleType {
     #[strum(serialize = "TAXI_PLUS")]
     #[serde(rename = "TAXI_PLUS")]
     TaxiPlus,
+    #[strum(serialize = "AUTO_PLUS")]
+    #[serde(rename = "AUTO_PLUS")]
+    AutoPlus,
     #[strum(serialize = "PREMIUM_SEDAN")]
     #[serde(rename = "PREMIUM_SEDAN")]
     PremiumSedan,
