@@ -246,7 +246,9 @@ pub fn get_base_vehicle_type(vehicle_type: &VehicleType) -> VehicleType {
         | VehicleType::SuvPlus
         | VehicleType::HeritageCab => VehicleType::SEDAN,
         VehicleType::BusAc | VehicleType::BusNonAc => VehicleType::BusAc,
-        VehicleType::AutoRickshaw | VehicleType::EvAutoRickshaw | VehicleType::AutoPlus => VehicleType::AutoRickshaw,
+        VehicleType::AutoRickshaw | VehicleType::EvAutoRickshaw | VehicleType::AutoPlus => {
+            VehicleType::AutoRickshaw
+        }
         VehicleType::BIKE | VehicleType::DeliveryBike => VehicleType::BIKE,
         _ => VehicleType::SEDAN, // Default to SEDAN for all other types
     }
