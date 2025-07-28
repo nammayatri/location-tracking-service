@@ -38,6 +38,7 @@ async fn search_nearby_drivers_with_vehicle(
     location: Point,
     radius: &Radius,
     group_id: &Option<String>,
+    group_id2: &Option<String>,
 ) -> Result<Vec<DriverLocationDetail>, AppError> {
     let nearby_drivers = get_drivers_within_radius(
         redis,
@@ -104,6 +105,12 @@ async fn search_nearby_drivers_with_vehicle(
                                 created_at: last_location_update_ts,
                                 updated_at: last_location_update_ts,
                                 merchant_id: merchant_id.to_owned(),
+                                group_id: driver_last_known_location
+                                    .as_ref()
+                                    .and_then(|loc| loc.group_id.clone()),
+                                group_id2: driver_last_known_location
+                                    .as_ref()
+                                    .and_then(|loc| loc.group_id2.clone()),
                                 ride_details: driver_ride_detail.to_owned().map(|ride_detail| {
                                     RideDetailsApiEntity {
                                         ride_id: ride_detail.ride_id,
@@ -137,6 +144,12 @@ async fn search_nearby_drivers_with_vehicle(
                             created_at: last_location_update_ts,
                             updated_at: last_location_update_ts,
                             merchant_id: merchant_id.to_owned(),
+                            group_id: driver_last_known_location
+                                .as_ref()
+                                .and_then(|loc| loc.group_id.clone()),
+                            group_id2: driver_last_known_location
+                                .as_ref()
+                                .and_then(|loc| loc.group_id2.clone()),
                             ride_details: driver_ride_detail.to_owned().map(|ride_detail| {
                                 RideDetailsApiEntity {
                                     ride_id: ride_detail.ride_id,
@@ -153,10 +166,9 @@ async fn search_nearby_drivers_with_vehicle(
             .collect::<Vec<DriverLocationDetail>>();
         resp
     } else {
-        let resp = nearby_drivers
-            .iter()
-            .zip(driver_last_known_location.iter())
-            .map(|(driver, driver_last_known_location)| {
+        let make_detail =
+            |driver: &DriverLocationPoint,
+             driver_last_known_location: &Option<DriverLastKnownLocation>| {
                 let (last_location_update_ts, bear, vehicle_type) = driver_last_known_location
                     .as_ref()
                     .map(|driver_last_known_location| {
@@ -175,9 +187,66 @@ async fn search_nearby_drivers_with_vehicle(
                     created_at: last_location_update_ts,
                     updated_at: last_location_update_ts,
                     merchant_id: merchant_id.to_owned(),
+                    group_id: driver_last_known_location
+                        .as_ref()
+                        .and_then(|loc| loc.group_id.clone()),
+                    group_id2: driver_last_known_location
+                        .as_ref()
+                        .and_then(|loc| loc.group_id2.clone()),
                     ride_details: None,
                     bear,
                     vehicle_type,
+                }
+            };
+
+        let resp = nearby_drivers
+            .iter()
+            .zip(driver_last_known_location.iter())
+            .filter_map(|(driver, driver_last_known_location)| {
+                let mb_last_known_group_id = driver_last_known_location
+                    .as_ref()
+                    .and_then(|loc| loc.group_id.clone());
+
+                let mb_last_known_group_id2 = driver_last_known_location
+                    .as_ref()
+                    .and_then(|loc| loc.group_id2.clone());
+
+                match (
+                    mb_last_known_group_id.as_ref(),
+                    mb_last_known_group_id2.as_ref(),
+                    group_id.as_ref(),
+                    group_id2.as_ref(),
+                ) {
+                    // no filters by group_id (default)
+                    (_, _, None, None) => Some(make_detail(driver, driver_last_known_location)),
+
+                    // filter by group_id
+                    (Some(last_known_group_id), _, Some(req_group_id), None)
+                        if last_known_group_id == req_group_id =>
+                    {
+                        Some(make_detail(driver, driver_last_known_location))
+                    }
+
+                    // filter by group_id2
+                    (_, Some(last_known_group_id2), None, Some(req_group_id2))
+                        if last_known_group_id2 == req_group_id2 =>
+                    {
+                        Some(make_detail(driver, driver_last_known_location))
+                    }
+
+                    // filter by both group_id and group_id2
+                    (
+                        Some(last_known_group_id),
+                        Some(last_known_group_id2),
+                        Some(req_group_id),
+                        Some(req_group_id2),
+                    ) if last_known_group_id == req_group_id
+                        && last_known_group_id2 == req_group_id2 =>
+                    {
+                        Some(make_detail(driver, driver_last_known_location))
+                    }
+
+                    _ => None,
                 }
             })
             .collect::<Vec<DriverLocationDetail>>();
@@ -197,6 +266,7 @@ pub async fn get_nearby_drivers(
         radius,
         merchant_id,
         group_id,
+        group_id2,
     }: NearbyDriversRequest,
 ) -> Result<NearbyDriverResponse, AppError> {
     let city = get_city(&lat, &lon, &data.polygon)?;
@@ -218,6 +288,7 @@ pub async fn get_nearby_drivers(
                     Point { lat, lon },
                     &radius,
                     &group_id,
+                    &group_id2,
                 )
                 .await;
                 match nearby_drivers {
@@ -245,6 +316,7 @@ pub async fn get_nearby_drivers(
                     Point { lat, lon },
                     &radius,
                     &group_id,
+                    &group_id2,
                 )
                 .await;
                 match nearby_drivers {
@@ -283,6 +355,8 @@ pub async fn get_drivers_location(
                 created_at: driver_last_known_location.timestamp,
                 updated_at: driver_last_known_location.timestamp,
                 merchant_id: driver_last_known_location.merchant_id.to_owned(),
+                group_id: driver_last_known_location.group_id.clone(),
+                group_id2: driver_last_known_location.group_id2.clone(),
                 ride_details: None,
                 bear: driver_last_known_location.bear,
                 vehicle_type: driver_last_known_location.vehicle_type.clone(),
@@ -323,6 +397,8 @@ pub async fn driver_block_till(
             &details.driver_pickup_distance,
             &details.driver_last_known_location.bear,
             &details.driver_last_known_location.vehicle_type,
+            &details.driver_last_known_location.group_id,
+            &details.driver_last_known_location.group_id2,
         )
         .await?;
     };

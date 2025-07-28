@@ -60,8 +60,35 @@ pub async fn update_driver_location(
             "dm (DriverMode - Header) not found".to_string(),
         ))?;
 
-    location::update_driver_location(Token(token), vehicle_type, data, request_body, driver_mode)
-        .await?;
+    let group_id = req
+        .headers()
+        .get("gid")
+        .and_then(|header_value| header_value.to_str().ok())
+        .map(|gid_str| gid_str.to_string());
+
+    let group_id2 = req
+        .headers()
+        .get("gid2")
+        .and_then(|header_value| header_value.to_str().ok())
+        .map(|gid_str| gid_str.to_string());
+
+    let req_merchant_id = req
+        .headers()
+        .get("mid")
+        .and_then(|header_value| header_value.to_str().ok())
+        .map(|mid_str| MerchantId(mid_str.to_string()));
+
+    location::update_driver_location(
+        Token(token),
+        vehicle_type,
+        data,
+        request_body,
+        driver_mode,
+        group_id,
+        group_id2,
+        req_merchant_id,
+    )
+    .await?;
     Ok(HttpResponse::Ok().finish())
 }
 
