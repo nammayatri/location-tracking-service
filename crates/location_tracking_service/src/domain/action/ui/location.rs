@@ -525,7 +525,10 @@ async fn process_driver_locations(
                             driver_pickup_distance.inner().saturating_sub(50),
                             data.pickup_notification_threshold as u32,
                         ),
-                        data.arriving_notification_threshold as u32,
+                        std::cmp::max(
+                            data.arriving_notification_threshold as u32,
+                            data.pickup_instruction_notification_threshold as u32,
+                        ),
                     ) as f64
                         > pickup_distance
                     {
@@ -559,6 +562,14 @@ async fn process_driver_locations(
                         {
                             return (
                                 Some(RideNotificationStatus::DriverReaching),
+                                true,
+                                Some(driver_pickup_distance),
+                            );
+                        } else if pickup_distance <= data.pickup_instruction_notification_threshold
+                            && RideNotificationStatus::DriverPickupInstruction > ride_notification_status
+                        {
+                            return (
+                                Some(RideNotificationStatus::DriverPickupInstruction),
                                 true,
                                 Some(driver_pickup_distance),
                             );

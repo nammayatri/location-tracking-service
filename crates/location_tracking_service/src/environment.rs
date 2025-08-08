@@ -49,6 +49,7 @@ pub struct AppConfig {
     pub bucket_size: u64,
     pub nearby_bucket_threshold: u64,
     pub driver_location_accuracy_buffer: f64,
+    pub pickup_instruction_notification_threshold: f64,
     pub arriving_notification_threshold: f64,
     pub pickup_notification_threshold: f64,
     pub driver_reached_destination_buffer: f64,
@@ -161,6 +162,7 @@ pub struct AppState {
     pub trigger_fcm_callback_url: Url,
     pub trigger_fcm_callback_url_bap: Url,
     pub apns_url: Url,
+    pub pickup_instruction_notification_threshold: f64,
     pub pickup_notification_threshold: f64,
     pub arriving_notification_threshold: f64,
     pub detection_violation_config:
@@ -323,6 +325,7 @@ impl AppState {
             )
             .expect("Failed to parse fcm_callback_url_bap."),
             apns_url: Url::parse(app_config.apns_url.as_str()).expect("Failed to parse apns_url."),
+            pickup_instruction_notification_threshold: app_config.pickup_instruction_notification_threshold,
             pickup_notification_threshold: app_config.pickup_notification_threshold,
             arriving_notification_threshold: app_config.arriving_notification_threshold,
             detection_violation_config,

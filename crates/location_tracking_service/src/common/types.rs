@@ -358,12 +358,15 @@ pub enum RideNotificationStatus {
     #[strum(serialize = "DRIVER_ON_THE_WAY")]
     #[serde(rename = "DRIVER_ON_THE_WAY")]
     DriverOnTheWay = 1,
+    #[strum(serialize = "DRIVER_PICKUP_INSTRUCTION")]
+    #[serde(rename = "DRIVER_PICKUP_INSTRUCTION")]
+    DriverPickupInstruction = 2,
     #[strum(serialize = "DRIVER_REACHING")]
     #[serde(rename = "DRIVER_REACHING")]
-    DriverReaching = 2,
+    DriverReaching = 3,
     #[strum(serialize = "DRIVER_REACHED")]
     #[serde(rename = "DRIVER_REACHED")]
-    DriverReached = 3,
+    DriverReached = 4,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
