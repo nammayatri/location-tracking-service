@@ -42,7 +42,8 @@ pub struct AppConfig {
     pub last_location_timstamp_expiry: u32,
     pub location_update_limit: usize,
     pub location_update_interval: u64,
-    pub stop_detection: HashMap<VehicleType, HashMap<RideStatus, StopDetectionConfig>>,
+    pub stop_detection:
+        HashMap<VehicleType, HashMap<RideStatus, HashMap<SafetyAlertStatus, StopDetectionConfig>>>,
     pub kafka_cfg: KafkaConfig,
     pub driver_location_update_topic: String,
     pub batch_size: i64,
@@ -139,7 +140,8 @@ pub struct AppState {
     pub auth_token_expiry: u32,
     pub redis_expiry: u32,
     pub min_location_accuracy: Accuracy,
-    pub stop_detection: HashMap<VehicleType, HashMap<RideStatus, StopDetectionConfig>>,
+    pub stop_detection:
+        HashMap<VehicleType, HashMap<RideStatus, HashMap<SafetyAlertStatus, StopDetectionConfig>>>,
     pub last_location_timstamp_expiry: u32,
     pub location_update_limit: usize,
     pub location_update_interval: u64,

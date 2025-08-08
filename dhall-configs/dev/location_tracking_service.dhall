@@ -46,6 +46,13 @@ let stop_detection_cab_config_on_pickup = {
 }
 
 let stop_detection_cab_config_on_ride = {
+    stop_detection_update_callback_url = "http://127.0.0.1:8013/internal/stopDetectionBAP",
+    max_eligible_stop_speed_threshold = Some 2.0,
+    radius_threshold_meters = 25,
+    min_points_within_radius_threshold = 15,
+    enable_onride_stop_detection = False
+}
+let stop_detection_cab_config_for_driver_on_ride = {
     stop_detection_update_callback_url = "http://127.0.0.1:8016/internal/stopDetection",
     max_eligible_stop_speed_threshold = Some 2.0,
     radius_threshold_meters = 25,
@@ -61,12 +68,26 @@ let stop_detection_bus_config_new = {
     enable_onride_stop_detection = False
 }
 
+
+
+let stop_detection_cab_config_new = {=}
+  with RIDE_STOPPAGE = stop_detection_cab_config_on_pickup
+  with RIDE_STOPPAGE_FOR_DRIVER = stop_detection_cab_config_on_pickup
+
+let stop_detection_cab_config_inprogress = {=}
+  with RIDE_STOPPAGE = stop_detection_cab_config_on_ride
+  with RIDE_STOPPAGE_FOR_DRIVER = stop_detection_cab_config_for_driver_on_ride
+
+let stop_detection_bus_config_new_with_safety = {=}
+  with RIDE_STOPPAGE = stop_detection_bus_config_new
+  with RIDE_STOPPAGE_FOR_DRIVER = stop_detection_bus_config_new
+
 let stop_detection_cab_config = {=}
-  with NEW = stop_detection_cab_config_on_pickup
-  with INPROGRESS = stop_detection_cab_config_on_ride
+  with NEW = stop_detection_cab_config_new
+  with INPROGRESS = stop_detection_cab_config_inprogress
 
 let stop_detection_bus_config = {=}
-  with NEW = stop_detection_bus_config_new
+  with NEW = stop_detection_bus_config_new_with_safety
 
 let stop_detection_config = {=}
   with SEDAN = stop_detection_cab_config

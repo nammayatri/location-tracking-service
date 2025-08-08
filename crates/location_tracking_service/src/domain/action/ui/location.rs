@@ -22,7 +22,7 @@ use crate::outbound::external::get_distance_matrix;
 use crate::outbound::external::trigger_detection_alert;
 use crate::outbound::external::{
     authenticate_dobpp, bulk_location_update_dobpp, driver_reached_destination, trigger_fcm_bap,
-    trigger_fcm_dobpp, trigger_stop_detection_event,
+    trigger_fcm_dobpp, trigger_stop_detection_event, trigger_stop_detection_event_bap,
 };
 use crate::outbound::types::ViolationDetectionReq;
 use crate::redis::{commands::*, keys::*};
@@ -476,25 +476,37 @@ async fn process_driver_locations(
                 Some(RideStatus::INPROGRESS) => stop_detection_config.get(&RideStatus::INPROGRESS),
                 _ => None,
             };
-            if let Some(config) = stop_detection_config {
-                if driver_ride_status == Some(RideStatus::NEW)
-                    || (config.enable_onride_stop_detection
-                        && driver_ride_status == Some(RideStatus::INPROGRESS))
-                {
-                    detect_stop(
-                        driver_location_details
-                            .as_ref()
-                            .map(|driver_location_details| {
-                                driver_location_details.stop_detection.to_owned()
-                            })
-                            .flatten(),
-                        DriverLocation {
-                            location: latest_driver_location.pt.to_owned(),
-                            timestamp: latest_driver_location.ts,
-                        },
-                        latest_driver_location.v,
-                        config,
-                    )
+            if let Some(config_map) = stop_detection_config {
+                // For INPROGRESS status, use RideStoppage, for NEW status use the config directly
+                let config = if driver_ride_status == Some(RideStatus::INPROGRESS) {
+                    config_map.get(&SafetyAlertStatus::RideStoppage)
+                } else {
+                    // For NEW status, use the first available config
+                    config_map.values().next()
+                };
+
+                if let Some(config) = config {
+                    if driver_ride_status == Some(RideStatus::NEW)
+                        || (config.enable_onride_stop_detection
+                            && driver_ride_status == Some(RideStatus::INPROGRESS))
+                    {
+                        detect_stop(
+                            driver_location_details
+                                .as_ref()
+                                .map(|driver_location_details| {
+                                    driver_location_details.stop_detection.to_owned()
+                                })
+                                .flatten(),
+                            DriverLocation {
+                                location: latest_driver_location.pt.to_owned(),
+                                timestamp: latest_driver_location.ts,
+                            },
+                            latest_driver_location.v,
+                            config,
+                        )
+                    } else {
+                        (None, None)
+                    }
                 } else {
                     (None, None)
                 }
@@ -1021,14 +1033,24 @@ async fn process_driver_locations(
                             }
                             _ => None,
                         };
-                        if let Some(config) = stop_detection_config {
-                            let _ = trigger_stop_detection_event(
-                                &config.stop_detection_update_callback_url,
-                                location,
-                                ride_id.to_owned(),
-                                driver_id.to_owned(),
-                            )
-                            .await;
+                        if let Some(config_map) = stop_detection_config {
+                            // For INPROGRESS status, use RideStoppage, for NEW status use the config directly
+                            let config = if driver_ride_status == Some(RideStatus::INPROGRESS) {
+                                config_map.get(&SafetyAlertStatus::RideStoppage)
+                            } else {
+                                // For NEW status, use the first available config
+                                config_map.values().next()
+                            };
+
+                            if let Some(config) = config {
+                                let _ = trigger_stop_detection_event_bap(
+                                    &config.stop_detection_update_callback_url,
+                                    location,
+                                    ride_id.to_owned(),
+                                    driver_id.to_owned(),
+                                )
+                                .await;
+                            }
                         }
                     }
                 }
@@ -1070,14 +1092,24 @@ async fn process_driver_locations(
                             }
                             _ => None,
                         };
-                        if let Some(config) = stop_detection_config {
-                            let _ = trigger_stop_detection_event(
-                                &config.stop_detection_update_callback_url,
-                                location,
-                                ride_id.to_owned(),
-                                driver_id.to_owned(),
-                            )
-                            .await;
+                        if let Some(config_map) = stop_detection_config {
+                            // For INPROGRESS status, use RideStoppage, for NEW status use the config directly
+                            let config = if driver_ride_status == Some(RideStatus::INPROGRESS) {
+                                config_map.get(&SafetyAlertStatus::RideStoppage)
+                            } else {
+                                // For NEW status, use the first available config
+                                config_map.values().next()
+                            };
+
+                            if let Some(config) = config {
+                                let _ = trigger_stop_detection_event(
+                                    &config.stop_detection_update_callback_url,
+                                    location,
+                                    ride_id.to_owned(),
+                                    driver_id.to_owned(),
+                                )
+                                .await;
+                            }
                         }
                     }
                 }
