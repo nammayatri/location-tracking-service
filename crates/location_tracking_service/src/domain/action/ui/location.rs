@@ -566,7 +566,8 @@ async fn process_driver_locations(
                                 Some(driver_pickup_distance),
                             );
                         } else if pickup_distance <= data.pickup_instruction_notification_threshold
-                            && RideNotificationStatus::DriverPickupInstruction > ride_notification_status
+                            && RideNotificationStatus::DriverPickupInstruction
+                                > ride_notification_status
                         {
                             return (
                                 Some(RideNotificationStatus::DriverPickupInstruction),

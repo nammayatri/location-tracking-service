@@ -325,7 +325,8 @@ impl AppState {
             )
             .expect("Failed to parse fcm_callback_url_bap."),
             apns_url: Url::parse(app_config.apns_url.as_str()).expect("Failed to parse apns_url."),
-            pickup_instruction_notification_threshold: app_config.pickup_instruction_notification_threshold,
+            pickup_instruction_notification_threshold: app_config
+                .pickup_instruction_notification_threshold,
             pickup_notification_threshold: app_config.pickup_notification_threshold,
             arriving_notification_threshold: app_config.arriving_notification_threshold,
             detection_violation_config,
