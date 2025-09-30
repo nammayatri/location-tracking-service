@@ -49,6 +49,7 @@ shared = { git = "https://github.com/nammayatri/shared-kernel-rs", rev = "0197a7
 macros = { git = "https://github.com/nammayatri/shared-kernel-rs", rev = "0197a77" }
 url = "2.5.4"
 geohash = "0.13.1"
+zip = "0.6.6"
 
 [dev-dependencies]
 pprof = { version = "0.12", features = ["flamegraph"] }

@@ -486,8 +486,8 @@ in {
     google_compute_route_url = "https://routes.googleapis.com/directions/v2:computeRoutes",
     google_api_key = "ADD_GOOGLE_API_KEY_HERE",
     route_geo_json_config = {
-        bucket = "route-geojson",
-        prefix = ""
+        bucket = "movingtech-gtfs",
+        prefix = "kolkata-bus-route-geojson/2025-07-13/"
     },
     osrm_distance_matrix_base_url = "http://router.project-osrm.org",
     duration_cache_time_slots = ["06:00:00", "12:00:00", "18:00:00", "19:55:00"]

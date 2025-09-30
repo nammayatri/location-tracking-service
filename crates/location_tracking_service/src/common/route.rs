@@ -20,16 +20,19 @@ use crate::redis::keys::google_route_duration_cache_processing_key;
 use crate::tools::error::AppError;
 use crate::{termination, tools::prometheus::TERMINATION};
 use chrono::{NaiveTime, Timelike};
+use futures::future::join_all;
 use reqwest::Url;
 use rustc_hash::FxHashMap;
 use serde_json::from_str;
 use shared::redis::types::RedisConnectionPool;
 use shared::tools::aws::get_files_in_directory_from_s3;
+use std::io::Cursor;
 use std::{cmp::max, env::var, fs, fs::File, io::Read, sync::Arc, time::Duration};
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::RwLock;
 use tokio::time::Instant;
 use tracing::*;
+use zip::ZipArchive;
 
 pub async fn read_route_data(
     redis: &RedisConnectionPool,
@@ -45,29 +48,56 @@ pub async fn read_route_data(
         let geometries = fs::read_dir(&config_path).map_err(|err| {
             AppError::InternalError(format!("Failed to read config path: {}", err))
         })?;
-        let mut routes: FxHashMap<String, Route> = FxHashMap::default();
 
+        // Collect all file entries first
+        let mut file_entries = Vec::new();
         for entry in geometries {
             let entry = entry
                 .map_err(|err| AppError::InternalError(format!("Failed to read entry: {}", err)))?;
             let file_name = entry.file_name().to_string_lossy().to_string();
-
             let file_path = config_path.to_owned() + "/" + &file_name;
+
             let mut file = File::open(file_path)
                 .map_err(|err| AppError::InternalError(format!("Failed to open file: {}", err)))?;
             let mut contents = String::new();
             file.read_to_string(&mut contents)
                 .map_err(|err| AppError::InternalError(format!("Failed to read file: {}", err)))?;
 
-            let route = parse_route_geojson(
-                redis,
-                &contents,
-                google_compute_route_url,
-                google_api_key,
-                force_refresh,
-            )
-            .await?;
-            routes.insert(route.route_code.clone(), route);
+            file_entries.push((file_name, contents));
+        }
+
+        // Create async tasks for parallel processing
+        let tasks: Vec<_> = file_entries
+            .into_iter()
+            .map(|(file_name, contents)| async move {
+                match parse_route_geojson(
+                    redis,
+                    &contents,
+                    &google_compute_route_url.clone(),
+                    google_api_key,
+                    force_refresh,
+                )
+                .await
+                {
+                    Ok(route) => Some((route.route_code.clone(), route)),
+                    Err(err) => {
+                        error!(
+                            "Failed to parse route geojson for file {}: {}",
+                            file_name, err
+                        );
+                        None
+                    }
+                }
+            })
+            .collect();
+
+        // Execute all tasks in parallel
+        let results = join_all(tasks).await;
+
+        // Collect successful results
+        let mut routes: FxHashMap<String, Route> = FxHashMap::default();
+        for (route_code, route) in results.into_iter().flatten() {
+            routes.insert(route_code, route);
         }
 
         Ok(routes)
@@ -78,20 +108,67 @@ pub async fn read_route_data(
                 AppError::InternalError(format!("Failed to fetch files from S3: {}", err))
             })?;
 
+        let mut all_files = Vec::new();
+        for (file_name, data) in geometries {
+            if file_name.ends_with(".zip") {
+                let mut archive = ZipArchive::new(Cursor::new(data)).map_err(|err| {
+                    AppError::InternalError(format!("Failed to open zip archive: {}", err))
+                })?;
+
+                for i in 0..archive.len() {
+                    let mut entry = archive.by_index(i).map_err(|err| {
+                        AppError::InternalError(format!("Failed to read zip entry: {}", err))
+                    })?;
+                    let entry_name = entry.name().to_string();
+
+                    if entry_name.ends_with(".geojson") {
+                        let mut contents = String::new();
+                        entry.read_to_string(&mut contents).map_err(|err| {
+                            AppError::InternalError(format!("Failed to read zip entry: {}", err))
+                        })?;
+                        all_files.push((entry_name, contents));
+                    }
+                }
+            } else {
+                let data_string = String::from_utf8(data).map_err(|err| {
+                    AppError::InternalError(format!("Failed to convert to string: {}", err))
+                })?;
+                all_files.push((file_name, data_string));
+            }
+        }
+
+        // Create async tasks for parallel processing
+        let tasks: Vec<_> = all_files
+            .into_iter()
+            .map(|(file_name, data)| async move {
+                match parse_route_geojson(
+                    redis,
+                    &data,
+                    &google_compute_route_url.clone(),
+                    google_api_key,
+                    force_refresh,
+                )
+                .await
+                {
+                    Ok(route) => Some((route.route_code.clone(), route)),
+                    Err(err) => {
+                        error!(
+                            "Failed to parse route geojson for file {}: {}",
+                            file_name, err
+                        );
+                        None
+                    }
+                }
+            })
+            .collect();
+
+        // Execute all tasks in parallel
+        let results = join_all(tasks).await;
+
+        // Collect successful results
         let mut routes: FxHashMap<String, Route> = FxHashMap::default();
-        for (_, data) in geometries {
-            let data = String::from_utf8(data).map_err(|err| {
-                AppError::InternalError(format!("Failed to convert to string: {}", err))
-            })?;
-            let route = parse_route_geojson(
-                redis,
-                &data,
-                google_compute_route_url,
-                google_api_key,
-                force_refresh,
-            )
-            .await?;
-            routes.insert(route.route_code.clone(), route);
+        for (route_code, route) in results.into_iter().flatten() {
+            routes.insert(route_code, route);
         }
 
         Ok(routes)

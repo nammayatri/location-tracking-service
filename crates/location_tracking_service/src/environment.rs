@@ -17,7 +17,7 @@ use serde::Deserialize;
 use shared::redis::types::{RedisConnectionPool, RedisSettings};
 use std::collections::HashMap;
 use tokio::sync::{mpsc::Sender, RwLock};
-use tracing::info;
+use tracing::{debug, error, info};
 
 use crate::common::{geo_polygon::read_geo_polygon, route::read_route_data, types::*};
 
@@ -225,7 +225,7 @@ impl AppState {
         let geo_config_path = var("GEO_CONFIG").unwrap_or_else(|_| "./geo_config".to_string());
         let polygons = read_geo_polygon(&geo_config_path).expect("Failed to read geoJSON");
 
-        let routes = read_route_data(
+        let routes = match read_route_data(
             &redis,
             &app_config.route_geo_json_config.bucket,
             &app_config.route_geo_json_config.prefix,
@@ -234,7 +234,15 @@ impl AppState {
             false,
         )
         .await
-        .expect("Failed to read route data");
+        {
+            Ok(routes) => routes,
+            Err(err) => {
+                error!("Failed to read route data, {:?}", err);
+                HashMap::default()
+            }
+        };
+
+        debug!("Routes: {:?}", routes);
 
         let blacklist_geo_config_path =
             var("BLACKLIST_GEO_CONFIG").unwrap_or_else(|_| "./blacklist_geo_config".to_string());
