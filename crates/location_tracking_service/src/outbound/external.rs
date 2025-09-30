@@ -10,6 +10,7 @@ use crate::common::types::*;
 use crate::tools::error::AppError;
 use actix_http::StatusCode;
 use reqwest::{Method, Url};
+use serde::{Deserialize, Serialize};
 use shared::tools::callapi::{call_api, call_api_unwrapping_error, Protocol};
 use std::collections::HashMap;
 
@@ -32,6 +33,12 @@ pub async fn authenticate_dobpp(
     token: &str,
     auth_api_key: &str,
 ) -> Result<AuthResponseData, AppError> {
+    #[derive(Serialize, Deserialize, Clone, Debug)]
+    #[serde(rename_all = "camelCase")]
+    struct AuthError {
+        pub error_code: String,
+        pub error_message: Option<String>,
+    }
     call_api_unwrapping_error::<AuthResponseData, String, AppError>(
         Protocol::Http1,
         Method::GET,
@@ -44,13 +51,24 @@ pub async fn authenticate_dobpp(
         None,
         None,
         Box::new(|resp| {
-            if resp.status() == StatusCode::BAD_REQUEST {
-                AppError::DriverAppAuthFailed
-            } else if resp.status() == StatusCode::UNAUTHORIZED {
-                AppError::DriverAppUnauthorized
-            } else {
-                AppError::DriverAppAuthFailed
-            }
+            Box::pin(async move {
+                if resp.status() == StatusCode::BAD_REQUEST {
+                    if let Ok(error_resp) = resp
+                        .json::<AuthError>()
+                        .await
+                        .map_err(|_| AppError::DriverAppAuthFailed)
+                    {
+                        if error_resp.error_code == "TOKEN_EXPIRED" {
+                            return AppError::DriverAppTokenExpired;
+                        }
+                    }
+                    AppError::DriverAppAuthFailed
+                } else if resp.status() == StatusCode::UNAUTHORIZED {
+                    AppError::DriverAppUnauthorized
+                } else {
+                    AppError::DriverAppAuthFailed
+                }
+            })
         }),
     )
     .await
