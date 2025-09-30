@@ -33,7 +33,7 @@ let kafka_cfg = {
 }
 let LogLevel = < TRACE | DEBUG | INFO | WARN | ERROR | OFF >
 let logger_cfg = {
-    level = LogLevel.DEBUG,
+    level = LogLevel.ERROR,
     log_to_file = False
 }
 
