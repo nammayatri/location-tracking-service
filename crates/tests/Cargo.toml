@@ -19,5 +19,5 @@ rand = "0.8.5"
 reqwest = {version = "0.11.18", features = ["json"]}
 arc-swap = "1.6.0"
 
-shared = { git = "https://github.com/nammayatri/shared-kernel-rs", rev = "0197a77" }
+shared = { git = "https://github.com/nammayatri/shared-kernel-rs", rev = "7f890c5" }
 location_tracking_service = { version = "0.1.0", path = "../location_tracking_service" }
