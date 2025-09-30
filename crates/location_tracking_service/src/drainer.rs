@@ -5,7 +5,8 @@
     or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more details. You should have received a copy of
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-use crate::tools::prometheus::{QUEUE_DRAINER_LATENCY, TERMINATION, TOTAL_LOCATION_UPDATES};
+use crate::queue_drainer_latency;
+use crate::tools::prometheus::{QUEUE_DRAINER_LATENCY, TOTAL_LOCATION_UPDATES};
 use crate::{
     common::{
         types::*,
@@ -13,11 +14,12 @@ use crate::{
     },
     redis::{commands::push_drainer_driver_location, keys::driver_loc_bucket_key},
 };
-use crate::{queue_drainer_latency, termination};
 use chrono::{DateTime, Utc};
 use fred::types::{GeoPosition, GeoValue};
 use rustc_hash::FxHashMap;
 use shared::redis::types::RedisConnectionPool;
+use shared::termination;
+use shared::tools::prometheus::TERMINATION;
 use std::cmp::max;
 use std::{
     cmp::min,

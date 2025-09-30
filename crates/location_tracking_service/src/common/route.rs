@@ -18,13 +18,13 @@ use crate::redis::commands::{
 };
 use crate::redis::keys::google_route_duration_cache_processing_key;
 use crate::tools::error::AppError;
-use crate::{termination, tools::prometheus::TERMINATION};
 use chrono::{NaiveTime, Timelike};
 use reqwest::Url;
 use rustc_hash::FxHashMap;
 use serde_json::from_str;
 use shared::redis::types::RedisConnectionPool;
 use shared::tools::aws::get_files_in_directory_from_s3;
+use shared::{termination, tools::prometheus::TERMINATION};
 use std::{cmp::max, env::var, fs, fs::File, io::Read, sync::Arc, time::Duration};
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::RwLock;

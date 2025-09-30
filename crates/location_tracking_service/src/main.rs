@@ -13,13 +13,10 @@ use location_tracking_service::{
     drainer::run_drainer,
     environment::AppState,
     middleware::*,
-    termination,
-    tools::{
-        error::AppError,
-        prometheus::{prometheus_metrics, TERMINATION},
-    },
+    tools::{error::AppError, prometheus::prometheus_metrics},
 };
-use shared::tools::logger::setup_tracing;
+use shared::{middleware::incoming_request::IncomingRequestMetrics, tools::logger::setup_tracing};
+use shared::{termination, tools::prometheus::TERMINATION};
 use std::{
     env::var,
     sync::atomic::{AtomicBool, Ordering},
