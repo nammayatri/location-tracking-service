@@ -5,6 +5,7 @@
     or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more details. You should have received a copy of
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
+pub mod external;
 pub mod internal;
 pub mod ui;
 
@@ -23,5 +24,6 @@ pub fn handler(config: &mut ServiceConfig) {
         .service(internal::location::get_drivers_location)
         .service(internal::location::driver_block_till)
         .service(internal::location::track_vehicles)
-        .service(internal::location::post_track_vehicles);
+        .service(internal::location::post_track_vehicles)
+        .service(external::gps::external_gps_location);
 }

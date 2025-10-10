@@ -26,6 +26,15 @@ pub static TOTAL_LOCATION_UPDATES: once_cell::sync::Lazy<IntCounter> =
             .expect("Failed to register total location updates metrics")
     });
 
+pub static GPS_UPDATES_IGNORED_NO_ACTIVE_RIDE: once_cell::sync::Lazy<IntCounter> =
+    once_cell::sync::Lazy::new(|| {
+        register_int_counter!(
+            "gps_updates_ignored_no_active_ride",
+            "GPS updates ignored because vehicle has no active ride"
+        )
+        .expect("Failed to register GPS ignored updates metrics")
+    });
+
 /// Macro that observes the latency of a queue drainer process.
 ///
 /// This macro measures the time taken for a queue drainer to process its items and updates the `QUEUE_DRAINER_LATENCY` histogram.
@@ -81,6 +90,11 @@ pub fn prometheus_metrics() -> PrometheusMetrics {
         .registry
         .register(Box::new(TOTAL_LOCATION_UPDATES.to_owned()))
         .expect("Failed to register total location updates metrics");
+
+    prometheus
+        .registry
+        .register(Box::new(GPS_UPDATES_IGNORED_NO_ACTIVE_RIDE.to_owned()))
+        .expect("Failed to register GPS ignored updates metrics");
 
     prometheus
 }

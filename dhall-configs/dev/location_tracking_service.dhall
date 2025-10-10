@@ -491,5 +491,6 @@ in {
         prefix = ""
     },
     osrm_distance_matrix_base_url = "http://router.project-osrm.org",
-    duration_cache_time_slots = ["06:00:00", "12:00:00", "18:00:00", "19:55:00"]
+    duration_cache_time_slots = ["06:00:00", "12:00:00", "18:00:00", "19:55:00"],
+    external_gps_api_key = "your-secure-api-key-here"
 }

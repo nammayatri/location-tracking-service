@@ -48,6 +48,10 @@ pub enum AppError {
     DriverSendingFCMFailed(String),
     DriverBlocked,
     AlertRequestFailed(String),
+    InvalidApiKey,
+    MissingApiKey,
+    InvalidGPSData(String),
+    VehicleNotInActiveTrip(String),
 }
 
 impl AppError {
@@ -126,6 +130,10 @@ impl AppError {
             AppError::DriverSendingFCMFailed(_) => "DOBPP_SENDING_FCM_FAILED",
             AppError::AlertRequestFailed(_) => "VIOLATION_ALERT_FAILED",
             AppError::DriverBlocked => "DRIVER_BLOCKED",
+            AppError::InvalidApiKey => "INVALID_API_KEY",
+            AppError::MissingApiKey => "MISSING_API_KEY",
+            AppError::InvalidGPSData(_) => "INVALID_GPS_DATA",
+            AppError::VehicleNotInActiveTrip(_) => "VEHICLE_NOT_IN_ACTIVE_TRIP",
         }
         .to_string()
     }
@@ -166,6 +174,10 @@ impl ResponseError for AppError {
             AppError::DriverSendingFCMFailed(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::AlertRequestFailed(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::DriverBlocked => StatusCode::FORBIDDEN,
+            AppError::InvalidApiKey => StatusCode::UNAUTHORIZED,
+            AppError::MissingApiKey => StatusCode::BAD_REQUEST,
+            AppError::InvalidGPSData(_) => StatusCode::UNPROCESSABLE_ENTITY,
+            AppError::VehicleNotInActiveTrip(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 }

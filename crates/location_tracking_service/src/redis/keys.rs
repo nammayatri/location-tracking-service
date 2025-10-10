@@ -188,3 +188,10 @@ pub fn google_stop_duration_key(source_stop_code: &str, destination_stop_code: &
 pub fn google_route_duration_cache_processing_key() -> String {
     "grd:processing".to_string()
 }
+
+/// Constructs a Redis key for caching driver information by vehicle plate number.
+/// This cache is created at ride start and cleaned up at ride end.
+/// Used by external GPS provider integration to map plate numbers to driver IDs.
+pub fn driver_info_by_plate_key(plate_number: &str) -> String {
+    format!("lts:driver_info:plate:{}", plate_number)
+}
