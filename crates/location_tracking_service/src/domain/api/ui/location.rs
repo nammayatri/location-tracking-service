@@ -78,7 +78,7 @@ pub async fn update_driver_location(
         .and_then(|header_value| header_value.to_str().ok())
         .map(|mid_str| MerchantId(mid_str.to_string()));
 
-    location::update_driver_location(
+    location::update_driver_location_by_token(
         Token(token),
         vehicle_type,
         data,

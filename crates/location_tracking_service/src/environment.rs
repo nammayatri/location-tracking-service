@@ -78,6 +78,7 @@ pub struct AppConfig {
     #[serde(deserialize_with = "deserialize_url")]
     pub osrm_distance_matrix_base_url: Url,
     pub duration_cache_time_slots: Vec<NaiveTime>,
+    pub external_gps_api_key: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -175,6 +176,7 @@ pub struct AppState {
     pub route_geo_json_config: S3Config,
     pub osrm_distance_matrix_base_url: Url,
     pub duration_cache_time_slots: Vec<NaiveTime>,
+    pub external_gps_api_key: String,
 }
 
 impl AppState {
@@ -337,6 +339,7 @@ impl AppState {
             route_geo_json_config: app_config.route_geo_json_config,
             osrm_distance_matrix_base_url: app_config.osrm_distance_matrix_base_url,
             duration_cache_time_slots: app_config.duration_cache_time_slots,
+            external_gps_api_key: app_config.external_gps_api_key,
         }
     }
 }

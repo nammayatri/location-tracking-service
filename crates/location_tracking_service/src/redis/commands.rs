@@ -44,7 +44,7 @@ pub async fn set_ride_details_for_driver(
     let ride_details = RideDetails {
         ride_id,
         ride_status,
-        ride_info,
+        ride_info: ride_info.clone(),
     };
     redis
         .set_key(
@@ -54,6 +54,31 @@ pub async fn set_ride_details_for_driver(
         )
         .await
         .map_err(|err| AppError::InternalError(err.to_string()))?;
+
+    // For bus rides with external GPS, cache reverse mapping: plate_number -> driver_info
+    if let Some(RideInfo::Bus {
+        bus_number,
+        group_id,
+        ..
+    }) = ride_info
+    {
+        let driver_info = DriverByPlateResp {
+            driver_id: driver_id.inner(),
+            merchant_id: merchant_id.inner(),
+            bus_number: Some(bus_number.clone()),
+            group_id: group_id.clone(),
+            vehicle_service_tier_type: VehicleType::BusNonAc, // Default - GPS provider should send actual type
+        };
+
+        redis
+            .set_key(
+                &driver_info_by_plate_key(&bus_number),
+                driver_info,
+                *redis_expiry,
+            )
+            .await
+            .map_err(|err| AppError::InternalError(err.to_string()))?;
+    }
 
     Ok(())
 }
@@ -152,7 +177,13 @@ pub async fn ride_cleanup(
         redis
             .hdel(&driver_loc_based_on_route_key(route_code), bus_number)
             .await
-            .map_err(|err| AppError::InternalError(err.to_string()))?
+            .map_err(|err| AppError::InternalError(err.to_string()))?;
+
+        // Clean up driver info cache (plate number mapping)
+        redis
+            .delete_key(&driver_info_by_plate_key(bus_number))
+            .await
+            .map_err(|err| AppError::InternalError(err.to_string()))?;
     }
 
     Ok(())

@@ -114,7 +114,7 @@ fn get_filtered_driver_locations(
 }
 
 #[macros::measure_duration]
-pub async fn update_driver_location(
+pub async fn update_driver_location_by_token(
     token: Token,
     vehicle_type: VehicleType,
     data: Data<AppState>,
@@ -222,6 +222,109 @@ pub async fn update_driver_location(
             driver_mode,
             group_id,
             group_id2,
+        ),
+    )
+    .await?;
+    Ok(HttpResponse::Ok().finish())
+}
+
+/// Simplified version for external GPS providers that already have driver_id
+/// No token authentication needed
+#[macros::measure_duration]
+pub async fn update_driver_location(
+    driver_id: DriverId,
+    merchant_id: MerchantId,
+    vehicle_type: VehicleType,
+    data: Data<AppState>,
+    mut locations: Vec<UpdateDriverLocationRequest>,
+    driver_mode: DriverMode,
+    group_id: Option<String>,
+) -> Result<HttpResponse, AppError> {
+    let current_ts = Utc::now();
+
+    // For external GPS, we skip authentication since driver_id is already from cache
+    let merchant_operating_city_id = MerchantOperatingCityId("default".to_string());
+
+    if locations.len() > data.batch_size as usize {
+        warn!(
+            "Way points more than {} points => {} points",
+            data.batch_size,
+            locations.len()
+        );
+    }
+
+    locations.sort_by(|a, b| {
+        let TimeStamp(a_ts) = a.ts;
+        let TimeStamp(b_ts) = b.ts;
+        (a_ts).cmp(&b_ts)
+    });
+
+    let driver_location_details = get_driver_location(&data.redis, &driver_id).await?;
+
+    if let Some(driver_location_details) = driver_location_details.as_ref() {
+        let curr_time = TimeStamp(Utc::now());
+
+        if driver_location_details.blocked_till > Some(curr_time) {
+            return Err(AppError::DriverBlocked);
+        }
+    }
+
+    let locations: Vec<UpdateDriverLocationRequest> = locations
+        .into_iter()
+        .filter(|location| {
+            driver_location_details
+                .as_ref()
+                .map(|driver_location_details| {
+                    location.ts >= driver_location_details.driver_last_known_location.timestamp
+                })
+                .unwrap_or(true)
+        })
+        .collect();
+
+    let latest_driver_location = if let Some(location) = locations.last() {
+        location.to_owned()
+    } else {
+        return Ok(HttpResponse::Ok().finish());
+    };
+
+    info!(
+        tag = "[Location Updates]",
+        "Got location updates for Driver Id : {:?} : {:?}", &driver_id, &locations
+    );
+
+    let city = get_city(
+        &latest_driver_location.pt.lat,
+        &latest_driver_location.pt.lon,
+        &data.polygon,
+    )?;
+
+    sliding_window_limiter(
+        &data.redis,
+        &sliding_rate_limiter_key(&driver_id, &city, &merchant_id),
+        data.location_update_limit,
+        data.location_update_interval as u32,
+    )
+    .await?;
+
+    with_lock_redis(
+        &data.redis,
+        driver_processing_location_update_lock_key(&driver_id, &merchant_id, &city),
+        60,
+        process_driver_locations,
+        (
+            data.clone(),
+            locations,
+            latest_driver_location,
+            TimeStamp(current_ts),
+            driver_location_details,
+            driver_id,
+            merchant_id,
+            merchant_operating_city_id,
+            vehicle_type,
+            city,
+            driver_mode,
+            group_id,
+            None, // group_id2
         ),
     )
     .await?;

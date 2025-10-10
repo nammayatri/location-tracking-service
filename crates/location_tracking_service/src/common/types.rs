@@ -697,3 +697,12 @@ pub enum DetectionStatus {
     Violated,
     AntiViolated,
 }
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct DriverByPlateResp {
+    pub driver_id: String,
+    pub merchant_id: String,
+    pub bus_number: Option<String>,
+    pub group_id: Option<String>,
+    pub vehicle_service_tier_type: VehicleType,
+}
