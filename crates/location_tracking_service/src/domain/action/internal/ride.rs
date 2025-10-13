@@ -163,6 +163,8 @@ pub async fn ride_details(
                 &driver_location.driver_pickup_distance,
                 &driver_location.driver_last_known_location.bear,
                 &driver_location.driver_last_known_location.vehicle_type,
+                &driver_location.driver_last_known_location.group_id,
+                &driver_location.driver_last_known_location.group_id2,
             )
             .await?;
         }
@@ -208,6 +210,8 @@ pub async fn ride_details(
                 &None,
                 &driver_location.driver_last_known_location.bear,
                 &driver_location.driver_last_known_location.vehicle_type,
+                &driver_location.driver_last_known_location.group_id,
+                &driver_location.driver_last_known_location.group_id2,
             )
             .await?;
         }

@@ -18,6 +18,7 @@ pub struct NearbyDriversRequest {
     pub radius: Radius,
     pub merchant_id: MerchantId,
     pub group_id: Option<String>,
+    pub group_id2: Option<String>,
 }
 
 pub type NearbyDriverResponse = Vec<DriverLocationDetail>;
@@ -48,6 +49,8 @@ pub struct DriverLocationDetail {
     pub created_at: TimeStamp,
     pub updated_at: TimeStamp,
     pub merchant_id: MerchantId,
+    pub group_id: Option<String>,
+    pub group_id2: Option<String>,
     pub bear: Option<Direction>,
     pub ride_details: Option<RideDetailsApiEntity>,
     pub vehicle_type: Option<VehicleType>,
