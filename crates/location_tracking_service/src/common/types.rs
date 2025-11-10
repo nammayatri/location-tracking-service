@@ -186,6 +186,12 @@ pub enum VehicleType {
     #[strum(serialize = "DELIVERY_TRUCK_ULTRA_LARGE")]
     #[serde(rename = "DELIVERY_TRUCK_ULTRA_LARGE")]
     DeliveryTruckUltraLarge,
+    #[strum(serialize = "VIP_ESCORT")]
+    #[serde(rename = "VIP_ESCORT")]
+    VipEscort,
+    #[strum(serialize = "VIP_OFFICER")]
+    #[serde(rename = "VIP_OFFICER")]
+    VipOfficer,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug, Display, PartialEq)]
