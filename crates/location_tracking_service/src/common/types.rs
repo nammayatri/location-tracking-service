@@ -195,6 +195,12 @@ pub enum VehicleType {
     #[strum(serialize = "BIKE_PLUS")]
     #[serde(rename = "BIKE_PLUS")]
     BikePlus,
+    #[strum(serialize = "AC_PRIORITY")]
+    #[serde(rename = "AC_PRIORITY")]
+    AcPriority,
+    #[strum(serialize = "E_RICKSHAW")]
+    #[serde(rename = "E_RICKSHAW")]
+    ERickShaw,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug, Display, PartialEq)]
