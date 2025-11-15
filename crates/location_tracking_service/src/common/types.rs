@@ -223,6 +223,19 @@ pub enum RideInfo {
         min_distance_between_two_points: Option<i32>,
         ride_stops: Option<Vec<Point>>,
     },
+    #[serde(rename_all = "camelCase")]
+    Pilot {
+        destination: Point,
+        driver_name: Option<String>,
+        duty_type: Option<String>,
+        end_address: Option<String>,
+        group_id: Option<String>,
+        pilot_number: String,
+        scheduled_trip_time: Option<TimeStamp>,
+        source: Point,
+        start_address: Option<String>,
+        vip_name: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, EnumString, Display, Serialize, Deserialize, Eq, Hash, PartialEq)]
