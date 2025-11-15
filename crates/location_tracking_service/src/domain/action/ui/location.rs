@@ -425,6 +425,7 @@ async fn process_driver_locations(
         .and_then(|ride_info| match ride_info {
             RideInfo::Car { ride_stops, .. } => ride_stops.as_ref(),
             RideInfo::Bus { .. } => None,
+            RideInfo::Pilot { .. } => None,
         });
 
     let (
@@ -1040,6 +1041,7 @@ async fn process_driver_locations(
 
     Arbiter::current().spawn(async move {
         match driver_ride_info {
+            Some(RideInfo::Pilot { .. }) => {}
             Some(RideInfo::Bus {
                 source,
                 destination,
