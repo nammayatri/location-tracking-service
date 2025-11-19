@@ -165,6 +165,112 @@ async fn search_nearby_drivers_with_vehicle(
             )
             .collect::<Vec<DriverLocationDetail>>();
         resp
+    } else if [VehicleType::VipEscort, VehicleType::VipOfficer]
+        .iter()
+        .any(|vehicle_type| vehicle_type == vehicle)
+    {
+        let driver_ride_details =
+            get_all_driver_ride_details(redis, &driver_ids, merchant_id).await?;
+
+        let resp = nearby_drivers
+            .iter()
+            .zip(driver_last_known_location.iter())
+            .zip(driver_ride_details.iter())
+            .filter_map(
+                |((driver, driver_last_known_location), driver_ride_detail)| {
+                    if let (
+                        Some(RideInfo::Pilot {
+                            group_id: Some(group_id),
+                            ..
+                        }),
+                        Some(req_group_id),
+                    ) = (
+                        driver_ride_detail
+                            .as_ref()
+                            .map(|driver_ride_detail| driver_ride_detail.ride_info.to_owned())
+                            .flatten(),
+                        group_id.as_ref(),
+                    ) {
+                        if group_id == *req_group_id {
+                            let (last_location_update_ts, bear, vehicle_type) =
+                                driver_last_known_location
+                                    .as_ref()
+                                    .map(|driver_last_known_location| {
+                                        (
+                                            driver_last_known_location.timestamp,
+                                            driver_last_known_location.bear,
+                                            driver_last_known_location.vehicle_type,
+                                        )
+                                    })
+                                    .unwrap_or((TimeStamp(Utc::now()), None, None));
+                            Some(DriverLocationDetail {
+                                driver_id: driver.driver_id.to_owned(),
+                                lat: driver.location.lat,
+                                lon: driver.location.lon,
+                                coordinates_calculated_at: last_location_update_ts,
+                                created_at: last_location_update_ts,
+                                updated_at: last_location_update_ts,
+                                merchant_id: merchant_id.to_owned(),
+                                group_id: driver_last_known_location
+                                    .as_ref()
+                                    .and_then(|loc| loc.group_id.clone()),
+                                group_id2: driver_last_known_location
+                                    .as_ref()
+                                    .and_then(|loc| loc.group_id2.clone()),
+                                ride_details: driver_ride_detail.to_owned().map(|ride_detail| {
+                                    RideDetailsApiEntity {
+                                        ride_id: ride_detail.ride_id,
+                                        ride_status: ride_detail.ride_status,
+                                        ride_info: ride_detail.ride_info,
+                                    }
+                                }),
+                                bear,
+                                vehicle_type,
+                            })
+                        } else {
+                            None
+                        }
+                    } else {
+                        let (last_location_update_ts, bear, vehicle_type) =
+                            driver_last_known_location
+                                .as_ref()
+                                .map(|driver_last_known_location| {
+                                    (
+                                        driver_last_known_location.timestamp,
+                                        driver_last_known_location.bear,
+                                        driver_last_known_location.vehicle_type,
+                                    )
+                                })
+                                .unwrap_or((TimeStamp(Utc::now()), None, None));
+                        Some(DriverLocationDetail {
+                            driver_id: driver.driver_id.to_owned(),
+                            lat: driver.location.lat,
+                            lon: driver.location.lon,
+                            coordinates_calculated_at: last_location_update_ts,
+                            created_at: last_location_update_ts,
+                            updated_at: last_location_update_ts,
+                            merchant_id: merchant_id.to_owned(),
+                            group_id: driver_last_known_location
+                                .as_ref()
+                                .and_then(|loc| loc.group_id.clone()),
+                            group_id2: driver_last_known_location
+                                .as_ref()
+                                .and_then(|loc| loc.group_id2.clone()),
+                            ride_details: driver_ride_detail.to_owned().map(|ride_detail| {
+                                RideDetailsApiEntity {
+                                    ride_id: ride_detail.ride_id,
+                                    ride_status: ride_detail.ride_status,
+                                    ride_info: ride_detail.ride_info,
+                                }
+                            }),
+                            bear,
+                            vehicle_type,
+                        })
+                    }
+                },
+            )
+            .collect::<Vec<DriverLocationDetail>>();
+        resp
     } else {
         let make_detail =
             |driver: &DriverLocationPoint,
