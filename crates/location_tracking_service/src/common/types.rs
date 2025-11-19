@@ -192,6 +192,15 @@ pub enum VehicleType {
     #[strum(serialize = "VIP_OFFICER")]
     #[serde(rename = "VIP_OFFICER")]
     VipOfficer,
+    #[strum(serialize = "BIKE_PLUS")]
+    #[serde(rename = "BIKE_PLUS")]
+    BikePlus,
+    #[strum(serialize = "AC_PRIORITY")]
+    #[serde(rename = "AC_PRIORITY")]
+    AcPriority,
+    #[strum(serialize = "E_RICKSHAW")]
+    #[serde(rename = "E_RICKSHAW")]
+    ERickShaw,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug, Display, PartialEq)]
@@ -213,6 +222,19 @@ pub enum RideInfo {
         pickup_location: Point,
         min_distance_between_two_points: Option<i32>,
         ride_stops: Option<Vec<Point>>,
+    },
+    #[serde(rename_all = "camelCase")]
+    Pilot {
+        destination: Point,
+        driver_name: Option<String>,
+        duty_type: Option<String>,
+        end_address: Option<String>,
+        group_id: Option<String>,
+        pilot_number: String,
+        scheduled_trip_time: Option<TimeStamp>,
+        source: Point,
+        start_address: Option<String>,
+        vip_name: Option<String>,
     },
 }
 
