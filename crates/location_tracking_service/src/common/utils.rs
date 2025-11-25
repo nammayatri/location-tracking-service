@@ -244,12 +244,14 @@ pub fn get_base_vehicle_type(vehicle_type: &VehicleType) -> VehicleType {
         | VehicleType::BLACK
         | VehicleType::BlackXl
         | VehicleType::SuvPlus
-        | VehicleType::HeritageCab => VehicleType::SEDAN,
+        | VehicleType::HeritageCab
+        | VehicleType::AcPriority => VehicleType::SEDAN,
         VehicleType::BusAc | VehicleType::BusNonAc => VehicleType::BusAc,
-        VehicleType::AutoRickshaw | VehicleType::EvAutoRickshaw | VehicleType::AutoPlus => {
-            VehicleType::AutoRickshaw
-        }
-        VehicleType::BIKE | VehicleType::DeliveryBike => VehicleType::BIKE,
+        VehicleType::AutoRickshaw
+        | VehicleType::EvAutoRickshaw
+        | VehicleType::AutoPlus
+        | VehicleType::ERickShaw => VehicleType::AutoRickshaw,
+        VehicleType::BIKE | VehicleType::DeliveryBike | VehicleType::BikePlus => VehicleType::BIKE,
         VehicleType::VipEscort | VehicleType::VipOfficer => VehicleType::VipEscort,
         _ => VehicleType::SEDAN, // Default to SEDAN for all other types
     }
