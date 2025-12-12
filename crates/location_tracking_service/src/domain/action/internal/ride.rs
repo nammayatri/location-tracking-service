@@ -168,18 +168,7 @@ pub async fn ride_details(
             )
             .await?;
         }
-    } else if let Some(false) | None = request_body.is_future_ride {
-        set_ride_details_for_driver(
-            &data.redis,
-            &data.redis_expiry,
-            &request_body.merchant_id,
-            &driver_id,
-            request_body.ride_id.to_owned(),
-            request_body.ride_status,
-            request_body.ride_info,
-        )
-        .await?;
-
+    } else {
         let driver_details = DriverDetails {
             driver_id: driver_id.clone(),
         };
@@ -192,28 +181,41 @@ pub async fn ride_details(
         )
         .await?;
 
-        if let Some(driver_location) = get_driver_location(&data.redis, &driver_id).await? {
-            set_driver_last_location_update(
+        if let Some(false) | None = request_body.is_future_ride {
+            set_ride_details_for_driver(
                 &data.redis,
                 &data.redis_expiry,
-                &driver_id,
                 &request_body.merchant_id,
-                &driver_location.driver_last_known_location.location,
-                &driver_location.driver_last_known_location.timestamp,
-                &driver_location.blocked_till,
-                driver_location.stop_detection,
-                &driver_location.ride_status,
-                &Some(RideNotificationStatus::Idle),
-                &None,
-                &None,
-                &None,
-                &None,
-                &driver_location.driver_last_known_location.bear,
-                &driver_location.driver_last_known_location.vehicle_type,
-                &driver_location.driver_last_known_location.group_id,
-                &driver_location.driver_last_known_location.group_id2,
+                &driver_id,
+                request_body.ride_id.to_owned(),
+                request_body.ride_status,
+                request_body.ride_info,
             )
             .await?;
+
+            if let Some(driver_location) = get_driver_location(&data.redis, &driver_id).await? {
+                set_driver_last_location_update(
+                    &data.redis,
+                    &data.redis_expiry,
+                    &driver_id,
+                    &request_body.merchant_id,
+                    &driver_location.driver_last_known_location.location,
+                    &driver_location.driver_last_known_location.timestamp,
+                    &driver_location.blocked_till,
+                    driver_location.stop_detection,
+                    &driver_location.ride_status,
+                    &Some(RideNotificationStatus::Idle),
+                    &None,
+                    &None,
+                    &None,
+                    &None,
+                    &driver_location.driver_last_known_location.bear,
+                    &driver_location.driver_last_known_location.vehicle_type,
+                    &driver_location.driver_last_known_location.group_id,
+                    &driver_location.driver_last_known_location.group_id2,
+                )
+                .await?;
+            }
         }
     }
 
