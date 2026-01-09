@@ -125,22 +125,23 @@ pub async fn update_driver_location_by_token(
     req_merchant_id: Option<MerchantId>,
 ) -> Result<HttpResponse, AppError> {
     let current_ts = Utc::now();
-    let (driver_id, merchant_id, merchant_operating_city_id) = if var("DEV").is_ok() {
-        (
-            DriverId(token.to_owned().inner()),
-            req_merchant_id.unwrap_or_else(|| MerchantId("dev".to_string())),
-            MerchantOperatingCityId("dev".to_string()),
-        )
-    } else {
-        get_driver_id_from_authentication(
-            &data.redis,
-            &data.auth_url,
-            &data.auth_api_key,
-            &data.auth_token_expiry,
-            &token,
-        )
-        .await?
-    };
+    let (driver_id, merchant_id, merchant_operating_city_id) =
+        if var("DEV").is_ok() && !var("GCP").is_ok() {
+            (
+                DriverId(token.to_owned().inner()),
+                req_merchant_id.unwrap_or_else(|| MerchantId("dev".to_string())),
+                MerchantOperatingCityId("dev".to_string()),
+            )
+        } else {
+            get_driver_id_from_authentication(
+                &data.redis,
+                &data.auth_url,
+                &data.auth_api_key,
+                &data.auth_token_expiry,
+                &token,
+            )
+            .await?
+        };
 
     if locations.len() > data.batch_size as usize {
         warn!(
