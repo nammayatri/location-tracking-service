@@ -39,7 +39,7 @@ pub async fn read_route_data(
     google_api_key: &str,
     force_refresh: bool,
 ) -> Result<FxHashMap<String, Route>, AppError> {
-    if var("DEV").is_ok() {
+    if var("DEV").is_ok() || var("GCP_PROJECT").is_ok() {
         let config_path =
             var("ROUTE_GEO_JSON_CONFIG").unwrap_or_else(|_| "./route_geo_json_config".to_string());
         let geometries = fs::read_dir(&config_path).map_err(|err| {
