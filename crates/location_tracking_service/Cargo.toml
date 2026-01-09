@@ -44,9 +44,9 @@ tracing-subscriber = { version = "0.3.16", features = ["env-filter", "registry",
 prometheus = { version = "0.13.3", features = ["process"] }
 async-trait = "0.1"
 
-shared = { git = "https://github.com/nammayatri/shared-kernel-rs", rev = "7f890c5" }
+shared = { git = "https://github.com/nammayatri/shared-kernel-rs", branch = "backend/bypass-lts-s3-and-gcp" }
 # shared = { version = "0.1.0", path = "/Users/khuzema.khomosi/Documents/shared-kernel-rs/crates/shared" }
-macros = { git = "https://github.com/nammayatri/shared-kernel-rs", rev = "7f890c5" }
+macros = { git = "https://github.com/nammayatri/shared-kernel-rs", branch = "backend/bypass-lts-s3-and-gcp" }
 url = "2.5.4"
 geohash = "0.13.1"
 

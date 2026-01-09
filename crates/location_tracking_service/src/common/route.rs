@@ -23,7 +23,7 @@ use reqwest::Url;
 use rustc_hash::FxHashMap;
 use serde_json::from_str;
 use shared::redis::types::RedisConnectionPool;
-use shared::tools::aws::get_files_in_directory_from_s3;
+use shared::tools::cloud_storage::get_files_in_directory_from_str;
 use shared::{termination, tools::prometheus::TERMINATION};
 use std::{cmp::max, env::var, fs, fs::File, io::Read, sync::Arc, time::Duration};
 use tokio::signal::unix::{signal, SignalKind};
@@ -39,7 +39,7 @@ pub async fn read_route_data(
     google_api_key: &str,
     force_refresh: bool,
 ) -> Result<FxHashMap<String, Route>, AppError> {
-    if var("DEV").is_ok() {
+    if var("DEV").is_ok() || var("BYPASS_LTS_S3_AND_GCP").is_ok() {
         let config_path =
             var("ROUTE_GEO_JSON_CONFIG").unwrap_or_else(|_| "./route_geo_json_config".to_string());
         let geometries = fs::read_dir(&config_path).map_err(|err| {
@@ -72,10 +72,21 @@ pub async fn read_route_data(
 
         Ok(routes)
     } else {
-        let geometries = get_files_in_directory_from_s3(config_bucket, config_prefix)
+        // Determine cloud provider based on environment
+        // Use GCS if GCP_PROJECT is set, otherwise use AWS S3
+        let provider = if var("GCP_PROJECT").is_ok() {
+            "gcs"
+        } else {
+            "aws"
+        };
+
+        let geometries = get_files_in_directory_from_str(provider, config_bucket, config_prefix)
             .await
             .map_err(|err| {
-                AppError::InternalError(format!("Failed to fetch files from S3: {}", err))
+                AppError::InternalError(format!(
+                    "Failed to fetch files from cloud storage ({}): {}",
+                    provider, err
+                ))
             })?;
 
         let mut routes: FxHashMap<String, Route> = FxHashMap::default();
