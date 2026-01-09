@@ -13,7 +13,7 @@ on:
 
 jobs:
   build:
-    runs-on: x86_64-linux
+    runs-on: x86_64-linux-critical
     outputs:
       docker-image-name: ${{ steps.docker.outputs.image_name }}
     steps:
