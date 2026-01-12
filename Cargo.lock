@@ -2729,7 +2729,7 @@ dependencies = [
  "geohash",
  "geojson",
  "log",
- "macros 0.1.0 (git+https://github.com/nammayatri/shared-kernel-rs?branch=backend%2Fbypass-lts-s3-and-gcp)",
+ "macros 0.1.0 (git+https://github.com/nammayatri/shared-kernel-rs?rev=7f890c5)",
  "once_cell",
  "pprof",
  "prometheus",
@@ -2741,7 +2741,7 @@ dependencies = [
  "serde",
  "serde_dhall",
  "serde_json",
- "shared 0.1.0 (git+https://github.com/nammayatri/shared-kernel-rs?branch=backend%2Fbypass-lts-s3-and-gcp)",
+ "shared 0.1.0 (git+https://github.com/nammayatri/shared-kernel-rs?rev=7c6cf55)",
  "strum",
  "strum_macros",
  "thiserror 1.0.52",
@@ -2784,7 +2784,7 @@ dependencies = [
 [[package]]
 name = "macros"
 version = "0.1.0"
-source = "git+https://github.com/nammayatri/shared-kernel-rs?branch=backend%2Fbypass-lts-s3-and-gcp#0a8027c1b4bbf82e4a527d7fb23424e19c485537"
+source = "git+https://github.com/nammayatri/shared-kernel-rs?rev=7c6cf55#7c6cf55ca7942c69498fa452c7c545728b7b87be"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3995,7 +3995,7 @@ dependencies = [
 [[package]]
 name = "shared"
 version = "0.1.0"
-source = "git+https://github.com/nammayatri/shared-kernel-rs?branch=backend%2Fbypass-lts-s3-and-gcp#0a8027c1b4bbf82e4a527d7fb23424e19c485537"
+source = "git+https://github.com/nammayatri/shared-kernel-rs?rev=7c6cf55#7c6cf55ca7942c69498fa452c7c545728b7b87be"
 dependencies = [
  "actix",
  "actix-http",
@@ -4010,7 +4010,7 @@ dependencies = [
  "fred",
  "futures",
  "google-cloud-storage",
- "macros 0.1.0 (git+https://github.com/nammayatri/shared-kernel-rs?branch=backend%2Fbypass-lts-s3-and-gcp)",
+ "macros 0.1.0 (git+https://github.com/nammayatri/shared-kernel-rs?rev=7c6cf55)",
  "once_cell",
  "prometheus",
  "regex",
