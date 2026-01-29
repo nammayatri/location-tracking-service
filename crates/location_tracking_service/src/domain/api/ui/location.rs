@@ -101,3 +101,36 @@ async fn track_driver_location(
 
     Ok(Json(location::track_driver_location(data, ride_id).await?))
 }
+
+#[post("/ui/riderSos/location")]
+pub async fn update_rider_sos_location(
+    data: Data<AppState>,
+    param_obj: Json<UpdateRiderSosLocationRequest>,
+    req: HttpRequest,
+) -> Result<HttpResponse, AppError> {
+    let request_body = param_obj.into_inner();
+    let sos_id = request_body.sos_id.to_owned();
+
+    let token = req
+        .headers()
+        .get("token")
+        .and_then(|header_value| header_value.to_str().ok())
+        .map(|dm_str| dm_str.to_string())
+        .ok_or(AppError::InvalidRequest(
+            "token (Header) not found".to_string(),
+        ))?;
+
+    location::update_rider_sos_location_by_token(Token(token), data, sos_id, request_body).await?;
+    Ok(HttpResponse::Ok().finish())
+}
+
+#[get("/ui/rider/location/{sosId}")]
+pub async fn track_rider_sos_location(
+    data: Data<AppState>,
+    path: Path<String>,
+) -> Result<Json<RiderSosLocationResponse>, AppError> {
+    let sos_id = SosId(path.into_inner());
+    Ok(Json(
+        location::track_rider_sos_location(data, sos_id).await?,
+    ))
+}

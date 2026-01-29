@@ -497,5 +497,8 @@ in {
     },
     osrm_distance_matrix_base_url = "http://router.project-osrm.org",
     duration_cache_time_slots = ["06:00:00", "12:00:00", "18:00:00", "19:55:00"],
-    external_gps_api_key = "your-secure-api-key-here"
+    external_gps_api_key = "your-secure-api-key-here",
+    rider_auth_url = "http://127.0.0.1:8013/internal/auth",
+    rider_auth_api_key = "ae288466-2add-11ee-be56-0242ac120002",
+    rider_auth_token_expiry = 86400
 }

@@ -21,6 +21,9 @@ use strum_macros::{Display, EnumIter, EnumString};
 pub struct RideId(pub String);
 #[derive(Deserialize, Serialize, Clone, Debug, Eq, Hash, PartialEq)]
 #[macros::impl_getter]
+pub struct RiderId(pub String);
+#[derive(Deserialize, Serialize, Clone, Debug, Eq, Hash, PartialEq)]
+#[macros::impl_getter]
 pub struct DriverId(pub String);
 #[derive(Deserialize, Serialize, Clone, Debug, Eq, Hash, PartialEq)]
 #[macros::impl_getter]
@@ -727,4 +730,28 @@ pub struct DriverByPlateResp {
     pub bus_number: Option<String>,
     pub group_id: Option<String>,
     pub vehicle_service_tier_type: VehicleType,
+}
+
+#[derive(Deserialize, Serialize, Clone, Debug, Eq, Hash, PartialEq)]
+#[macros::impl_getter]
+pub struct SosId(pub String);
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct RiderSosAuthData {
+    pub rider_id: RiderId,
+    pub merchant_id: MerchantId,
+    pub merchant_operating_city_id: MerchantOperatingCityId,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct RiderSosLastKnownLocation {
+    pub location: Point,
+    pub timestamp: TimeStamp,
+    pub merchant_id: MerchantId,
+    pub bear: Option<Direction>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct RiderSosAllDetails {
+    pub rider_sos_last_known_location: RiderSosLastKnownLocation,
 }

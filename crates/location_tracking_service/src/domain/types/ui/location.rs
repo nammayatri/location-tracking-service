@@ -23,3 +23,19 @@ pub struct DriverLocationResponse {
     pub curr_point: Point,
     pub last_update: TimeStamp,
 }
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct UpdateRiderSosLocationRequest {
+    pub sos_id: SosId,
+    pub pt: Point,
+    pub acc: Option<Accuracy>,
+    pub v: Option<SpeedInMeterPerSecond>,
+    pub bear: Option<Direction>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct RiderSosLocationResponse {
+    pub curr_point: Point,
+    pub last_update: TimeStamp,
+}

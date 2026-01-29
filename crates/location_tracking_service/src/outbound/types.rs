@@ -20,6 +20,15 @@ pub struct AuthResponseData {
     pub merchant_operating_city_id: MerchantOperatingCityId,
 }
 
+// BAP Authentication (rider SOS)
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BapAuthResponseData {
+    pub rider_id: RiderId,
+    pub merchant_id: MerchantId,
+    pub merchant_operating_city_id: MerchantOperatingCityId,
+}
+
 // Bulk location update during the ride
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]

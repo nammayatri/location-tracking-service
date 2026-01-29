@@ -574,6 +574,74 @@ pub async fn get_driver_id(
         .map_err(|err| AppError::InternalError(err.to_string()))
 }
 
+/// Caches rider SOS auth data (token -> RiderSosAuthData).
+pub async fn set_rider_sos_auth_data(
+    redis: &RedisConnectionPool,
+    auth_token_expiry: &u32,
+    token: &Token,
+    auth_data: RiderSosAuthData,
+) -> Result<(), AppError> {
+    redis
+        .set_key(&rider_sos_auth_key(token), auth_data, *auth_token_expiry)
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
+/// Retrieves cached rider SOS auth data by token.
+pub async fn get_rider_sos_auth_data(
+    redis: &RedisConnectionPool,
+    token: &Token,
+) -> Result<Option<RiderSosAuthData>, AppError> {
+    redis
+        .get_key::<RiderSosAuthData>(&rider_sos_auth_key(token))
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
+/// Retrieves rider SOS location/details by SOS ID.
+pub async fn get_rider_sos_location(
+    redis: &RedisConnectionPool,
+    sos_id: &SosId,
+) -> Result<Option<RiderSosAllDetails>, AppError> {
+    redis
+        .get_key::<RiderSosAllDetails>(&rider_sos_details_key(sos_id))
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
+/// Stores rider SOS last known location.
+pub async fn set_rider_sos_last_location_update(
+    redis: &RedisConnectionPool,
+    last_location_timestamp_expiry: &u32,
+    sos_id: &SosId,
+    merchant_id: &MerchantId,
+    last_location_pt: &Point,
+    last_location_ts: &TimeStamp,
+    bear: &Option<Direction>,
+) -> Result<RiderSosLastKnownLocation, AppError> {
+    let last_known_location = RiderSosLastKnownLocation {
+        location: Point {
+            lat: last_location_pt.lat,
+            lon: last_location_pt.lon,
+        },
+        timestamp: *last_location_ts,
+        merchant_id: merchant_id.to_owned(),
+        bear: *bear,
+    };
+    let value = RiderSosAllDetails {
+        rider_sos_last_known_location: last_known_location.clone(),
+    };
+    redis
+        .set_key(
+            &rider_sos_details_key(sos_id),
+            value,
+            *last_location_timestamp_expiry,
+        )
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))?;
+    Ok(last_known_location)
+}
+
 /// Executes a callback function while maintaining a lock in Redis.
 ///
 /// Ensures that a specific operation represented by the callback function can be performed atomically by acquiring

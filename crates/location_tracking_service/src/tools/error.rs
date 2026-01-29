@@ -52,6 +52,8 @@ pub enum AppError {
     MissingApiKey,
     InvalidGPSData(String),
     VehicleNotInActiveTrip(String),
+    RiderSosAuthFailed,
+    RiderSosLocationNotFound,
 }
 
 impl AppError {
@@ -96,6 +98,8 @@ impl AppError {
             AppError::AlertRequestFailed(reason) => {
                 format!("Sending Violation Alert Failed : {reason}")
             }
+            AppError::RiderSosAuthFailed => "Rider SOS authentication failed".to_string(),
+            AppError::RiderSosLocationNotFound => "Rider SOS location not found".to_string(),
             _ => "Some Error Occured".to_string(),
         }
     }
@@ -134,6 +138,8 @@ impl AppError {
             AppError::MissingApiKey => "MISSING_API_KEY",
             AppError::InvalidGPSData(_) => "INVALID_GPS_DATA",
             AppError::VehicleNotInActiveTrip(_) => "VEHICLE_NOT_IN_ACTIVE_TRIP",
+            AppError::RiderSosAuthFailed => "RIDER_SOS_AUTH_FAILED",
+            AppError::RiderSosLocationNotFound => "RIDER_SOS_LOCATION_NOT_FOUND",
         }
         .to_string()
     }
@@ -178,6 +184,8 @@ impl ResponseError for AppError {
             AppError::MissingApiKey => StatusCode::BAD_REQUEST,
             AppError::InvalidGPSData(_) => StatusCode::UNPROCESSABLE_ENTITY,
             AppError::VehicleNotInActiveTrip(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            AppError::RiderSosAuthFailed => StatusCode::UNAUTHORIZED,
+            AppError::RiderSosLocationNotFound => StatusCode::NOT_FOUND,
         }
     }
 }

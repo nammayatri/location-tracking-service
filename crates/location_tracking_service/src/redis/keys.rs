@@ -195,3 +195,23 @@ pub fn google_route_duration_cache_processing_key() -> String {
 pub fn driver_info_by_plate_key(plate_number: &str) -> String {
     format!("lts:driver_info:plate:{}", plate_number)
 }
+
+/// Redis key for rider SOS location/details by SOS ID.
+pub fn rider_sos_details_key(SosId(sos_id): &SosId) -> String {
+    format!("lts:rider_sos_details:{sos_id}")
+}
+
+/// Redis key for caching rider SOS auth (token -> RiderSosAuthData).
+pub fn rider_sos_auth_key(Token(token): &Token) -> String {
+    format!("lts:rider_sos_auth:{token}")
+}
+
+/// Redis key for rider SOS processing lock.
+pub fn rider_sos_processing_lock_key(SosId(sos_id): &SosId) -> String {
+    format!("lts:rider_sos:processing:{sos_id}")
+}
+
+/// Redis key for rider SOS rate limiter (sliding window).
+pub fn rider_sos_rate_limiter_key(SosId(sos_id): &SosId, CityName(city): &CityName) -> String {
+    format!("lts:ratelimit:rider_sos:{sos_id}:{city}")
+}

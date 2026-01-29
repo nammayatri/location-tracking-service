@@ -14,15 +14,18 @@ use crate::common::utils::{
     get_upcoming_stops_by_route_code,
 };
 use crate::common::{sliding_window_rate_limiter::sliding_window_limiter, types::*};
-use crate::domain::types::ui::location::{DriverLocationResponse, UpdateDriverLocationRequest};
+use crate::domain::types::ui::location::{
+    DriverLocationResponse, RiderSosLocationResponse, UpdateDriverLocationRequest,
+    UpdateRiderSosLocationRequest,
+};
 use crate::environment::AppState;
 use crate::kafka::producers::kafka_stream_updates;
 use crate::outbound::external::driver_source_departed;
 use crate::outbound::external::get_distance_matrix;
 use crate::outbound::external::trigger_detection_alert;
 use crate::outbound::external::{
-    authenticate_dobpp, bulk_location_update_dobpp, driver_reached_destination, trigger_fcm_bap,
-    trigger_fcm_dobpp, trigger_stop_detection_event,
+    authenticate_bap, authenticate_dobpp, bulk_location_update_dobpp, driver_reached_destination,
+    trigger_fcm_bap, trigger_fcm_dobpp, trigger_stop_detection_event,
 };
 use crate::outbound::types::ViolationDetectionReq;
 use crate::redis::{commands::*, keys::*};
@@ -72,6 +75,37 @@ async fn get_driver_id_from_authentication(
                 response.driver_id,
                 response.merchant_id,
                 response.merchant_operating_city_id,
+            ))
+        }
+    }
+}
+
+#[macros::measure_duration]
+async fn get_rider_id_from_authentication(
+    redis: &RedisConnectionPool,
+    auth_url: &Url,
+    auth_api_key: &str,
+    auth_token_expiry: &u32,
+    token: &Token,
+) -> Result<(RiderId, MerchantId, MerchantOperatingCityId), AppError> {
+    match get_rider_sos_auth_data(redis, token).await? {
+        Some(auth_data) => Ok((
+            auth_data.rider_id,
+            auth_data.merchant_id,
+            auth_data.merchant_operating_city_id,
+        )),
+        None => {
+            let response = authenticate_bap(auth_url, token.0.as_str(), auth_api_key).await?;
+            let auth_data = RiderSosAuthData {
+                rider_id: response.rider_id.to_owned(),
+                merchant_id: response.merchant_id.to_owned(),
+                merchant_operating_city_id: response.merchant_operating_city_id.to_owned(),
+            };
+            set_rider_sos_auth_data(redis, auth_token_expiry, token, auth_data.clone()).await?;
+            Ok((
+                auth_data.rider_id,
+                auth_data.merchant_id,
+                auth_data.merchant_operating_city_id,
             ))
         }
     }
@@ -1267,5 +1301,105 @@ pub async fn track_driver_location(
     Ok(DriverLocationResponse {
         curr_point: driver_location_details.driver_last_known_location.location,
         last_update: driver_location_details.driver_last_known_location.timestamp,
+    })
+}
+
+/// Simplified processing for rider SOS locations: store latest in Redis only.
+async fn process_rider_sos_locations(
+    args: (
+        Data<AppState>,
+        UpdateRiderSosLocationRequest,
+        TimeStamp,
+        Option<RiderSosAllDetails>,
+        SosId,
+        MerchantId,
+        MerchantOperatingCityId,
+    ),
+) -> Result<(), AppError> {
+    let (
+        data,
+        location,
+        current_ts,
+        _rider_sos_details,
+        sos_id,
+        merchant_id,
+        _merchant_operating_city_id,
+    ) = args;
+
+    set_rider_sos_last_location_update(
+        &data.redis,
+        &data.last_location_timstamp_expiry,
+        &sos_id,
+        &merchant_id,
+        &location.pt,
+        &current_ts,
+        &location.bear,
+    )
+    .await?;
+    Ok(())
+}
+
+#[macros::measure_duration]
+pub async fn update_rider_sos_location_by_token(
+    token: Token,
+    data: Data<AppState>,
+    sos_id: SosId,
+    location: UpdateRiderSosLocationRequest,
+) -> Result<HttpResponse, AppError> {
+    // Get rider_id, merchant_id, city_id from token authentication
+    let (_rider_id, merchant_id, merchant_operating_city_id) = get_rider_id_from_authentication(
+        &data.redis,
+        &data.rider_auth_url,
+        &data.rider_auth_api_key,
+        &data.rider_auth_token_expiry,
+        &token,
+    )
+    .await?;
+
+    let rider_sos_details = get_rider_sos_location(&data.redis, &sos_id).await?;
+
+    info!(
+        tag = "[Rider SOS Location Updates]",
+        "Got location update for SOS Id : {:?}", &sos_id
+    );
+
+    let city = get_city(&location.pt.lat, &location.pt.lon, &data.polygon)?;
+
+    sliding_window_limiter(
+        &data.redis,
+        &rider_sos_rate_limiter_key(&sos_id, &city),
+        data.location_update_limit,
+        data.location_update_interval as u32,
+    )
+    .await?;
+
+    with_lock_redis(
+        &data.redis,
+        rider_sos_processing_lock_key(&sos_id),
+        60,
+        process_rider_sos_locations,
+        (
+            data.clone(),
+            location,
+            TimeStamp(Utc::now()),
+            rider_sos_details,
+            sos_id,
+            merchant_id,
+            merchant_operating_city_id,
+        ),
+    )
+    .await?;
+    Ok(HttpResponse::Ok().finish())
+}
+
+pub async fn track_rider_sos_location(
+    data: Data<AppState>,
+    sos_id: SosId,
+) -> Result<RiderSosLocationResponse, AppError> {
+    let details = get_rider_sos_location(&data.redis, &sos_id).await?;
+    let rider_sos_details = details.ok_or(AppError::RiderSosLocationNotFound)?;
+    Ok(RiderSosLocationResponse {
+        curr_point: rider_sos_details.rider_sos_last_known_location.location,
+        last_update: rider_sos_details.rider_sos_last_known_location.timestamp,
     })
 }
