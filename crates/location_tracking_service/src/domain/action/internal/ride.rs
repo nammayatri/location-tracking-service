@@ -165,6 +165,7 @@ pub async fn ride_details(
                 &driver_location.driver_last_known_location.vehicle_type,
                 &driver_location.driver_last_known_location.group_id,
                 &driver_location.driver_last_known_location.group_id2,
+                &driver_location.driver_last_known_location.driver_mode,
             )
             .await?;
         }
@@ -213,6 +214,7 @@ pub async fn ride_details(
                     &driver_location.driver_last_known_location.vehicle_type,
                     &driver_location.driver_last_known_location.group_id,
                     &driver_location.driver_last_known_location.group_id2,
+                    &driver_location.driver_last_known_location.driver_mode,
                 )
                 .await?;
             }
