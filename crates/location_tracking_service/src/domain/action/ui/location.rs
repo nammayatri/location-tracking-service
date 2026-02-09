@@ -1203,6 +1203,7 @@ async fn process_driver_locations(
 
         kafka_stream_updates(
             &data.producer,
+            &data.secondary_producer,
             &data.driver_location_update_topic,
             locations,
             current_ts,

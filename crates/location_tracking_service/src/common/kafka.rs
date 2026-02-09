@@ -14,27 +14,37 @@ use rdkafka::{
 };
 use serde::Serialize;
 
-/// Pushes a serialized message to a specified Kafka topic.
+/// Checks if secondary Kafka producer is enabled via environment variable.
+/// Returns true only if PRODUCE_SECONDARY_KAFKA is set to "true".
+fn should_produce_secondary() -> bool {
+    std::env::var("PRODUCE_SECONDARY_KAFKA")
+        .map(|val| val == "true")
+        .unwrap_or(false)
+}
+
+/// Pushes a serialized message to primary and optionally secondary Kafka topic.
 ///
 /// This function serializes the given message into a JSON string and
-/// sends it to the specified Kafka topic using the provided producer.
-/// It returns an `Ok(())` on successful message push, otherwise returns
-/// an `AppError`.
+/// sends it to the specified Kafka topic using the provided primary producer.
+/// If secondary producer is provided and PRODUCE_SECONDARY_KAFKA env var is set to "true",
+/// it also pushes to the secondary cluster (errors are logged but not returned).
 ///
 /// # Parameters
 /// - `producer`: An optional Kafka producer to send messages to Kafka.
+/// - `secondary_producer`: An optional secondary Kafka producer for dual-write scenarios.
 /// - `topic`: The Kafka topic to which the message will be published.
 /// - `key`: A string key associated with the message for Kafka.
 /// - `message`: The message to be serialized and sent to Kafka.
 ///
 /// # Returns
-/// - `Ok(())`: If the message is successfully pushed to Kafka.
-/// - `Err(AppError)`: If there's an error during serialization or Kafka push.
+/// - `Ok(())`: If the message is successfully pushed to primary Kafka.
+/// - `Err(AppError)`: If there's an error during serialization or primary Kafka push.
 ///
 /// # Type Parameters
 /// - `T`: The type of the message, which must implement the `Serialize` trait.
 pub async fn push_to_kafka<T>(
     producer: &Option<FutureProducer>,
+    secondary_producer: &Option<FutureProducer>,
     topic: &str,
     key: &str,
     message: T,
@@ -42,23 +52,34 @@ pub async fn push_to_kafka<T>(
 where
     T: Serialize,
 {
-    let message = serde_json::to_string(&message)
+    let message_str = serde_json::to_string(&message)
         .map_err(|err| AppError::SerializationError(err.to_string()))?;
 
+    // Push to primary producer (blocking, throws on failure)
     match producer {
         Some(producer) => {
             producer
                 .send(
-                    FutureRecord::to(topic).key(key).payload(&message),
+                    FutureRecord::to(topic).key(key).payload(&message_str),
                     Timeout::After(Duration::from_secs(1)),
                 )
                 .await
                 .map_err(|err| AppError::KafkaPushFailed(err.0.to_string()))?;
-
-            Ok(())
         }
-        None => Err(AppError::KafkaPushFailed(
-            "[Kafka] Producer is None, unable to send message".to_string(),
-        )),
+        None => {
+            return Err(AppError::KafkaPushFailed(
+                "[Kafka] Producer is None, unable to send message".to_string(),
+            ))
+        }
     }
+
+    // Push to secondary producer if enabled (fire-and-forget, drop future)
+    if should_produce_secondary() {
+        if let Some(secondary_producer) = secondary_producer {
+            let record = FutureRecord::to(topic).key(key).payload(&message_str);
+            let _ = secondary_producer.send(record, Timeout::After(Duration::from_secs(1)));
+        }
+    }
+
+    Ok(())
 }

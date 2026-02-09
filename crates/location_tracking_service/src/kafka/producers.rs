@@ -21,6 +21,7 @@ use rdkafka::producer::FutureProducer;
 ///
 /// # Parameters
 /// - `producer`: An optional Kafka producer to send messages to Kafka.
+/// - `secondary_producer`: An optional secondary Kafka producer for dual-write scenarios.
 /// - `topic`: The Kafka topic to which the location updates will be published.
 /// - `locations`: A list of location updates for a driver.
 /// - `merchant_id`: The unique identifier for the merchant.
@@ -35,6 +36,7 @@ use rdkafka::producer::FutureProducer;
 #[allow(clippy::too_many_arguments)]
 pub async fn kafka_stream_updates(
     producer: &Option<FutureProducer>,
+    secondary_producer: &Option<FutureProducer>,
     topic: &str,
     locations: Vec<(UpdateDriverLocationRequest, LocationType)>,
     server_timestamp: TimeStamp,
@@ -90,7 +92,9 @@ pub async fn kafka_stream_updates(
             location_type,
             next_upcoming_stop_eta, // travelled_distance: travelled_distance.to_owned(),
         };
-        if let Err(err) = push_to_kafka(producer, topic, key.as_str(), message).await {
+        if let Err(err) =
+            push_to_kafka(producer, secondary_producer, topic, key.as_str(), message).await
+        {
             error!("Error occured in push_to_kafka => {}", err.message())
         }
     }
