@@ -44,6 +44,7 @@ pub struct AppConfig {
     pub location_update_interval: u64,
     pub stop_detection: HashMap<VehicleType, HashMap<RideStatus, StopDetectionConfig>>,
     pub kafka_cfg: KafkaConfig,
+    pub secondary_kafka_cfg: Option<KafkaConfig>,
     pub driver_location_update_topic: String,
     pub batch_size: i64,
     pub bucket_size: u64,
@@ -145,6 +146,7 @@ pub struct AppState {
     pub location_update_limit: usize,
     pub location_update_interval: u64,
     pub producer: Option<FutureProducer>,
+    pub secondary_producer: Option<FutureProducer>,
     pub driver_location_update_topic: String,
     pub batch_size: i64,
     pub bucket_size: u64,
@@ -273,6 +275,33 @@ impl AppState {
             }
         }
 
+        let secondary_producer: Option<FutureProducer> = match app_config.secondary_kafka_cfg {
+            Some(secondary_cfg) => {
+                let result: Result<FutureProducer, KafkaError> = ClientConfig::new()
+                    .set(secondary_cfg.kafka_key, secondary_cfg.kafka_host)
+                    .set("compression.type", "lz4")
+                    .create();
+
+                match result {
+                    Ok(val) => {
+                        info!(
+                            tag = "[Kafka Connection]",
+                            "Secondary Kafka producer connected successfully"
+                        );
+                        Some(val)
+                    }
+                    Err(err) => {
+                        info!(
+                            tag = "[Kafka Connection]",
+                            "Error connecting to secondary kafka config: {err}"
+                        );
+                        None
+                    }
+                }
+            }
+            None => None,
+        };
+
         let blacklist_merchants = app_config
             .blacklist_merchants
             .into_iter()
@@ -302,6 +331,7 @@ impl AppState {
             location_update_limit: app_config.location_update_limit,
             location_update_interval: app_config.location_update_interval,
             producer,
+            secondary_producer,
             driver_location_update_topic: app_config.driver_location_update_topic,
             batch_size: app_config.batch_size,
             bucket_size: app_config.bucket_size,
