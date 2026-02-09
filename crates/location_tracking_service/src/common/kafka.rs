@@ -8,6 +8,7 @@
 use std::time::Duration;
 
 use crate::tools::error::AppError;
+use log::error;
 use rdkafka::{
     producer::{FutureProducer, FutureRecord},
     util::Timeout,
@@ -73,11 +74,19 @@ where
         }
     }
 
-    // Push to secondary producer if enabled (fire-and-forget, drop future)
+    // Push to secondary producer if enabled (non-blocking, logs errors)
     if should_produce_secondary() {
         if let Some(secondary_producer) = secondary_producer {
             let record = FutureRecord::to(topic).key(key).payload(&message_str);
-            let _ = secondary_producer.send(record, Timeout::After(Duration::from_secs(1)));
+            if let Err(err) = secondary_producer
+                .send(record, Timeout::After(Duration::from_secs(1)))
+                .await
+            {
+                error!(
+                    "[Kafka Secondary] Secondary Kafka produce failed: {}",
+                    err.0
+                );
+            }
         }
     }
 
