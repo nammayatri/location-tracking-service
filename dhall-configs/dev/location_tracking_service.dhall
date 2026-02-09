@@ -1,6 +1,6 @@
 let redis_cfg = {
-    redis_host = "0.0.0.0",
-    redis_port = 6380,
+    redis_host = "localhost",
+    redis_port = 6379,
     redis_pool_size = 10,
     redis_partition = 0,
     reconnect_max_attempts = 10,
@@ -11,8 +11,8 @@ let redis_cfg = {
     broadcast_channel_capacity = 10
 }
 let replica_redis_cfg = {
-    redis_host = "0.0.0.0",
-    redis_port = 6380,
+    redis_host = "localhost",
+    redis_port = 6379,
     redis_pool_size = 10,
     redis_partition = 0,
     reconnect_max_attempts = 10,
@@ -30,6 +30,10 @@ let zone_to_redis_replica_mapping =
 let kafka_cfg = {
     kafka_key = "bootstrap.servers",
     kafka_host = "0.0.0.0:9092"
+}
+let secondary_kafka_cfg = Some {
+    kafka_key = "bootstrap.servers",
+    kafka_host = "0.0.0.0:9093"
 }
 let LogLevel = < TRACE | DEBUG | INFO | WARN | ERROR | OFF >
 let logger_cfg = {
@@ -449,6 +453,7 @@ in {
     drainer_size = 10,
     drainer_delay = 20,
     kafka_cfg = kafka_cfg,
+    secondary_kafka_cfg = secondary_kafka_cfg,
     port = 8081,
     auth_url = "http://127.0.0.1:8016/internal/auth",
     auth_api_key = "ae288466-2add-11ee-be56-0242ac120002",
