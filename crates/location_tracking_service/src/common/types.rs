@@ -333,6 +333,7 @@ pub struct DriverLastKnownLocation {
     pub vehicle_type: Option<VehicleType>,
     pub group_id: Option<String>,
     pub group_id2: Option<String>,
+    pub driver_mode: Option<DriverMode>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
