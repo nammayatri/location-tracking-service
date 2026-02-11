@@ -6,11 +6,13 @@
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
+use crate::domain::types::ui::location::PersonType;
 use crate::environment::AppState;
 use crate::redis::commands::*;
 use crate::tools::error::AppError;
 use crate::{common::types::*, domain::types::internal::ride::*};
 use actix_web::web::Data;
+use std::str::FromStr;
 
 pub async fn ride_create(
     ride_id: RideId,
@@ -220,4 +222,109 @@ pub async fn ride_details(
     }
 
     Ok(APISuccess::default())
+}
+
+/// Generic entity upsert: create (ride only), start, or end. Uses generic Redis keys; rider-only for now.
+pub async fn entity_upsert(
+    person_type: &str,
+    entity_type: &str,
+    entity_id_str: &str,
+    data: Data<AppState>,
+    request_body: EntityUpsertRequest,
+) -> Result<EntityUpsertResponse, AppError> {
+    let entity_id = match entity_type.to_lowercase().as_str() {
+        "ride" => EntityId::Ride(RideId(entity_id_str.to_string())),
+        "sos" => EntityId::Sos(SosId(entity_id_str.to_string())),
+        _ => {
+            return Err(AppError::InvalidRequest(format!(
+                "Unknown entity_type: {}",
+                entity_type
+            )))
+        }
+    };
+    let person_type = PersonType::from_str(person_type)
+        .map_err(|_| AppError::InvalidRequest(format!("Invalid person_type: {}", person_type)))?;
+    let person_id = PersonId(request_body.person_id.clone());
+    let merchant_id = &request_body.merchant_id;
+
+    match &request_body.entity_info {
+        EntityInfo::EntityCreate => {
+            if entity_type.eq_ignore_ascii_case("sos") {
+                return Err(AppError::InvalidRequest(
+                    "EntityCreate is not supported for SOS".to_string(),
+                ));
+            }
+            let details = PersonEntityDetails {
+                entity_id: entity_id.clone(),
+                merchant_id: merchant_id.clone(),
+            };
+            set_entity_details_for_person(
+                &data.redis,
+                merchant_id,
+                person_type,
+                &person_id,
+                &details,
+                &data.redis_expiry,
+            )
+            .await?;
+            set_person_by_entity(
+                &data.redis,
+                entity_type,
+                entity_id_str,
+                &person_id,
+                &data.redis_expiry,
+            )
+            .await?;
+            Ok(EntityUpsertResponse::APISuccess(APISuccess::default()))
+        }
+        EntityInfo::EntityStart => {
+            let details = PersonEntityDetails {
+                entity_id: entity_id.clone(),
+                merchant_id: merchant_id.clone(),
+            };
+            set_entity_details_for_person(
+                &data.redis,
+                merchant_id,
+                person_type,
+                &person_id,
+                &details,
+                &data.redis_expiry,
+            )
+            .await?;
+            set_person_by_entity(
+                &data.redis,
+                entity_type,
+                entity_id_str,
+                &person_id,
+                &data.redis_expiry,
+            )
+            .await?;
+            Ok(EntityUpsertResponse::APISuccess(APISuccess::default()))
+        }
+        EntityInfo::EntityEnd { lat, lon } => {
+            let batch_size = data.batch_size;
+            let mut loc = get_entity_locations(
+                &data.redis,
+                merchant_id,
+                person_type,
+                &person_id,
+                batch_size,
+            )
+            .await?;
+            loc.push(Point {
+                lat: *lat,
+                lon: *lon,
+            });
+            entity_cleanup_generic(
+                &data.redis,
+                merchant_id,
+                person_type,
+                &person_id,
+                entity_type,
+                entity_id_str,
+            )
+            .await?;
+            Ok(EntityUpsertResponse::EntityEnd { loc })
+        }
+    }
 }

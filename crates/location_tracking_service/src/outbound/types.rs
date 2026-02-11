@@ -20,11 +20,12 @@ pub struct AuthResponseData {
     pub merchant_operating_city_id: MerchantOperatingCityId,
 }
 
-// BAP Authentication (rider SOS)
+// BAP Authentication (rider SOS). BAP sends "riderId" in JSON; we expose as person_id.
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BapAuthResponseData {
-    pub rider_id: RiderId,
+    #[serde(rename = "riderId")]
+    pub person_id: PersonId,
     pub merchant_id: MerchantId,
     pub merchant_operating_city_id: MerchantOperatingCityId,
 }

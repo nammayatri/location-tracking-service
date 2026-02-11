@@ -76,3 +76,16 @@ async fn ride_details(
 
     Ok(Json(ride::ride_details(data, request_body).await?))
 }
+
+#[post("/internal/entity/{person_type}/{entity_type}/{entity_id}/upsert")]
+async fn entity_upsert(
+    data: Data<AppState>,
+    path: Path<(String, String, String)>,
+    param_obj: Json<EntityUpsertRequest>,
+) -> Result<Json<EntityUpsertResponse>, AppError> {
+    let (person_type, entity_type, entity_id) = path.into_inner();
+    let request_body = param_obj.into_inner();
+    Ok(Json(
+        ride::entity_upsert(&person_type, &entity_type, &entity_id, data, request_body).await?,
+    ))
+}

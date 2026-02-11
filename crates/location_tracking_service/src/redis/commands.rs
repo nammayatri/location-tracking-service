@@ -6,6 +6,7 @@
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 use crate::common::types::*;
+use crate::domain::types::ui::location::PersonType;
 use crate::redis::keys::*;
 use crate::tools::error::AppError;
 use fred::types::{GeoPosition, GeoUnit, SortOrder};
@@ -574,72 +575,204 @@ pub async fn get_driver_id(
         .map_err(|err| AppError::InternalError(err.to_string()))
 }
 
-/// Caches rider SOS auth data (token -> RiderSosAuthData).
-pub async fn set_rider_sos_auth_data(
+// --- Generic person/entity Redis commands (unified keys) ---
+
+/// Gets person auth data by token.
+pub async fn get_person_identifier(
     redis: &RedisConnectionPool,
-    auth_token_expiry: &u32,
+    person_type: PersonType,
     token: &Token,
-    auth_data: RiderSosAuthData,
+) -> Result<Option<PersonAuthData>, AppError> {
+    redis
+        .get_key::<PersonAuthData>(&identifier_key(person_type, token))
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
+/// Sets person identifier (token → auth data).
+pub async fn set_person_identifier(
+    redis: &RedisConnectionPool,
+    person_type: PersonType,
+    token: &Token,
+    auth_data: &PersonAuthData,
+    expiry: &u32,
 ) -> Result<(), AppError> {
     redis
-        .set_key(&rider_sos_auth_key(token), auth_data, *auth_token_expiry)
+        .set_key(&identifier_key(person_type, token), auth_data, *expiry)
         .await
         .map_err(|err| AppError::InternalError(err.to_string()))
 }
 
-/// Retrieves cached rider SOS auth data by token.
-pub async fn get_rider_sos_auth_data(
+/// Gets entity details for a person (current entity_id, merchant_id).
+pub async fn get_entity_details_for_person(
     redis: &RedisConnectionPool,
-    token: &Token,
-) -> Result<Option<RiderSosAuthData>, AppError> {
-    redis
-        .get_key::<RiderSosAuthData>(&rider_sos_auth_key(token))
-        .await
-        .map_err(|err| AppError::InternalError(err.to_string()))
-}
-
-/// Retrieves rider SOS location/details by SOS ID.
-pub async fn get_rider_sos_location(
-    redis: &RedisConnectionPool,
-    sos_id: &SosId,
-) -> Result<Option<RiderSosAllDetails>, AppError> {
-    redis
-        .get_key::<RiderSosAllDetails>(&rider_sos_details_key(sos_id))
-        .await
-        .map_err(|err| AppError::InternalError(err.to_string()))
-}
-
-/// Stores rider SOS last known location.
-pub async fn set_rider_sos_last_location_update(
-    redis: &RedisConnectionPool,
-    last_location_timestamp_expiry: &u32,
-    sos_id: &SosId,
     merchant_id: &MerchantId,
-    last_location_pt: &Point,
-    last_location_ts: &TimeStamp,
-    bear: &Option<Direction>,
-) -> Result<RiderSosLastKnownLocation, AppError> {
-    let last_known_location = RiderSosLastKnownLocation {
-        location: Point {
-            lat: last_location_pt.lat,
-            lon: last_location_pt.lon,
-        },
-        timestamp: *last_location_ts,
-        merchant_id: merchant_id.to_owned(),
-        bear: *bear,
-    };
-    let value = RiderSosAllDetails {
-        rider_sos_last_known_location: last_known_location.clone(),
-    };
+    person_type: PersonType,
+    person_id: &PersonId,
+) -> Result<Option<PersonEntityDetails>, AppError> {
+    redis
+        .get_key::<PersonEntityDetails>(&entity_details_key(merchant_id, person_type, person_id))
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
+/// Sets entity details for a person.
+pub async fn set_entity_details_for_person(
+    redis: &RedisConnectionPool,
+    merchant_id: &MerchantId,
+    person_type: PersonType,
+    person_id: &PersonId,
+    details: &PersonEntityDetails,
+    expiry: &u32,
+) -> Result<(), AppError> {
     redis
         .set_key(
-            &rider_sos_details_key(sos_id),
-            value,
-            *last_location_timestamp_expiry,
+            &entity_details_key(merchant_id, person_type, person_id),
+            details,
+            *expiry,
         )
         .await
-        .map_err(|err| AppError::InternalError(err.to_string()))?;
-    Ok(last_known_location)
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
+/// Gets person ID by entity (entity_type: "ride" | "sos", entity_id: id string).
+pub async fn get_person_by_entity(
+    redis: &RedisConnectionPool,
+    entity_type: &str,
+    entity_id: &str,
+) -> Result<Option<String>, AppError> {
+    redis
+        .get_key::<String>(&person_detail_by_entity_key(entity_type, entity_id))
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
+/// Sets person ↔ entity mapping (person_id string stored by entity).
+pub async fn set_person_by_entity(
+    redis: &RedisConnectionPool,
+    entity_type: &str,
+    entity_id: &str,
+    person_id: &PersonId,
+    expiry: &u32,
+) -> Result<(), AppError> {
+    redis
+        .set_key(
+            &person_detail_by_entity_key(entity_type, entity_id),
+            person_id.inner().clone(),
+            *expiry,
+        )
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
+/// Gets person detail (last location, etc.).
+pub async fn get_person_detail(
+    redis: &RedisConnectionPool,
+    person_type: PersonType,
+    person_id: &PersonId,
+) -> Result<Option<PersonAllDetails>, AppError> {
+    redis
+        .get_key::<PersonAllDetails>(&person_detail_key(person_type, person_id))
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
+/// Sets person detail (last known location).
+pub async fn set_person_detail(
+    redis: &RedisConnectionPool,
+    person_type: PersonType,
+    person_id: &PersonId,
+    details: &PersonAllDetails,
+    expiry: &u32,
+) -> Result<(), AppError> {
+    redis
+        .set_key(&person_detail_key(person_type, person_id), details, *expiry)
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
+/// Pushes locations to entity location list (vector, same as driver on_ride).
+pub async fn push_entity_locations(
+    redis: &RedisConnectionPool,
+    merchant_id: &MerchantId,
+    person_type: PersonType,
+    person_id: &PersonId,
+    geo_entries: Vec<Point>,
+    rpush_expiry: &u32,
+) -> Result<i64, AppError> {
+    redis
+        .rpush_with_expiry(
+            &entity_loc_key(merchant_id, person_type, person_id),
+            geo_entries,
+            *rpush_expiry,
+        )
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
+/// Gets entity location list length.
+pub async fn get_entity_locations_count(
+    redis: &RedisConnectionPool,
+    merchant_id: &MerchantId,
+    person_type: PersonType,
+    person_id: &PersonId,
+) -> Result<i64, AppError> {
+    redis
+        .llen(&entity_loc_key(merchant_id, person_type, person_id))
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
+/// Gets entity locations and optionally removes them (for entity end).
+pub async fn get_entity_locations(
+    redis: &RedisConnectionPool,
+    merchant_id: &MerchantId,
+    person_type: PersonType,
+    person_id: &PersonId,
+    len: i64,
+) -> Result<Vec<Point>, AppError> {
+    redis
+        .lrange::<Point>(&entity_loc_key(merchant_id, person_type, person_id), 0, len)
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
+/// Gets entity locations and deletes them (pop).
+pub async fn get_entity_locations_and_delete(
+    redis: &RedisConnectionPool,
+    merchant_id: &MerchantId,
+    person_type: PersonType,
+    person_id: &PersonId,
+    len: i64,
+) -> Result<Vec<Point>, AppError> {
+    redis
+        .lpop::<Point>(
+            &entity_loc_key(merchant_id, person_type, person_id),
+            Some(len as usize),
+        )
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
+/// Deletes all generic entity keys for a person (entity_details, person_detail_by_entity, entity_loc, person_detail).
+pub async fn entity_cleanup_generic(
+    redis: &RedisConnectionPool,
+    merchant_id: &MerchantId,
+    person_type: PersonType,
+    person_id: &PersonId,
+    entity_type: &str,
+    entity_id: &str,
+) -> Result<(), AppError> {
+    let keys = [
+        entity_details_key(merchant_id, person_type, person_id),
+        person_detail_by_entity_key(entity_type, entity_id),
+        entity_loc_key(merchant_id, person_type, person_id),
+        person_detail_key(person_type, person_id),
+    ];
+    redis
+        .delete_keys(keys.iter().map(String::as_str).collect::<Vec<&str>>())
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
 }
 
 /// Executes a callback function while maintaining a lock in Redis.
