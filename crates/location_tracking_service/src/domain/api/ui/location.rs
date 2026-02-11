@@ -102,14 +102,15 @@ async fn track_driver_location(
     Ok(Json(location::track_driver_location(data, ride_id).await?))
 }
 
-#[post("/ui/riderSos/location")]
-pub async fn update_rider_sos_location(
+#[post("/ui/rider/location/{riderId}")]
+pub async fn update_rider_location(
     data: Data<AppState>,
-    param_obj: Json<UpdateRiderSosLocationRequest>,
+    path: Path<String>,
+    param_obj: Json<UpdateRiderLocationRequest>,
     req: HttpRequest,
 ) -> Result<HttpResponse, AppError> {
+    let rider_id = RiderId(path.into_inner());
     let request_body = param_obj.into_inner();
-    let sos_id = request_body.sos_id.to_owned();
 
     let token = req
         .headers()
@@ -120,17 +121,37 @@ pub async fn update_rider_sos_location(
             "token (Header) not found".to_string(),
         ))?;
 
-    location::update_rider_sos_location_by_token(Token(token), data, sos_id, request_body).await?;
+    location::update_rider_location_by_token(Token(token), data, rider_id, request_body).await?;
     Ok(HttpResponse::Ok().finish())
 }
 
-#[get("/ui/rider/location/{sosId}")]
-pub async fn track_rider_sos_location(
+#[get("/ui/rider/location/ride/{rideId}")]
+pub async fn track_rider_location_by_ride(
     data: Data<AppState>,
     path: Path<String>,
-) -> Result<Json<RiderSosLocationResponse>, AppError> {
-    let sos_id = SosId(path.into_inner());
+) -> Result<Json<RiderLocationResponse>, AppError> {
+    let entity_id = EntityId::Ride(RideId(path.into_inner()));
     Ok(Json(
-        location::track_rider_sos_location(data, sos_id).await?,
+        location::track_rider_location_by_entity(data, entity_id).await?,
     ))
+}
+
+#[get("/ui/rider/location/sos/{sosId}")]
+pub async fn track_rider_location_by_sos(
+    data: Data<AppState>,
+    path: Path<String>,
+) -> Result<Json<RiderLocationResponse>, AppError> {
+    let entity_id = EntityId::Sos(SosId(path.into_inner()));
+    Ok(Json(
+        location::track_rider_location_by_entity(data, entity_id).await?,
+    ))
+}
+
+#[get("/ui/rider/location/{riderId}")]
+pub async fn track_rider_location(
+    data: Data<AppState>,
+    path: Path<String>,
+) -> Result<Json<RiderLocationResponse>, AppError> {
+    let rider_id = RiderId(path.into_inner());
+    Ok(Json(location::track_rider_location(data, rider_id).await?))
 }

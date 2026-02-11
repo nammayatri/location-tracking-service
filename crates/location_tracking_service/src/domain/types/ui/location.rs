@@ -25,17 +25,20 @@ pub struct DriverLocationResponse {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct UpdateRiderSosLocationRequest {
-    pub sos_id: SosId,
+#[serde(rename_all = "camelCase")]
+pub struct UpdateRiderLocationRequest {
     pub pt: Point,
     pub acc: Option<Accuracy>,
     pub v: Option<SpeedInMeterPerSecond>,
     pub bear: Option<Direction>,
+    /// When both present, current entity (SOS or Ride) is persisted for riderId ↔ entityId mapping.
+    pub entity_type: Option<String>,
+    pub entity_id: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
-pub struct RiderSosLocationResponse {
+pub struct RiderLocationResponse {
     pub curr_point: Point,
     pub last_update: TimeStamp,
 }

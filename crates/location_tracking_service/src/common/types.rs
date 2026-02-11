@@ -16,7 +16,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::VecDeque;
 use strum_macros::{Display, EnumIter, EnumString};
 
-#[derive(Deserialize, Serialize, Clone, Debug, Eq, PartialEq)]
+#[derive(Deserialize, Serialize, Clone, Debug, Eq, Hash, PartialEq)]
 #[macros::impl_getter]
 pub struct RideId(pub String);
 #[derive(Deserialize, Serialize, Clone, Debug, Eq, Hash, PartialEq)]
@@ -736,15 +736,31 @@ pub struct DriverByPlateResp {
 #[macros::impl_getter]
 pub struct SosId(pub String);
 
+/// Entity identifier for a rider's current context: either an SOS or a Ride.
+#[derive(Deserialize, Serialize, Clone, Debug, Eq, Hash, PartialEq)]
+#[serde(tag = "entityType", content = "entityId")]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum EntityId {
+    Sos(SosId),
+    Ride(RideId),
+}
+
+/// Rider → entity mapping stored in Redis (riderId → entityId + merchant_id).
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct RiderEntityDetails {
+    pub entity_id: EntityId,
+    pub merchant_id: MerchantId,
+}
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct RiderSosAuthData {
+pub struct RiderAuthData {
     pub rider_id: RiderId,
     pub merchant_id: MerchantId,
     pub merchant_operating_city_id: MerchantOperatingCityId,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct RiderSosLastKnownLocation {
+pub struct RiderLastKnownLocation {
     pub location: Point,
     pub timestamp: TimeStamp,
     pub merchant_id: MerchantId,
@@ -752,6 +768,6 @@ pub struct RiderSosLastKnownLocation {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct RiderSosAllDetails {
-    pub rider_sos_last_known_location: RiderSosLastKnownLocation,
+pub struct RiderAllDetails {
+    pub rider_last_known_location: RiderLastKnownLocation,
 }

@@ -76,3 +76,35 @@ async fn ride_details(
 
     Ok(Json(ride::ride_details(data, request_body).await?))
 }
+
+#[post("/internal/rider/entity/ride/{rideId}/end")]
+async fn rider_entity_end_by_ride(
+    data: Data<AppState>,
+    path: Path<String>,
+) -> Result<Json<APISuccess>, AppError> {
+    let entity_id = EntityId::Ride(RideId(path.into_inner()));
+    Ok(Json(
+        ride::rider_entity_end_by_entity(data, entity_id).await?,
+    ))
+}
+
+#[post("/internal/rider/entity/sos/{sosId}/end")]
+async fn rider_entity_end_by_sos(
+    data: Data<AppState>,
+    path: Path<String>,
+) -> Result<Json<APISuccess>, AppError> {
+    let entity_id = EntityId::Sos(SosId(path.into_inner()));
+    Ok(Json(
+        ride::rider_entity_end_by_entity(data, entity_id).await?,
+    ))
+}
+
+#[post("/internal/rider/entity/{riderId}/end")]
+async fn rider_entity_end(
+    data: Data<AppState>,
+    path: Path<String>,
+) -> Result<Json<APISuccess>, AppError> {
+    let rider_id = RiderId(path.into_inner());
+
+    Ok(Json(ride::rider_entity_end(rider_id, data).await?))
+}

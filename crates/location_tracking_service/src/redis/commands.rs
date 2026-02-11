@@ -574,52 +574,52 @@ pub async fn get_driver_id(
         .map_err(|err| AppError::InternalError(err.to_string()))
 }
 
-/// Caches rider SOS auth data (token -> RiderSosAuthData).
-pub async fn set_rider_sos_auth_data(
+/// Caches rider auth data (token -> RiderAuthData).
+pub async fn set_rider_auth_data(
     redis: &RedisConnectionPool,
     auth_token_expiry: &u32,
     token: &Token,
-    auth_data: RiderSosAuthData,
+    auth_data: RiderAuthData,
 ) -> Result<(), AppError> {
     redis
-        .set_key(&rider_sos_auth_key(token), auth_data, *auth_token_expiry)
+        .set_key(&rider_auth_key(token), auth_data, *auth_token_expiry)
         .await
         .map_err(|err| AppError::InternalError(err.to_string()))
 }
 
-/// Retrieves cached rider SOS auth data by token.
-pub async fn get_rider_sos_auth_data(
+/// Retrieves cached rider auth data by token.
+pub async fn get_rider_auth_data(
     redis: &RedisConnectionPool,
     token: &Token,
-) -> Result<Option<RiderSosAuthData>, AppError> {
+) -> Result<Option<RiderAuthData>, AppError> {
     redis
-        .get_key::<RiderSosAuthData>(&rider_sos_auth_key(token))
+        .get_key::<RiderAuthData>(&rider_auth_key(token))
         .await
         .map_err(|err| AppError::InternalError(err.to_string()))
 }
 
-/// Retrieves rider SOS location/details by SOS ID.
-pub async fn get_rider_sos_location(
+/// Retrieves rider location/details by rider ID.
+pub async fn get_rider_location(
     redis: &RedisConnectionPool,
-    sos_id: &SosId,
-) -> Result<Option<RiderSosAllDetails>, AppError> {
+    rider_id: &RiderId,
+) -> Result<Option<RiderAllDetails>, AppError> {
     redis
-        .get_key::<RiderSosAllDetails>(&rider_sos_details_key(sos_id))
+        .get_key::<RiderAllDetails>(&rider_details_key(rider_id))
         .await
         .map_err(|err| AppError::InternalError(err.to_string()))
 }
 
-/// Stores rider SOS last known location.
-pub async fn set_rider_sos_last_location_update(
+/// Stores rider last known location by rider ID.
+pub async fn set_rider_last_location_update(
     redis: &RedisConnectionPool,
     last_location_timestamp_expiry: &u32,
-    sos_id: &SosId,
+    rider_id: &RiderId,
     merchant_id: &MerchantId,
     last_location_pt: &Point,
     last_location_ts: &TimeStamp,
     bear: &Option<Direction>,
-) -> Result<RiderSosLastKnownLocation, AppError> {
-    let last_known_location = RiderSosLastKnownLocation {
+) -> Result<RiderLastKnownLocation, AppError> {
+    let last_known_location = RiderLastKnownLocation {
         location: Point {
             lat: last_location_pt.lat,
             lon: last_location_pt.lon,
@@ -628,18 +628,88 @@ pub async fn set_rider_sos_last_location_update(
         merchant_id: merchant_id.to_owned(),
         bear: *bear,
     };
-    let value = RiderSosAllDetails {
-        rider_sos_last_known_location: last_known_location.clone(),
+    let value = RiderAllDetails {
+        rider_last_known_location: last_known_location.clone(),
     };
     redis
         .set_key(
-            &rider_sos_details_key(sos_id),
+            &rider_details_key(rider_id),
             value,
             *last_location_timestamp_expiry,
         )
         .await
         .map_err(|err| AppError::InternalError(err.to_string()))?;
     Ok(last_known_location)
+}
+
+/// Sets riderId ↔ entityId mapping (both directions). Called when entity_type and entity_id are present on location update.
+pub async fn set_rider_entity_mapping(
+    redis: &RedisConnectionPool,
+    expiry: &u32,
+    rider_id: &RiderId,
+    merchant_id: &MerchantId,
+    entity_id: &EntityId,
+) -> Result<(), AppError> {
+    let details = RiderEntityDetails {
+        entity_id: entity_id.clone(),
+        merchant_id: merchant_id.clone(),
+    };
+    redis
+        .set_key(&rider_entity_details_key(rider_id), details, *expiry)
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))?;
+    redis
+        .set_key(&rider_by_entity_key(entity_id), rider_id.clone(), *expiry)
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))?;
+    Ok(())
+}
+
+/// Retrieves rider → entity mapping by rider ID.
+pub async fn get_rider_entity_details(
+    redis: &RedisConnectionPool,
+    rider_id: &RiderId,
+) -> Result<Option<RiderEntityDetails>, AppError> {
+    redis
+        .get_key::<RiderEntityDetails>(&rider_entity_details_key(rider_id))
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
+/// Retrieves rider ID by entity ID (reverse lookup).
+pub async fn get_rider_by_entity(
+    redis: &RedisConnectionPool,
+    entity_id: &EntityId,
+) -> Result<Option<RiderId>, AppError> {
+    redis
+        .get_key::<RiderId>(&rider_by_entity_key(entity_id))
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
+/// Cleans up all keys related to a rider entity.
+pub async fn rider_entity_cleanup(
+    redis: &RedisConnectionPool,
+    rider_id: &RiderId,
+) -> Result<(), AppError> {
+    let mut keys_to_delete = vec![
+        rider_details_key(rider_id),
+        rider_processing_lock_key(rider_id),
+        rider_entity_details_key(rider_id),
+    ];
+    if let Some(details) = get_rider_entity_details(redis, rider_id).await? {
+        keys_to_delete.push(rider_by_entity_key(&details.entity_id));
+    }
+    redis
+        .delete_keys(
+            keys_to_delete
+                .iter()
+                .map(|s| s.as_str())
+                .collect::<Vec<&str>>(),
+        )
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))?;
+    Ok(())
 }
 
 /// Executes a callback function while maintaining a lock in Redis.

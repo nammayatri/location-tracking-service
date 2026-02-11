@@ -53,7 +53,7 @@ pub enum AppError {
     InvalidGPSData(String),
     VehicleNotInActiveTrip(String),
     RiderSosAuthFailed,
-    RiderSosLocationNotFound,
+    RiderLocationNotFound,
 }
 
 impl AppError {
@@ -99,7 +99,7 @@ impl AppError {
                 format!("Sending Violation Alert Failed : {reason}")
             }
             AppError::RiderSosAuthFailed => "Rider SOS authentication failed".to_string(),
-            AppError::RiderSosLocationNotFound => "Rider SOS location not found".to_string(),
+            AppError::RiderLocationNotFound => "Rider location not found".to_string(),
             _ => "Some Error Occured".to_string(),
         }
     }
@@ -139,7 +139,7 @@ impl AppError {
             AppError::InvalidGPSData(_) => "INVALID_GPS_DATA",
             AppError::VehicleNotInActiveTrip(_) => "VEHICLE_NOT_IN_ACTIVE_TRIP",
             AppError::RiderSosAuthFailed => "RIDER_SOS_AUTH_FAILED",
-            AppError::RiderSosLocationNotFound => "RIDER_SOS_LOCATION_NOT_FOUND",
+            AppError::RiderLocationNotFound => "RIDER_LOCATION_NOT_FOUND",
         }
         .to_string()
     }
@@ -185,7 +185,7 @@ impl ResponseError for AppError {
             AppError::InvalidGPSData(_) => StatusCode::UNPROCESSABLE_ENTITY,
             AppError::VehicleNotInActiveTrip(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::RiderSosAuthFailed => StatusCode::UNAUTHORIZED,
-            AppError::RiderSosLocationNotFound => StatusCode::NOT_FOUND,
+            AppError::RiderLocationNotFound => StatusCode::NOT_FOUND,
         }
     }
 }
