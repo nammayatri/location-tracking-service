@@ -195,3 +195,36 @@ pub fn google_route_duration_cache_processing_key() -> String {
 pub fn driver_info_by_plate_key(plate_number: &str) -> String {
     format!("lts:driver_info:plate:{}", plate_number)
 }
+
+/// Redis key for caching rider auth (token -> RiderAuthData).
+pub fn rider_auth_key(Token(token): &Token) -> String {
+    format!("lts:rider_auth:{token}")
+}
+
+/// Redis key for rider location/details by rider ID (primary storage key).
+pub fn rider_details_key(RiderId(rider_id): &RiderId) -> String {
+    format!("lts:rider_details:{rider_id}")
+}
+
+/// Redis key for rider processing lock.
+pub fn rider_processing_lock_key(RiderId(rider_id): &RiderId) -> String {
+    format!("lts:rider:processing:{rider_id}")
+}
+
+/// Redis key for rider rate limiter (sliding window).
+pub fn rider_rate_limiter_key(RiderId(rider_id): &RiderId, CityName(city): &CityName) -> String {
+    format!("lts:ratelimit:rider:{rider_id}:{city}")
+}
+
+/// Redis key for rider → entity mapping (riderId → RiderEntityDetails).
+pub fn rider_entity_details_key(RiderId(rider_id): &RiderId) -> String {
+    format!("lts:rider_entity_details:{rider_id}")
+}
+
+/// Redis key for entity → rider mapping (entityId → RiderId). Encodes variant to avoid id collision.
+pub fn rider_by_entity_key(entity_id: &EntityId) -> String {
+    match entity_id {
+        EntityId::Sos(SosId(id)) => format!("lts:rider_by_entity:sos:{id}"),
+        EntityId::Ride(RideId(id)) => format!("lts:rider_by_entity:ride:{id}"),
+    }
+}

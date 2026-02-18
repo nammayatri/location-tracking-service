@@ -74,6 +74,54 @@ pub async fn authenticate_dobpp(
     .await
 }
 
+/// Authenticates a rider SOS session using the BAP API.
+///
+/// Communicates with the BAP authentication service to verify the token
+/// and obtain SOS ID and merchant context.
+pub async fn authenticate_bap(
+    auth_url: &Url,
+    token: &str,
+    auth_api_key: &str,
+) -> Result<BapAuthResponseData, AppError> {
+    #[derive(Serialize, Deserialize, Clone, Debug)]
+    #[serde(rename_all = "camelCase")]
+    struct AuthError {
+        pub error_code: String,
+        pub error_message: Option<String>,
+    }
+    call_api_unwrapping_error::<BapAuthResponseData, String, AppError>(
+        Protocol::Http1,
+        Method::GET,
+        auth_url,
+        vec![
+            ("content-type", "application/json"),
+            ("token", token),
+            ("api-key", auth_api_key),
+        ],
+        None,
+        None,
+        Box::new(|resp| {
+            Box::pin(async move {
+                if resp.status() == StatusCode::BAD_REQUEST {
+                    if let Ok(error_resp) = resp
+                        .json::<AuthError>()
+                        .await
+                        .map_err(|_| AppError::RiderSosAuthFailed)
+                    {
+                        if error_resp.error_code == "TOKEN_EXPIRED" {
+                            return AppError::RiderSosAuthFailed;
+                        }
+                    }
+                    AppError::RiderSosAuthFailed
+                } else {
+                    AppError::RiderSosAuthFailed
+                }
+            })
+        }),
+    )
+    .await
+}
+
 /// Sends a bulk location update to the `dobpp` endpoint.
 ///
 /// This function communicates with an external service to update the

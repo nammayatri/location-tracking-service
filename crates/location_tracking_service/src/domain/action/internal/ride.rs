@@ -221,3 +221,23 @@ pub async fn ride_details(
 
     Ok(APISuccess::default())
 }
+
+pub async fn rider_entity_end(
+    rider_id: RiderId,
+    data: Data<AppState>,
+) -> Result<APISuccess, AppError> {
+    rider_entity_cleanup(&data.redis, &rider_id).await?;
+    Ok(APISuccess::default())
+}
+
+/// Cleanup rider entity by entityId (rideId or sosId). Resolves entityId → riderId then runs rider_entity_cleanup.
+pub async fn rider_entity_end_by_entity(
+    data: Data<AppState>,
+    entity_id: EntityId,
+) -> Result<APISuccess, AppError> {
+    let rider_id = get_rider_by_entity(&data.redis, &entity_id)
+        .await?
+        .ok_or(AppError::RiderLocationNotFound)?;
+    rider_entity_cleanup(&data.redis, &rider_id).await?;
+    Ok(APISuccess::default())
+}

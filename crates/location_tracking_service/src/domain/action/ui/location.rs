@@ -14,15 +14,18 @@ use crate::common::utils::{
     get_upcoming_stops_by_route_code,
 };
 use crate::common::{sliding_window_rate_limiter::sliding_window_limiter, types::*};
-use crate::domain::types::ui::location::{DriverLocationResponse, UpdateDriverLocationRequest};
+use crate::domain::types::ui::location::{
+    DriverLocationResponse, RiderLocationResponse, UpdateDriverLocationRequest,
+    UpdateRiderLocationRequest,
+};
 use crate::environment::AppState;
 use crate::kafka::producers::kafka_stream_updates;
 use crate::outbound::external::driver_source_departed;
 use crate::outbound::external::get_distance_matrix;
 use crate::outbound::external::trigger_detection_alert;
 use crate::outbound::external::{
-    authenticate_dobpp, bulk_location_update_dobpp, driver_reached_destination, trigger_fcm_bap,
-    trigger_fcm_dobpp, trigger_stop_detection_event,
+    authenticate_bap, authenticate_dobpp, bulk_location_update_dobpp, driver_reached_destination,
+    trigger_fcm_bap, trigger_fcm_dobpp, trigger_stop_detection_event,
 };
 use crate::outbound::types::ViolationDetectionReq;
 use crate::redis::{commands::*, keys::*};
@@ -73,6 +76,45 @@ async fn get_driver_id_from_authentication(
                 response.merchant_id,
                 response.merchant_operating_city_id,
             ))
+        }
+    }
+}
+
+#[macros::measure_duration]
+async fn get_rider_id_from_authentication(
+    redis: &RedisConnectionPool,
+    auth_url: &Url,
+    auth_api_key: &str,
+    auth_token_expiry: &u32,
+    token: &Token,
+) -> Result<(RiderId, MerchantId, MerchantOperatingCityId), AppError> {
+    if var("DEV").is_ok() {
+        Ok((
+            RiderId(token.to_owned().inner()),
+            MerchantId("dev".to_string()),
+            MerchantOperatingCityId("dev".to_string()),
+        ))
+    } else {
+        match get_rider_auth_data(redis, token).await? {
+            Some(auth_data) => Ok((
+                auth_data.rider_id,
+                auth_data.merchant_id,
+                auth_data.merchant_operating_city_id,
+            )),
+            None => {
+                let response = authenticate_bap(auth_url, token.0.as_str(), auth_api_key).await?;
+                let auth_data = RiderAuthData {
+                    rider_id: response.rider_id.to_owned(),
+                    merchant_id: response.merchant_id.to_owned(),
+                    merchant_operating_city_id: response.merchant_operating_city_id.to_owned(),
+                };
+                set_rider_auth_data(redis, auth_token_expiry, token, auth_data.clone()).await?;
+                Ok((
+                    auth_data.rider_id,
+                    auth_data.merchant_id,
+                    auth_data.merchant_operating_city_id,
+                ))
+            }
         }
     }
 }
@@ -1268,4 +1310,132 @@ pub async fn track_driver_location(
         curr_point: driver_location_details.driver_last_known_location.location,
         last_update: driver_location_details.driver_last_known_location.timestamp,
     })
+}
+
+/// Simplified processing for rider locations: store latest in Redis only; persist riderId ↔ entityId mapping when entity_type and entity_id present.
+async fn process_rider_locations(
+    args: (
+        Data<AppState>,
+        UpdateRiderLocationRequest,
+        TimeStamp,
+        Option<RiderAllDetails>,
+        RiderId,
+        MerchantId,
+        MerchantOperatingCityId,
+    ),
+) -> Result<(), AppError> {
+    let (
+        data,
+        location,
+        current_ts,
+        _rider_details,
+        rider_id,
+        merchant_id,
+        _merchant_operating_city_id,
+    ) = args;
+
+    set_rider_last_location_update(
+        &data.redis,
+        &data.last_location_timstamp_expiry,
+        &rider_id,
+        &merchant_id,
+        &location.pt,
+        &current_ts,
+        &location.bear,
+    )
+    .await?;
+
+    let entity_id = match (location.entity_type.as_deref(), location.entity_id.as_ref()) {
+        (Some("SOS"), Some(id)) => Some(EntityId::Sos(SosId(id.clone()))),
+        (Some("RIDE"), Some(id)) => Some(EntityId::Ride(RideId(id.clone()))),
+        _ => None,
+    };
+    if let Some(ref entity_id) = entity_id {
+        set_rider_entity_mapping(
+            &data.redis,
+            &data.last_location_timstamp_expiry,
+            &rider_id,
+            &merchant_id,
+            entity_id,
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[macros::measure_duration]
+pub async fn update_rider_location_by_token(
+    token: Token,
+    data: Data<AppState>,
+    rider_id: RiderId,
+    location: UpdateRiderLocationRequest,
+) -> Result<HttpResponse, AppError> {
+    // Get merchant_id, city_id from token authentication (validates token but uses riderId from path)
+    let (_auth_rider_id, merchant_id, merchant_operating_city_id) =
+        get_rider_id_from_authentication(
+            &data.redis,
+            &data.rider_auth_url,
+            &data.rider_auth_api_key,
+            &data.rider_auth_token_expiry,
+            &token,
+        )
+        .await?;
+
+    let rider_details = get_rider_location(&data.redis, &rider_id).await?;
+
+    info!(
+        tag = "[Rider Location Updates]",
+        "Got location update for Rider Id : {:?}", &rider_id
+    );
+
+    let city = get_city(&location.pt.lat, &location.pt.lon, &data.polygon)?;
+
+    sliding_window_limiter(
+        &data.redis,
+        &rider_rate_limiter_key(&rider_id, &city),
+        data.location_update_limit,
+        data.location_update_interval as u32,
+    )
+    .await?;
+
+    with_lock_redis(
+        &data.redis,
+        rider_processing_lock_key(&rider_id),
+        60,
+        process_rider_locations,
+        (
+            data.clone(),
+            location,
+            TimeStamp(Utc::now()),
+            rider_details,
+            rider_id,
+            merchant_id,
+            merchant_operating_city_id,
+        ),
+    )
+    .await?;
+    Ok(HttpResponse::Ok().finish())
+}
+
+pub async fn track_rider_location(
+    data: Data<AppState>,
+    rider_id: RiderId,
+) -> Result<RiderLocationResponse, AppError> {
+    let details = get_rider_location(&data.redis, &rider_id).await?;
+    let rider_details = details.ok_or(AppError::RiderLocationNotFound)?;
+    Ok(RiderLocationResponse {
+        curr_point: rider_details.rider_last_known_location.location,
+        last_update: rider_details.rider_last_known_location.timestamp,
+    })
+}
+
+/// Get rider location by entity (rideId or sosId). Resolves entityId → riderId then returns location.
+pub async fn track_rider_location_by_entity(
+    data: Data<AppState>,
+    entity_id: EntityId,
+) -> Result<RiderLocationResponse, AppError> {
+    let rider_id = get_rider_by_entity(&data.redis, &entity_id)
+        .await?
+        .ok_or(AppError::RiderLocationNotFound)?;
+    track_rider_location(data, rider_id).await
 }
