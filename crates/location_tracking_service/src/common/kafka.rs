@@ -8,7 +8,7 @@
 use std::time::Duration;
 
 use crate::tools::error::AppError;
-use log::error;
+use log::{debug, error, info};
 use rdkafka::{
     producer::{FutureProducer, FutureRecord},
     util::Timeout,
@@ -16,10 +16,10 @@ use rdkafka::{
 use serde::Serialize;
 
 /// Checks if secondary Kafka producer is enabled via environment variable.
-/// Returns true only if PRODUCE_SECONDARY_KAFKA is set to "true".
+/// Returns true if PRODUCE_SECONDARY_KAFKA is set to "true" (case-insensitive).
 fn should_produce_secondary() -> bool {
     std::env::var("PRODUCE_SECONDARY_KAFKA")
-        .map(|val| val == "true")
+        .map(|val| val.to_lowercase() == "true")
         .unwrap_or(false)
 }
 
@@ -27,7 +27,7 @@ fn should_produce_secondary() -> bool {
 ///
 /// This function serializes the given message into a JSON string and
 /// sends it to the specified Kafka topic using the provided primary producer.
-/// If secondary producer is provided and PRODUCE_SECONDARY_KAFKA env var is set to "true",
+/// If secondary producer is provided and PRODUCE_SECONDARY_KAFKA env var is set to "true" (case-insensitive),
 /// it also pushes to the secondary cluster (errors are logged but not returned).
 ///
 /// # Parameters
@@ -78,16 +78,34 @@ where
     if should_produce_secondary() {
         if let Some(secondary_producer) = secondary_producer {
             let record = FutureRecord::to(topic).key(key).payload(&message_str);
-            if let Err(err) = secondary_producer
+            match secondary_producer
                 .send(record, Timeout::After(Duration::from_secs(1)))
                 .await
             {
-                error!(
-                    "[Kafka Secondary] Secondary Kafka produce failed: {}",
-                    err.0
-                );
+                Ok(_) => {
+                    info!(
+                        "[Kafka Secondary] Successfully pushed to secondary Kafka - topic: {}, key: {}",
+                        topic, key
+                    );
+                }
+                Err(err) => {
+                    error!(
+                        "[Kafka Secondary] Failed to push to secondary Kafka - topic: {}, key: {}, error: {}",
+                        topic, key, err.0
+                    );
+                }
             }
+        } else {
+            debug!(
+                "[Kafka Secondary] Secondary producer is None, skipping secondary Kafka push - topic: {}, key: {}",
+                topic, key
+            );
         }
+    } else {
+        debug!(
+            "[Kafka Secondary] PRODUCE_SECONDARY_KAFKA not enabled, skipping secondary Kafka push - topic: {}, key: {}",
+            topic, key
+        );
     }
 
     Ok(())
