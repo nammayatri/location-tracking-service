@@ -8,7 +8,7 @@
 use std::time::Duration;
 
 use crate::tools::error::AppError;
-use log::{debug, error, info};
+use log::{error, info};
 use rdkafka::{
     producer::{FutureProducer, FutureRecord},
     util::Timeout,
@@ -56,56 +56,64 @@ where
     let message_str = serde_json::to_string(&message)
         .map_err(|err| AppError::SerializationError(err.to_string()))?;
 
-    // Push to primary producer (blocking, throws on failure)
+    // Push to primary producer
     match producer {
         Some(producer) => {
-            producer
+            match producer
                 .send(
                     FutureRecord::to(topic).key(key).payload(&message_str),
                     Timeout::After(Duration::from_secs(1)),
                 )
                 .await
-                .map_err(|err| AppError::KafkaPushFailed(err.0.to_string()))?;
-        }
-        None => {
-            return Err(AppError::KafkaPushFailed(
-                "[Kafka] Producer is None, unable to send message".to_string(),
-            ))
-        }
-    }
-
-    // Push to secondary producer if enabled (non-blocking, logs errors)
-    if should_produce_secondary() {
-        if let Some(secondary_producer) = secondary_producer {
-            let record = FutureRecord::to(topic).key(key).payload(&message_str);
-            match secondary_producer
-                .send(record, Timeout::After(Duration::from_secs(1)))
-                .await
             {
                 Ok(_) => {
-                    info!(
-                        "[Kafka Secondary] Successfully pushed to secondary Kafka - topic: {}, key: {}",
-                        topic, key
-                    );
+                    info!("[Kafka Primary] Pushed - topic: {}, key: {}", topic, key);
                 }
                 Err(err) => {
                     error!(
-                        "[Kafka Secondary] Failed to push to secondary Kafka - topic: {}, key: {}, error: {}",
+                        "[Kafka Primary] Failed to push - topic: {}, key: {}, error: {}",
                         topic, key, err.0
                     );
                 }
             }
-        } else {
-            debug!(
-                "[Kafka Secondary] Secondary producer is None, skipping secondary Kafka push - topic: {}, key: {}",
+        }
+        None => {
+            error!(
+                "[Kafka Primary] Producer is None - topic: {}, key: {}",
                 topic, key
             );
         }
-    } else {
-        debug!(
-            "[Kafka Secondary] PRODUCE_SECONDARY_KAFKA not enabled, skipping secondary Kafka push - topic: {}, key: {}",
-            topic, key
-        );
+    }
+
+    // Push to secondary producer if enabled
+    if should_produce_secondary() {
+        match secondary_producer {
+            Some(secondary_producer) => {
+                match secondary_producer
+                    .send(
+                        FutureRecord::to(topic).key(key).payload(&message_str),
+                        Timeout::After(Duration::from_secs(1)),
+                    )
+                    .await
+                {
+                    Ok(_) => {
+                        info!("[Kafka Secondary] Pushed - topic: {}, key: {}", topic, key);
+                    }
+                    Err(err) => {
+                        error!(
+                            "[Kafka Secondary] Failed to push - topic: {}, key: {}, error: {}",
+                            topic, key, err.0
+                        );
+                    }
+                }
+            }
+            None => {
+                error!(
+                    "[Kafka Secondary] Producer is None - topic: {}, key: {}",
+                    topic, key
+                );
+            }
+        }
     }
 
     Ok(())
