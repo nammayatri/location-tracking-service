@@ -78,3 +78,31 @@ pub struct RideDetailsRequest {
     pub lon: Longitude,
     pub ride_info: Option<RideInfo>,
 }
+
+// --- Generic entity upsert (rider/driver) types ---
+
+/// Union type: entity create (optional, not for SOS), start tracking, or end tracking.
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(tag = "entityInfo", rename_all = "camelCase")]
+pub enum EntityInfo {
+    EntityCreate,
+    EntityStart,
+    EntityEnd { lat: Latitude, lon: Longitude },
+}
+
+/// Request body for entity upsert (create/start/end). person_type is in the URL path.
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct EntityUpsertRequest {
+    pub person_id: String,
+    pub merchant_id: MerchantId,
+    pub entity_info: EntityInfo,
+}
+
+/// Response for entity upsert: success for create/start, or batched locations for end.
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(untagged)]
+pub enum EntityUpsertResponse {
+    APISuccess(crate::common::types::APISuccess),
+    EntityEnd { loc: Vec<Point> },
+}

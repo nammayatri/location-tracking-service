@@ -6,6 +6,7 @@
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 use crate::common::types::*;
+use crate::domain::types::ui::location::PersonType;
 
 /// Constructs a Redis key for associating a driver ID with an authentication token.
 ///
@@ -194,4 +195,67 @@ pub fn google_route_duration_cache_processing_key() -> String {
 /// Used by external GPS provider integration to map plate numbers to driver IDs.
 pub fn driver_info_by_plate_key(plate_number: &str) -> String {
     format!("lts:driver_info:plate:{}", plate_number)
+}
+
+// --- Generic person/entity keys (for unified rider flow and future driver unification) ---
+
+/// Token → person identifier.
+pub fn identifier_key(person_type: PersonType, Token(token): &Token) -> String {
+    format!("lts:identifier:{}:{token}", person_type.as_str())
+}
+
+/// Rate limit for a person.
+pub fn person_rate_limit_key(
+    MerchantId(merchant_id): &MerchantId,
+    PersonId(person_id): &PersonId,
+    CityName(city): &CityName,
+) -> String {
+    format!("lts:ratelimit:{merchant_id}:{person_id}:{city}")
+}
+
+/// Entity details for a person (current entity type, id, status).
+pub fn entity_details_key(
+    MerchantId(merchant_id): &MerchantId,
+    person_type: PersonType,
+    PersonId(person_id): &PersonId,
+) -> String {
+    format!(
+        "lts:entity_details:{merchant_id}:{}:{person_id}",
+        person_type.as_str()
+    )
+}
+
+/// Person by entity lookup. entity_type: "ride" | "sos", entity_id: the id string.
+pub fn person_detail_by_entity_key(entity_type: &str, entity_id: &str) -> String {
+    format!("lts:person_detail_by_entity:{entity_type}:{entity_id}")
+}
+
+/// Person detail (last location, status).
+pub fn person_detail_key(person_type: PersonType, PersonId(person_id): &PersonId) -> String {
+    format!("lts:person_detail:{}:{person_id}", person_type.as_str())
+}
+
+/// Entity location list (vector of points).
+pub fn entity_loc_key(
+    MerchantId(merchant_id): &MerchantId,
+    person_type: PersonType,
+    PersonId(person_id): &PersonId,
+) -> String {
+    format!(
+        "lts:entity_loc:{merchant_id}:{}:{person_id}",
+        person_type.as_str()
+    )
+}
+
+/// Processing lock for person location update.
+pub fn person_processing_lock_key(
+    MerchantId(merchant_id): &MerchantId,
+    person_type: PersonType,
+    PersonId(person_id): &PersonId,
+    CityName(city): &CityName,
+) -> String {
+    format!(
+        "lts:processing:{merchant_id}:{}:{person_id}:{city}",
+        person_type.as_str()
+    )
 }

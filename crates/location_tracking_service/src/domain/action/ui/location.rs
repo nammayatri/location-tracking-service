@@ -14,15 +14,18 @@ use crate::common::utils::{
     get_upcoming_stops_by_route_code,
 };
 use crate::common::{sliding_window_rate_limiter::sliding_window_limiter, types::*};
-use crate::domain::types::ui::location::{DriverLocationResponse, UpdateDriverLocationRequest};
+use crate::domain::types::ui::location::{
+    DriverLocationResponse, PersonLocationResponse, PersonType, UpdateDriverLocationRequest,
+    UpdatePersonLocationRequest,
+};
 use crate::environment::AppState;
 use crate::kafka::producers::kafka_stream_updates;
 use crate::outbound::external::driver_source_departed;
 use crate::outbound::external::get_distance_matrix;
 use crate::outbound::external::trigger_detection_alert;
 use crate::outbound::external::{
-    authenticate_dobpp, bulk_location_update_dobpp, driver_reached_destination, trigger_fcm_bap,
-    trigger_fcm_dobpp, trigger_stop_detection_event,
+    authenticate_bap, authenticate_dobpp, bulk_location_update_dobpp, driver_reached_destination,
+    trigger_fcm_bap, trigger_fcm_dobpp, trigger_stop_detection_event,
 };
 use crate::outbound::types::ViolationDetectionReq;
 use crate::redis::{commands::*, keys::*};
@@ -73,6 +76,52 @@ async fn get_driver_id_from_authentication(
                 response.merchant_id,
                 response.merchant_operating_city_id,
             ))
+        }
+    }
+}
+
+#[macros::measure_duration]
+async fn get_rider_id_from_authentication(
+    redis: &RedisConnectionPool,
+    auth_url: &Url,
+    auth_api_key: &str,
+    auth_token_expiry: &u32,
+    token: &Token,
+) -> Result<(PersonId, MerchantId, MerchantOperatingCityId), AppError> {
+    if var("DEV").is_ok() {
+        Ok((
+            PersonId(token.to_owned().inner()),
+            MerchantId("dev".to_string()),
+            MerchantOperatingCityId("dev".to_string()),
+        ))
+    } else {
+        match get_person_identifier(redis, PersonType::Rider, token).await? {
+            Some(auth_data) => Ok((
+                PersonId(auth_data.person_id),
+                auth_data.merchant_id,
+                auth_data.merchant_operating_city_id,
+            )),
+            None => {
+                let response = authenticate_bap(auth_url, token.0.as_str(), auth_api_key).await?;
+                let auth_data = PersonAuthData {
+                    person_id: response.person_id.inner().to_string(),
+                    merchant_id: response.merchant_id.to_owned(),
+                    merchant_operating_city_id: response.merchant_operating_city_id.to_owned(),
+                };
+                set_person_identifier(
+                    redis,
+                    PersonType::Rider,
+                    token,
+                    &auth_data,
+                    auth_token_expiry,
+                )
+                .await?;
+                Ok((
+                    response.person_id,
+                    auth_data.merchant_id,
+                    auth_data.merchant_operating_city_id,
+                ))
+            }
         }
     }
 }
@@ -1268,4 +1317,145 @@ pub async fn track_driver_location(
         curr_point: driver_location_details.driver_last_known_location.location,
         last_update: driver_location_details.driver_last_known_location.timestamp,
     })
+}
+
+/// Generic: track person location by entity. Resolves person from entity, returns last location from person_detail.
+pub async fn track_person_entity_location(
+    data: Data<AppState>,
+    person_type: PersonType,
+    entity_type: &str,
+    entity_id: &str,
+) -> Result<PersonLocationResponse, AppError> {
+    let person_id_str = get_person_by_entity(&data.redis, entity_type, entity_id)
+        .await?
+        .ok_or(AppError::RiderLocationNotFound)?;
+    let person_id = PersonId(person_id_str);
+    let details = get_person_detail(&data.redis, person_type, &person_id)
+        .await?
+        .ok_or(AppError::RiderLocationNotFound)?;
+    Ok(PersonLocationResponse {
+        curr_point: details.last_known_location.location,
+        last_update: details.last_known_location.timestamp,
+    })
+}
+
+/// Generic: update person location (batch). Rider-only for now; uses generic keys and entity_loc vector.
+pub async fn update_person_location(
+    person_type: PersonType,
+    token: Token,
+    data: Data<AppState>,
+    locations: Vec<UpdatePersonLocationRequest>,
+) -> Result<HttpResponse, AppError> {
+    if locations.is_empty() {
+        return Ok(HttpResponse::Ok().finish());
+    }
+    match person_type {
+        PersonType::Rider => {
+            let (person_id, merchant_id, _merchant_operating_city_id) =
+                get_rider_id_from_authentication(
+                    &data.redis,
+                    &data.rider_auth_url,
+                    &data.rider_auth_api_key,
+                    &data.rider_auth_token_expiry,
+                    &token,
+                )
+                .await?;
+            let entity_details =
+                get_entity_details_for_person(&data.redis, &merchant_id, person_type, &person_id)
+                    .await?
+                    .ok_or(AppError::InvalidRequest(
+                        "No active entity for rider; call entity upsert start first".to_string(),
+                    ))?;
+            let current_ts = Utc::now();
+            let mut locations = locations;
+            locations.sort_by(|a, b| {
+                let TimeStamp(a_ts) = a.ts;
+                let TimeStamp(b_ts) = b.ts;
+                a_ts.cmp(&b_ts)
+            });
+            let person_detail = get_person_detail(&data.redis, person_type, &person_id).await?;
+            let locations: Vec<UpdatePersonLocationRequest> = locations
+                .into_iter()
+                .filter(|loc| {
+                    person_detail
+                        .as_ref()
+                        .map(|d| loc.ts >= d.last_known_location.timestamp)
+                        .unwrap_or(true)
+                })
+                .collect();
+            let latest = match locations.last() {
+                Some(l) => l.clone(),
+                None => return Ok(HttpResponse::Ok().finish()),
+            };
+            info!(
+                tag = "[Person Location Updates]",
+                "Got location updates for Rider Id : {:?} (entity: {:?})",
+                person_id.inner(),
+                entity_details.entity_id
+            );
+            let city = get_city(&latest.pt.lat, &latest.pt.lon, &data.polygon)?;
+            sliding_window_limiter(
+                &data.redis,
+                &person_rate_limit_key(&merchant_id, &person_id, &city),
+                data.location_update_limit,
+                data.location_update_interval as u32,
+            )
+            .await?;
+            with_lock_redis(
+                &data.redis,
+                person_processing_lock_key(&merchant_id, person_type, &person_id, &city),
+                60,
+                process_person_locations,
+                (
+                    data.clone(),
+                    locations,
+                    TimeStamp(current_ts),
+                    merchant_id,
+                    person_type,
+                    person_id.inner().clone(),
+                ),
+            )
+            .await?;
+            Ok(HttpResponse::Ok().finish())
+        }
+        PersonType::Driver => Err(AppError::InvalidRequest(
+            "Generic update_person_location does not support driver; use existing driver API"
+                .to_string(),
+        )),
+    }
+}
+
+async fn process_person_locations(
+    args: (
+        Data<AppState>,
+        Vec<UpdatePersonLocationRequest>,
+        TimeStamp,
+        MerchantId,
+        PersonType,
+        String,
+    ),
+) -> Result<(), AppError> {
+    let (data, locations, _current_ts, merchant_id, person_type, person_id) = args;
+    let person_id = PersonId(person_id);
+    let last = match locations.last() {
+        Some(l) => l,
+        None => return Ok(()),
+    };
+    let person_detail = PersonAllDetails {
+        last_known_location: PersonLastKnownLocation {
+            location: last.pt.clone(),
+            timestamp: last.ts,
+            merchant_id: merchant_id.clone(),
+            bear: last.bear,
+        },
+    };
+    set_person_detail(
+        &data.redis,
+        person_type,
+        &person_id,
+        &person_detail,
+        &data.redis_expiry,
+    )
+    .await?;
+    Ok(())
 }

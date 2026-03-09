@@ -80,6 +80,9 @@ pub struct AppConfig {
     pub osrm_distance_matrix_base_url: Url,
     pub duration_cache_time_slots: Vec<NaiveTime>,
     pub external_gps_api_key: String,
+    pub rider_auth_url: String,
+    pub rider_auth_api_key: String,
+    pub rider_auth_token_expiry: u32,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -179,6 +182,9 @@ pub struct AppState {
     pub osrm_distance_matrix_base_url: Url,
     pub duration_cache_time_slots: Vec<NaiveTime>,
     pub external_gps_api_key: String,
+    pub rider_auth_url: Url,
+    pub rider_auth_api_key: String,
+    pub rider_auth_token_expiry: u32,
 }
 
 impl AppState {
@@ -370,6 +376,10 @@ impl AppState {
             osrm_distance_matrix_base_url: app_config.osrm_distance_matrix_base_url,
             duration_cache_time_slots: app_config.duration_cache_time_slots,
             external_gps_api_key: app_config.external_gps_api_key,
+            rider_auth_url: Url::parse(app_config.rider_auth_url.as_str())
+                .expect("Failed to parse rider_auth_url."),
+            rider_auth_api_key: app_config.rider_auth_api_key,
+            rider_auth_token_expiry: app_config.rider_auth_token_expiry,
         }
     }
 }

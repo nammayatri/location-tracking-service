@@ -101,3 +101,40 @@ async fn track_driver_location(
 
     Ok(Json(location::track_driver_location(data, ride_id).await?))
 }
+
+/// Generic: track person location by entity. Path: person_type, entity_type, entity_id.
+#[get("/ui/location/{person_type}/{entity_type}/{entity_id}")]
+pub async fn track_person_entity_location(
+    data: Data<AppState>,
+    path: Path<(String, String, String)>,
+) -> Result<Json<PersonLocationResponse>, AppError> {
+    let (person_type, entity_type, entity_id) = path.into_inner();
+    let person_type = PersonType::from_str(&person_type)
+        .map_err(|_| AppError::InvalidRequest(format!("Invalid person_type: {}", person_type)))?;
+    Ok(Json(
+        location::track_person_entity_location(data, person_type, &entity_type, &entity_id).await?,
+    ))
+}
+
+/// Generic: update person location (batch). Path: person_type. Body: Vec<UpdatePersonLocationRequest>.
+#[post("/ui/location/{person_type}")]
+pub async fn update_person_location(
+    data: Data<AppState>,
+    path: Path<(String,)>,
+    param_obj: Json<Vec<UpdatePersonLocationRequest>>,
+    req: HttpRequest,
+) -> Result<HttpResponse, AppError> {
+    let (person_type,) = path.into_inner();
+    let person_type = PersonType::from_str(&person_type)
+        .map_err(|_| AppError::InvalidRequest(format!("Invalid person_type: {}", person_type)))?;
+    let request_body = param_obj.into_inner();
+    let token = req
+        .headers()
+        .get("token")
+        .and_then(|h| h.to_str().ok())
+        .map(String::from)
+        .ok_or(AppError::InvalidRequest(
+            "token (Header) not found".to_string(),
+        ))?;
+    location::update_person_location(person_type, Token(token), data, request_body).await
+}

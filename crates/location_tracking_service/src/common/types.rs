@@ -16,12 +16,15 @@ use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::VecDeque;
 use strum_macros::{Display, EnumIter, EnumString};
 
-#[derive(Deserialize, Serialize, Clone, Debug, Eq, PartialEq)]
+#[derive(Deserialize, Serialize, Clone, Debug, Eq, Hash, PartialEq)]
 #[macros::impl_getter]
 pub struct RideId(pub String);
 #[derive(Deserialize, Serialize, Clone, Debug, Eq, Hash, PartialEq)]
 #[macros::impl_getter]
 pub struct DriverId(pub String);
+#[derive(Deserialize, Serialize, Clone, Debug, Eq, Hash, PartialEq)]
+#[macros::impl_getter]
+pub struct PersonId(pub String);
 #[derive(Deserialize, Serialize, Clone, Debug, Eq, Hash, PartialEq)]
 #[macros::impl_getter]
 pub struct MerchantId(pub String);
@@ -727,4 +730,47 @@ pub struct DriverByPlateResp {
     pub bus_number: Option<String>,
     pub group_id: Option<String>,
     pub vehicle_service_tier_type: VehicleType,
+}
+
+#[derive(Deserialize, Serialize, Clone, Debug, Eq, Hash, PartialEq)]
+#[macros::impl_getter]
+pub struct SosId(pub String);
+
+/// Entity identifier for a rider's current context: either an SOS or a Ride.
+#[derive(Deserialize, Serialize, Clone, Debug, Eq, Hash, PartialEq)]
+#[serde(tag = "entityType", content = "entityId")]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum EntityId {
+    Sos(SosId),
+    Ride(RideId),
+}
+
+/// Person → entity mapping stored in Redis (person_id → entityId + merchant_id). Used for rider/driver.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct PersonEntityDetails {
+    pub entity_id: EntityId,
+    pub merchant_id: MerchantId,
+}
+
+/// Generic auth data for person (rider/driver) stored under identifier key.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct PersonAuthData {
+    pub person_id: String,
+    pub merchant_id: MerchantId,
+    pub merchant_operating_city_id: MerchantOperatingCityId,
+}
+
+/// Generic last known location for person (used in PersonAllDetails).
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct PersonLastKnownLocation {
+    pub location: Point,
+    pub timestamp: TimeStamp,
+    pub merchant_id: MerchantId,
+    pub bear: Option<Direction>,
+}
+
+/// Generic person detail stored under person_detail key (last location, etc.).
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct PersonAllDetails {
+    pub last_known_location: PersonLastKnownLocation,
 }
