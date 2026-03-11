@@ -6,7 +6,7 @@
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-use crate::domain::types::ui::location::PersonType;
+use crate::domain::types::ui::location::{EntityType, PersonType};
 use crate::environment::AppState;
 use crate::outbound::types::LocationUpdate;
 use crate::redis::commands::*;
@@ -235,16 +235,9 @@ pub async fn entity_upsert(
     data: Data<AppState>,
     request_body: EntityUpsertRequest,
 ) -> Result<EntityUpsertResponse, AppError> {
-    let entity_id = match entity_type.to_lowercase().as_str() {
-        "ride" => EntityId::Ride(RideId(entity_id_str.to_string())),
-        "sos" => EntityId::Sos(SosId(entity_id_str.to_string())),
-        _ => {
-            return Err(AppError::InvalidRequest(format!(
-                "Unknown entity_type: {}",
-                entity_type
-            )))
-        }
-    };
+    let entity_type_enum = EntityType::from_str(entity_type)
+        .map_err(|_| AppError::InvalidRequest(format!("Unknown entity_type: {}", entity_type)))?;
+    let entity_id = entity_type_enum.to_entity_id(entity_id_str);
     let person_type = PersonType::from_str(person_type)
         .map_err(|_| AppError::InvalidRequest(format!("Invalid person_type: {}", person_type)))?;
     let person_id = PersonId(request_body.person_id.clone());
@@ -252,7 +245,7 @@ pub async fn entity_upsert(
 
     match &request_body.entity_info {
         EntityInfo::EntityCreate => {
-            if entity_type.eq_ignore_ascii_case("sos") {
+            if matches!(entity_type_enum, EntityType::Sos) {
                 return Err(AppError::InvalidRequest(
                     "EntityCreate is not supported for SOS".to_string(),
                 ));
