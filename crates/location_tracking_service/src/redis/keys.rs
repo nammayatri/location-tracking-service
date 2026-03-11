@@ -188,3 +188,9 @@ pub fn google_stop_duration_key(source_stop_code: &str, destination_stop_code: &
 pub fn google_route_duration_cache_processing_key() -> String {
     "grd:processing".to_string()
 }
+
+/// Key for ZSET of driver_ids in a special location (per bucket).
+/// Used when enable_special_location_bucketing is true.
+pub fn special_location_drivers_key(special_location_id: &str, bucket: &u64) -> String {
+    format!("lts:special_loc:{}:{}", special_location_id, bucket)
+}

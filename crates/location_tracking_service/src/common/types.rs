@@ -322,6 +322,7 @@ pub struct Dimensions {
     pub city: CityName,
     pub vehicle_type: VehicleType,
     pub created_at: DateTime<Utc>,
+    pub merchant_operating_city_id: MerchantOperatingCityId,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

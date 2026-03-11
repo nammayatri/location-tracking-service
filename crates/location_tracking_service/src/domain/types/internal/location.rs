@@ -78,4 +78,11 @@ pub struct TrackVehicleResponse {
     pub vehicle_info: VehicleTrackingInfo,
 }
 
+/// Response for GET /internal/special-locations/{special_location_id}/drivers
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SpecialLocationDriversResponse {
+    pub driver_ids: Vec<DriverId>,
+}
+
 pub type TrackVehiclesResponse = Vec<TrackVehicleResponse>;

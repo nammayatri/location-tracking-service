@@ -23,5 +23,10 @@ pub fn handler(config: &mut ServiceConfig) {
         .service(internal::location::get_drivers_location)
         .service(internal::location::driver_block_till)
         .service(internal::location::track_vehicles)
-        .service(internal::location::post_track_vehicles);
+        .service(internal::location::post_track_vehicles)
+        .service(internal::location::get_special_location_drivers)
+        .service(external::gps::external_gps_location)
+        .service(ui::location::track_person_entity_location)
+        .service(ui::location::update_person_location)
+        .service(internal::ride::entity_upsert);
 }

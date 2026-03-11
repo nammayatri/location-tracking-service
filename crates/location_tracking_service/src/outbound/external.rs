@@ -427,3 +427,26 @@ pub async fn get_distance_matrix(
     .await
     .map_err(|e| e.into())
 }
+
+/// Fetches special locations list from internal driver app.
+/// Uses getAllLocations=true so one call returns data for all cities (JSON response).
+pub async fn get_special_locations_list(
+    base_url: &Url,
+) -> Result<Vec<SpecialLocationFull>, AppError> {
+    let base_str = base_url.as_str().trim_end_matches('/');
+    let url = format!(
+        "{}/default/default/specialLocation/list?getAllLocations=true",
+        base_str
+    );
+    let url = Url::parse(&url).map_err(|e| AppError::InvalidRequest(e.to_string()))?;
+    call_api::<Vec<SpecialLocationFull>, ()>(
+        Protocol::Http1,
+        Method::GET,
+        &url,
+        vec![("content-type", "application/json")],
+        None,
+        Some("special-location-list"),
+    )
+    .await
+    .map_err(|e| AppError::InternalError(e.to_string()))
+}
