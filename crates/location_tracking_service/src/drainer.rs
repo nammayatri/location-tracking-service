@@ -191,7 +191,7 @@ pub async fn run_drainer(
                         let skip_normal_drain = if let Some(ref cache) = special_location_cache {
                             let guard = cache.read().await;
                             if let Some(entry) = lookup_special_location(
-                                &*guard,
+                                &guard,
                                 &merchant_operating_city_id,
                                 &Latitude(latitude),
                                 &Longitude(longitude),

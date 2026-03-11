@@ -116,10 +116,7 @@ pub fn lookup_special_location<'a>(
     let Latitude(lat_f) = *lat;
     let Longitude(lon_f) = *lon;
     let point = geo::point!(x: lon_f, y: lat_f);
-    for entry in entries {
-        if entry.multipolygon.intersects(&point) {
-            return Some(entry);
-        }
-    }
-    None
+    entries
+        .iter()
+        .find(|entry| entry.multipolygon.intersects(&point))
 }
