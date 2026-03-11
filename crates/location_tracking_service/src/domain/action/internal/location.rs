@@ -540,3 +540,21 @@ pub async fn track_vehicles(
         })
         .collect())
 }
+
+pub async fn get_special_location_drivers(
+    data: Data<AppState>,
+    special_location_id: String,
+) -> Result<SpecialLocationDriversResponse, AppError> {
+    if !data.enable_special_location_bucketing {
+        return Ok(SpecialLocationDriversResponse { driver_ids: vec![] });
+    }
+    let current_bucket = get_bucket_from_timestamp(&data.bucket_size, TimeStamp(Utc::now()));
+    let driver_ids = get_drivers_in_special_location(
+        &data.redis,
+        &special_location_id,
+        &current_bucket,
+        &data.nearby_bucket_threshold,
+    )
+    .await?;
+    Ok(SpecialLocationDriversResponse { driver_ids })
+}

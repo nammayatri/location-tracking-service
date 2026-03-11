@@ -872,6 +872,7 @@ async fn process_driver_locations(
                             city: city.to_owned(),
                             vehicle_type: vehicle_type.to_owned(),
                             created_at: Utc::now(),
+                            merchant_operating_city_id: merchant_operating_city_id.to_owned(),
                         },
                         latest_driver_location.pt.lat,
                         latest_driver_location.pt.lon,
@@ -901,6 +902,7 @@ async fn process_driver_locations(
             let mut all_tasks: Vec<Pin<Box<dyn Future<Output = Result<(), AppError>>>>> =
                 Vec::new();
 
+            // TODO: When the new special location API is released, remove this old blacklist logic and use the new implementation (see SPECIAL_LOCATION_DRIVERS_PLAN.md).
             let is_blacklist_for_special_zone = data.blacklist_merchants.contains(&merchant_id)
                 && is_within_polygon(
                     &latest_driver_location.pt.lat,
@@ -918,6 +920,7 @@ async fn process_driver_locations(
                                 city: city.to_owned(),
                                 vehicle_type: vehicle_type.to_owned(),
                                 created_at: Utc::now(),
+                                merchant_operating_city_id: merchant_operating_city_id.to_owned(),
                             },
                             latest_driver_location.pt.lat,
                             latest_driver_location.pt.lon,

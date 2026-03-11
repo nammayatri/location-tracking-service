@@ -259,3 +259,9 @@ pub fn person_processing_lock_key(
         person_type.as_str()
     )
 }
+
+/// Key for ZSET of driver_ids in a special location (per bucket).
+/// Used when enable_special_location_bucketing is true.
+pub fn special_location_drivers_key(special_location_id: &str, bucket: &u64) -> String {
+    format!("lts:special_loc:{}:{}", special_location_id, bucket)
+}

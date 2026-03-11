@@ -1014,3 +1014,58 @@ pub async fn get_google_stop_duration(
         .await
         .map_err(|err| AppError::InternalError(err.to_string()))
 }
+
+/// Add a driver to the special-location ZSET for the given bucket (when enable_special_location_bucketing).
+/// Score = timestamp; member = driver_id (JSON string). Sets key expiry.
+pub async fn add_driver_to_special_location_zset(
+    redis: &RedisConnectionPool,
+    special_location_id: &str,
+    bucket: u64,
+    driver_id: &DriverId,
+    timestamp: &TimeStamp,
+    bucket_expiry: i64,
+) -> Result<(), AppError> {
+    let key = special_location_drivers_key(special_location_id, &bucket);
+    let score = timestamp.inner().timestamp() as f64;
+    let member =
+        serde_json::to_string(&driver_id.0).map_err(|e| AppError::InternalError(e.to_string()))?;
+    redis
+        .zadd(
+            &key,
+            None,
+            None,
+            false,
+            false,
+            vec![(score, member.as_str())],
+        )
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))?;
+    redis
+        .set_expiry(&key, bucket_expiry)
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
+/// Get all driver IDs in a special location by querying recent buckets.
+pub async fn get_drivers_in_special_location(
+    redis: &RedisConnectionPool,
+    special_location_id: &str,
+    current_bucket: &u64,
+    nearby_bucket_threshold: &u64,
+) -> Result<Vec<DriverId>, AppError> {
+    let mut driver_ids = FxHashSet::default();
+    for idx in 0..*nearby_bucket_threshold {
+        let bucket = current_bucket.saturating_sub(idx);
+        let key = special_location_drivers_key(special_location_id, &bucket);
+        let members: Vec<String> = redis
+            .zrange(&key, 0, -1, None, false, None, false)
+            .await
+            .map_err(|err| AppError::InternalError(err.to_string()))?;
+        for s in members {
+            if let Ok(id) = serde_json::from_str::<String>(&s) {
+                driver_ids.insert(DriverId(id));
+            }
+        }
+    }
+    Ok(driver_ids.into_iter().collect())
+}

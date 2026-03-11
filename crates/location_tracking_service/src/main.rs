@@ -13,6 +13,8 @@ use location_tracking_service::{
     drainer::run_drainer,
     environment::AppState,
     middleware::*,
+    outbound::external::get_special_locations_list,
+    special_location::build_special_location_cache,
     tools::{error::AppError, prometheus::prometheus_metrics},
 };
 use shared::{middleware::incoming_request::IncomingRequestMetrics, tools::logger::setup_tracing};
@@ -21,7 +23,7 @@ use std::{
     env::var,
     sync::atomic::{AtomicBool, Ordering},
 };
-use std::{net::Ipv4Addr, sync::Arc};
+use std::{net::Ipv4Addr, sync::Arc, time::Duration};
 use tokio::signal::unix::SignalKind;
 use tokio::time::Instant;
 use tokio::{
@@ -119,6 +121,11 @@ async fn start_server() -> std::io::Result<()> {
         data.nearby_bucket_threshold,
         data.redis.clone(),
     );
+    let special_location_cache = data
+        .special_location_list_base_url
+        .as_ref()
+        .map(|_| data.special_location_cache.clone());
+    let enable_special_location_bucketing = data.enable_special_location_bucketing;
     let channel_thread = tokio::spawn(async move {
         run_drainer(
             receiver,
@@ -128,9 +135,32 @@ async fn start_server() -> std::io::Result<()> {
             bucket_size,
             nearby_bucket_threshold,
             &redis,
+            special_location_cache,
+            enable_special_location_bucketing,
         )
         .await;
     });
+
+    if let Some(ref base_url) = data.special_location_list_base_url {
+        let cache = data.special_location_cache.clone();
+        let base_url = base_url.clone();
+        tokio::spawn(async move {
+            if let Ok(list) = get_special_locations_list(&base_url).await {
+                let new_map = build_special_location_cache(list);
+                let mut guard = cache.write().await;
+                *guard = new_map;
+            }
+            let mut interval = tokio::time::interval(Duration::from_secs(300));
+            loop {
+                interval.tick().await;
+                if let Ok(list) = get_special_locations_list(&base_url).await {
+                    let new_map = build_special_location_cache(list);
+                    let mut guard = cache.write().await;
+                    *guard = new_map;
+                }
+            }
+        });
+    }
 
     let prometheus = prometheus_metrics();
 

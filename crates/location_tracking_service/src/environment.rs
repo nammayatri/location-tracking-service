@@ -20,6 +20,7 @@ use tokio::sync::{mpsc::Sender, RwLock};
 use tracing::info;
 
 use crate::common::{geo_polygon::read_geo_polygon, route::read_route_data, types::*};
+use crate::special_location::SpecialLocationCache;
 
 use shared::tools::logger::LoggerConfig;
 
@@ -83,6 +84,9 @@ pub struct AppConfig {
     pub rider_auth_url: String,
     pub rider_auth_api_key: String,
     pub rider_auth_token_expiry: u32,
+    pub special_location_list_base_url: Option<String>,
+    #[serde(default)]
+    pub enable_special_location_bucketing: bool,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -185,6 +189,9 @@ pub struct AppState {
     pub rider_auth_url: Url,
     pub rider_auth_api_key: String,
     pub rider_auth_token_expiry: u32,
+    pub special_location_list_base_url: Option<Url>,
+    pub enable_special_location_bucketing: bool,
+    pub special_location_cache: SpecialLocationCache,
 }
 
 impl AppState {
@@ -248,6 +255,7 @@ impl AppState {
         .await
         .expect("Failed to read route data");
 
+        // TODO: When the new special location API is released, remove this old blacklist loading and use the new implementation (see SPECIAL_LOCATION_DRIVERS_PLAN.md).
         let blacklist_geo_config_path =
             var("BLACKLIST_GEO_CONFIG").unwrap_or_else(|_| "./blacklist_geo_config".to_string());
         let blacklist_polygons = read_geo_polygon(&blacklist_geo_config_path)
@@ -380,6 +388,12 @@ impl AppState {
                 .expect("Failed to parse rider_auth_url."),
             rider_auth_api_key: app_config.rider_auth_api_key,
             rider_auth_token_expiry: app_config.rider_auth_token_expiry,
+            special_location_list_base_url: app_config
+                .special_location_list_base_url
+                .as_ref()
+                .and_then(|s| Url::parse(s).ok()),
+            enable_special_location_bucketing: app_config.enable_special_location_bucketing,
+            special_location_cache: Arc::new(RwLock::new(FxHashMap::default())),
         }
     }
 }

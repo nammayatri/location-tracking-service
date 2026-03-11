@@ -7,7 +7,7 @@
 */
 use actix_web::{
     get, post,
-    web::{Data, Json},
+    web::{Data, Json, Path},
     HttpRequest,
 };
 
@@ -72,4 +72,15 @@ async fn post_track_vehicles(
     let request_body = param_obj.into_inner();
 
     Ok(Json(location::track_vehicles(data, request_body).await?))
+}
+
+#[get("/internal/special-locations/{special_location_id}/drivers")]
+async fn get_special_location_drivers(
+    data: Data<AppState>,
+    path: Path<(String,)>,
+) -> Result<Json<SpecialLocationDriversResponse>, AppError> {
+    let special_location_id = path.into_inner().0;
+    Ok(Json(
+        location::get_special_location_drivers(data, special_location_id).await?,
+    ))
 }

@@ -11,6 +11,20 @@ use serde::{Deserialize, Serialize};
 use crate::common::types::*;
 use std::collections::HashMap;
 
+// Special location API response (only fields we use; API returns camelCase JSON)
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpecialLocationFull {
+    pub id: SpecialLocationId,
+    pub merchant_operating_city_id: Option<String>,
+    pub geo_json: Option<String>,
+    pub is_open_market_enabled: bool,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Deserialize, Serialize)]
+#[serde(transparent)]
+pub struct SpecialLocationId(pub String);
+
 // BPP Authentication
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]

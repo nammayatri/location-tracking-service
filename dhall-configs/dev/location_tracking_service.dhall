@@ -500,5 +500,7 @@ in {
     external_gps_api_key = "your-secure-api-key-here",
     rider_auth_url = "http://127.0.0.1:8013/internal/auth",
     rider_auth_api_key = "ae288466-2add-11ee-be56-0242ac120002",
-    rider_auth_token_expiry = 86400
+    rider_auth_token_expiry = 86400,
+    special_location_list_base_url = Some "http://127.0.0.1:8016",
+    enable_special_location_bucketing = False
 }

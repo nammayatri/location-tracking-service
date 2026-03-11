@@ -6,13 +6,17 @@
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 use crate::queue_drainer_latency;
+use crate::special_location::{lookup_special_location, SpecialLocationCache};
 use crate::tools::prometheus::{QUEUE_DRAINER_LATENCY, TOTAL_LOCATION_UPDATES};
 use crate::{
     common::{
         types::*,
         utils::{abs_diff_utc_as_sec, get_bucket_from_timestamp},
     },
-    redis::{commands::push_drainer_driver_location, keys::driver_loc_bucket_key},
+    redis::{
+        commands::{add_driver_to_special_location_zset, push_drainer_driver_location},
+        keys::driver_loc_bucket_key,
+    },
 };
 use chrono::{DateTime, Utc};
 use fred::types::{GeoPosition, GeoValue};
@@ -57,6 +61,7 @@ use tracing::{error, info};
 /// ```
 async fn drain_driver_locations(
     driver_locations: &DriversLocationMap,
+    special_location_entries: &FxHashMap<String, Vec<(DriverId, u64, f64)>>,
     bucket_expiry: i64,
     redis: &RedisConnectionPool,
 ) {
@@ -67,6 +72,26 @@ async fn drain_driver_locations(
 
     if let Err(err) = push_drainer_driver_location(driver_locations, &bucket_expiry, redis).await {
         error!(tag = "[Error Pushing To Redis]", error = %err);
+    }
+
+    for (key, entries) in special_location_entries {
+        for (driver_id, bucket, score) in entries {
+            let ts = chrono::TimeZone::timestamp_opt(&Utc, *score as i64, 0)
+                .single()
+                .unwrap_or_else(Utc::now);
+            if let Err(err) = add_driver_to_special_location_zset(
+                redis,
+                key,
+                *bucket,
+                driver_id,
+                &TimeStamp(ts),
+                bucket_expiry,
+            )
+            .await
+            {
+                error!(tag = "[Error Adding To Special Location ZSET]", key = %key, error = %err);
+            }
+        }
     }
 }
 
@@ -84,6 +109,7 @@ async fn drain_driver_locations(
 fn cleanup_drainer(
     drainer_size: &mut usize,
     driver_locations: &mut DriversLocationMap,
+    special_location_zset_entries: &mut FxHashMap<String, Vec<(DriverId, u64, f64)>>,
     drainer_queue_min_max_timestamp_range: &mut Option<(DateTime<Utc>, DateTime<Utc>)>,
 ) {
     if let Some((min_drainer_ts, max_drainer_ts)) = drainer_queue_min_max_timestamp_range {
@@ -91,6 +117,7 @@ fn cleanup_drainer(
     };
     *drainer_size = 0;
     *driver_locations = FxHashMap::default();
+    *special_location_zset_entries = FxHashMap::default();
     *drainer_queue_min_max_timestamp_range = None;
 }
 
@@ -118,8 +145,12 @@ pub async fn run_drainer(
     bucket_size: u64,
     near_by_bucket_threshold: u64,
     redis: &RedisConnectionPool,
+    special_location_cache: Option<SpecialLocationCache>,
+    enable_special_location_bucketing: bool,
 ) {
     let mut driver_locations: DriversLocationMap = FxHashMap::default();
+    let mut special_location_zset_entries: FxHashMap<String, Vec<(DriverId, u64, f64)>> =
+        FxHashMap::default();
     let mut timer = interval(Duration::from_secs(drainer_delay));
     let mut drainer_queue_min_max_timestamp_range = None;
 
@@ -133,10 +164,17 @@ pub async fn run_drainer(
             info!(tag = "[Graceful Shutting Down]", length = %drainer_size);
             if drainer_size > 0 {
                 info!(tag = "[Force Draining Queue]", length = %drainer_size);
-                drain_driver_locations(&driver_locations, bucket_expiry, redis).await;
+                drain_driver_locations(
+                    &driver_locations,
+                    &special_location_zset_entries,
+                    bucket_expiry,
+                    redis,
+                )
+                .await;
                 cleanup_drainer(
                     &mut drainer_size,
                     &mut driver_locations,
+                    &mut special_location_zset_entries,
                     &mut drainer_queue_min_max_timestamp_range,
                 );
             }
@@ -147,28 +185,63 @@ pub async fn run_drainer(
             item = rx.recv() => {
                 info!(tag = "[Recieved Entries For Queuing]");
                 match item {
-                    Some((Dimensions { merchant_id, city, vehicle_type, created_at }, Latitude(latitude), Longitude(longitude), TimeStamp(timestamp), DriverId(driver_id))) => {
+                    Some((Dimensions { merchant_id, city, vehicle_type, created_at, merchant_operating_city_id }, Latitude(latitude), Longitude(longitude), TimeStamp(timestamp), DriverId(driver_id))) => {
                         let bucket = get_bucket_from_timestamp(&bucket_size, TimeStamp(timestamp));
 
-                        driver_locations
-                            .entry(driver_loc_bucket_key(&merchant_id, &city, &vehicle_type, &bucket))
-                            .or_default()
-                            .push(GeoValue {
-                                coordinates: GeoPosition {
-                                    latitude,
-                                    longitude,
-                                },
-                                member: driver_id.into(),
-                            });
+                        let skip_normal_drain = if let Some(ref cache) = special_location_cache {
+                            let guard = cache.read().await;
+                            if let Some(entry) = lookup_special_location(
+                                &*guard,
+                                &merchant_operating_city_id,
+                                &Latitude(latitude),
+                                &Longitude(longitude),
+                            ) {
+                                if enable_special_location_bucketing {
+                                    special_location_zset_entries
+                                        .entry(entry.id.0.clone())
+                                        .or_default()
+                                        .push((
+                                            DriverId(driver_id.clone()),
+                                            bucket,
+                                            timestamp.timestamp() as f64,
+                                        ));
+                                }
+                                !entry.is_open_market_enabled
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        };
+
+                        if !skip_normal_drain {
+                            driver_locations
+                                .entry(driver_loc_bucket_key(&merchant_id, &city, &vehicle_type, &bucket))
+                                .or_default()
+                                .push(GeoValue {
+                                    coordinates: GeoPosition {
+                                        latitude,
+                                        longitude,
+                                    },
+                                    member: driver_id.into(),
+                                });
+                        }
                         drainer_queue_min_max_timestamp_range = drainer_queue_min_max_timestamp_range.map_or(Some((created_at, created_at)), |(min_duration, max_duration)| Some((min(created_at, min_duration), max(created_at, max_duration))));
                         drainer_size += 1;
 
                         if drainer_size >= drainer_capacity {
                             info!(tag = "[Force Draining Queue]", length = %drainer_size);
-                            drain_driver_locations(&driver_locations, bucket_expiry, redis).await;
+                            drain_driver_locations(
+                                &driver_locations,
+                                &special_location_zset_entries,
+                                bucket_expiry,
+                                redis,
+                            )
+                            .await;
                             cleanup_drainer(
                                 &mut drainer_size,
                                 &mut driver_locations,
+                                &mut special_location_zset_entries,
                                 &mut drainer_queue_min_max_timestamp_range
                             );
                         }
@@ -184,10 +257,17 @@ pub async fn run_drainer(
             _ = timer.tick() => {
                 if drainer_size > 0 {
                     info!(tag = "[Draining Queue]", length = %drainer_size);
-                    drain_driver_locations(&driver_locations, bucket_expiry, redis).await;
+                    drain_driver_locations(
+                        &driver_locations,
+                        &special_location_zset_entries,
+                        bucket_expiry,
+                        redis,
+                    )
+                    .await;
                     cleanup_drainer(
                         &mut drainer_size,
                         &mut driver_locations,
+                        &mut special_location_zset_entries,
                         &mut drainer_queue_min_max_timestamp_range
                     );
                 }
