@@ -1339,6 +1339,7 @@ pub async fn track_person_entity_location(
     Ok(PersonLocationResponse {
         curr_point: details.last_known_location.location,
         last_update: details.last_known_location.timestamp,
+        accuracy: details.last_known_location.accuracy,
     })
 }
 
@@ -1394,7 +1395,7 @@ pub async fn update_person_location(
                 tag = "[Person Location Updates]",
                 "Got location updates for Rider Id : {:?} (entity: {:?})",
                 person_id.inner(),
-                entity_details.entity_id
+                entity_details.entities
             );
             let city = get_city(&latest.pt.lat, &latest.pt.lon, &data.polygon)?;
             sliding_window_limiter(
@@ -1450,6 +1451,7 @@ async fn process_person_locations(
             timestamp: last.ts,
             merchant_id: merchant_id.clone(),
             bear: last.bear,
+            accuracy: last.acc,
         },
     };
     set_person_detail(
@@ -1460,5 +1462,198 @@ async fn process_person_locations(
         &data.redis_expiry,
     )
     .await?;
+
+    // For each active entity, check if it has broadcasters that need location pings.
+    let entity_map =
+        get_entity_details_for_person(&data.redis, &merchant_id, person_type, &person_id).await?;
+    if let Some(map) = entity_map {
+        for (_entity_type, entry) in &map.entities {
+            for broadcaster_id in &entry.broadcaster_ids {
+                let redis_clone = data.redis.clone();
+                let broadcaster_id_owned = broadcaster_id.clone();
+                let lat = last.pt.lat.inner();
+                let lon = last.pt.lon.inner();
+                let redis_expiry = data.redis_expiry;
+                Arbiter::current().spawn(async move {
+                    try_send_sos_trace(redis_clone, broadcaster_id_owned, lat, lon, redis_expiry)
+                        .await;
+                });
+            }
+        }
+    }
+
     Ok(())
+}
+
+/// Fire-and-forget: fetches SOS trace config from Redis, rate-limits via a Redis lock, refreshes
+/// the bearer token proactively (and reactively on 401), and POSTs a location trace via the
+/// appropriate ExternalLocationProvider.
+async fn try_send_sos_trace(
+    redis: std::sync::Arc<RedisConnectionPool>,
+    broadcaster_id: String,
+    lat: f64,
+    lon: f64,
+    redis_expiry: u32,
+) {
+    let mut cfg =
+        match crate::redis::commands::get_sos_broadcaster_config(&redis, &broadcaster_id).await {
+            Ok(Some(c)) => c,
+            Ok(None) => return, // No trace config registered — nothing to do.
+            Err(e) => {
+                tracing::error!(
+                    "Failed to get sos_trace_config for {}: {}",
+                    broadcaster_id,
+                    e
+                );
+                return;
+            }
+        };
+
+    let now_secs = chrono::Utc::now().timestamp();
+
+    // Rate-limit: skip if we traced within the last polling_interval_secs.
+    let should_trace = match cfg.last_trace_ts {
+        None => true,
+        Some(last_ts) => now_secs - last_ts >= cfg.polling_interval_secs as i64,
+    };
+    if !should_trace {
+        return;
+    }
+
+    // Dedup concurrent location updates: acquire a Redis lock that expires after one polling
+    // interval. If another worker already holds it, the trace for this interval is covered.
+    let lock_ttl = cfg.polling_interval_secs as i64;
+    match redis
+        .setnx_with_expiry(&sos_erss_trace_lock_key(&broadcaster_id), true, lock_ttl)
+        .await
+    {
+        Ok(true) => {}       // lock acquired — proceed
+        Ok(false) => return, // another worker is handling this interval
+        Err(e) => {
+            tracing::error!("Failed to acquire trace lock for {}: {}", broadcaster_id, e);
+            return;
+        }
+    }
+
+    // time_diff_secs shifts the UTC epoch into city-local wall-clock time so the provider
+    // receives a human-readable local datetime string in YYYY-MM-DD HH:MM:SS format.
+    let local_ts = chrono::DateTime::from_timestamp(now_secs + cfg.time_diff_secs, 0)
+        .unwrap_or_else(chrono::Utc::now);
+    let datetime_str = local_ts.format("%Y-%m-%d %H:%M:%S").to_string();
+
+    // Proactive token refresh: renew 60 seconds before expiry.
+    // if cfg.token_expires_at <= now_secs + 60 {
+    //     tracing::info!(
+    //         "[SOS trace] broadcaster_id={} | step: token expiring soon (expires_at={}, now={}), proactive refresh",
+    //         broadcaster_id, cfg.token_expires_at, now_secs
+    //     );
+    //     match refresh_token(&redis, &broadcaster_id, &mut cfg, redis_expiry, now_secs).await {
+    //         Ok(()) => {
+    //             tracing::info!("[SOS trace] broadcaster_id={} | step: proactive token refresh succeeded", broadcaster_id);
+    //         }
+    //         Err(()) => return,
+    //     }
+    // }
+
+    let mut provider = match crate::outbound::provider::make_provider(&cfg) {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::error!(
+                "Failed to build provider for broadcaster {}: {}",
+                broadcaster_id,
+                e
+            );
+            return;
+        }
+    };
+
+    let trace_result = provider.send_ping(lat, lon, &datetime_str).await;
+
+    let trace_result = match trace_result {
+        Err(AppError::ErssTokenExpired) => {
+            // Reactive token refresh: provider returned 401 — refresh and retry once.
+            match refresh_token(&redis, &broadcaster_id, &mut cfg, redis_expiry, now_secs).await {
+                Ok(()) => {
+                    provider.update_token(cfg.access_token.clone(), cfg.token_expires_at);
+                    provider.send_ping(lat, lon, &datetime_str).await
+                }
+                Err(()) => return,
+            }
+        }
+        other => other,
+    };
+
+    match trace_result {
+        Ok(()) => {
+            cfg.last_trace_ts = Some(now_secs);
+            let ttl = cfg
+                .expires_at
+                .map(|exp| (exp - now_secs).max(60) as u32)
+                .unwrap_or(redis_expiry);
+            if let Err(e) = crate::redis::commands::set_sos_broadcaster_config(
+                &redis,
+                &broadcaster_id,
+                &cfg,
+                ttl,
+            )
+            .await
+            {
+                tracing::error!(
+                    "Failed to update sos_trace_config after trace for {}: {}",
+                    broadcaster_id,
+                    e
+                );
+            }
+        }
+        Err(e) => {
+            tracing::error!("SOS trace failed for broadcaster {}: {}", broadcaster_id, e);
+        }
+    }
+}
+
+/// Refresh the external SOS bearer token via NY reauth and persist the updated config.
+/// Returns `Ok(())` on success, `Err(())` if the refresh failed (already logged).
+async fn refresh_token(
+    redis: &RedisConnectionPool,
+    broadcaster_id: &str,
+    cfg: &mut SosBroadcasterConfig,
+    redis_expiry: u32,
+    now_secs: i64,
+) -> Result<(), ()> {
+    match crate::outbound::external::refresh_external_sos_token(
+        &cfg.ny_reauth_url,
+        &cfg.ny_api_key,
+        &cfg.merchant_operating_city_id,
+    )
+    .await
+    {
+        Ok(resp) => {
+            cfg.access_token = resp.access_token;
+            cfg.token_expires_at = resp.expires_at;
+            // Persist refreshed token so sibling workers pick it up.
+            let ttl = cfg
+                .expires_at
+                .map(|exp| (exp - now_secs).max(60) as u32)
+                .unwrap_or(redis_expiry);
+            if let Err(e) =
+                crate::redis::commands::set_sos_broadcaster_config(redis, broadcaster_id, cfg, ttl)
+                    .await
+            {
+                tracing::error!(
+                    "Failed to persist refreshed external SOS token for {}: {}",
+                    broadcaster_id,
+                    e
+                );
+            }
+            Ok(())
+        }
+        Err(e) => {
+            tracing::error!(
+                "External SOS token refresh failed for broadcaster {}: {}",
+                broadcaster_id,
+                e
+            );
+            Err(())
+        }
+    }
 }

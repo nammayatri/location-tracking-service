@@ -116,4 +116,5 @@ pub struct UpdatePersonLocationRequest {
 pub struct PersonLocationResponse {
     pub curr_point: Point,
     pub last_update: TimeStamp,
+    pub accuracy: Option<Accuracy>,
 }

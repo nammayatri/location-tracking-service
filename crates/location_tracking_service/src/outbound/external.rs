@@ -7,6 +7,7 @@
 */
 use super::types::*;
 use crate::common::types::*;
+use crate::domain::types::internal::ride::ExternalSosReauthResponse;
 use crate::tools::error::AppError;
 use actix_http::StatusCode;
 use reqwest::{Method, Url};
@@ -475,6 +476,40 @@ pub async fn get_distance_matrix(
     .await
     .map_err(|e| e.into())
 }
+
+/// Call NY's internal reauth endpoint to obtain a fresh external SOS access token.
+/// Returns `(access_token, expires_at_epoch_secs)`.
+pub async fn refresh_external_sos_token(
+    ny_reauth_url: &str,
+    ny_api_key: &str,
+    merchant_operating_city_id: &str,
+) -> Result<ExternalSosReauthResponse, AppError> {
+    #[derive(Serialize, Debug)]
+    #[serde(rename_all = "camelCase")]
+    struct ReauthReq<'a> {
+        merchant_operating_city_id: &'a str,
+    }
+    let url = Url::parse(ny_reauth_url)
+        .map_err(|e| AppError::InvalidRequest(format!("Invalid reauth URL: {}", e)))?;
+    call_api::<ExternalSosReauthResponse, ReauthReq>(
+        Protocol::Http1,
+        Method::POST,
+        &url,
+        vec![
+            ("content-type", "application/json"),
+            ("api-key", ny_api_key),
+        ],
+        Some(ReauthReq {
+            merchant_operating_city_id,
+        }),
+        None,
+    )
+    .await
+    .map_err(|e| AppError::InternalError(format!("External SOS reauth failed: {}", e)))
+}
+
+// send_sos_trace has been moved to outbound::provider::ExternalLocationProvider trait.
+// Use `make_provider(&cfg.provider).send_ping(...)` instead.
 
 /// Fetches special locations list from internal driver app.
 /// Uses getAllLocations=true so one call returns data for all cities (JSON response).

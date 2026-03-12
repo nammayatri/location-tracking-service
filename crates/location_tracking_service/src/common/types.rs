@@ -13,7 +13,7 @@ use geo::MultiPolygon;
 use reqwest::Url;
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Deserializer, Serialize};
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use strum_macros::{Display, EnumIter, EnumString};
 
 #[derive(Deserialize, Serialize, Clone, Debug, Eq, Hash, PartialEq)]
@@ -746,10 +746,26 @@ pub enum EntityId {
     Ride(RideId),
 }
 
-/// Person → entity mapping stored in Redis (person_id → entityId + merchant_id). Used for rider/driver.
+/// Legacy: single entity mapping. Kept for backward-compatible Redis deserialization during migration.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct PersonEntityDetails {
     pub entity_id: EntityId,
+    pub merchant_id: MerchantId,
+}
+
+/// Per-entity entry: the entity ID + optional list of broadcaster config keys.
+/// Broadcaster IDs are keys into separate Redis configs (e.g., sos_id for SosBroadcasterConfig).
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct EntityEntry {
+    pub entity_id: EntityId,
+    #[serde(default)]
+    pub broadcaster_ids: Vec<String>,
+}
+
+/// One-to-many: a person can have one entity per type (ride, sos) simultaneously.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct PersonEntityDetailsMap {
+    pub entities: HashMap<String, EntityEntry>,
     pub merchant_id: MerchantId,
 }
 
@@ -768,10 +784,45 @@ pub struct PersonLastKnownLocation {
     pub timestamp: TimeStamp,
     pub merchant_id: MerchantId,
     pub bear: Option<Direction>,
+    pub accuracy: Option<Accuracy>,
 }
 
 /// Generic person detail stored under person_detail key (last location, etc.).
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct PersonAllDetails {
     pub last_known_location: PersonLastKnownLocation,
+}
+
+/// Provider-specific config for an ERSS SOS trace call.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ErssProviderConfig {
+    pub auth_id: String,
+    pub auth_code: String,
+    pub mobile_no: String,
+    pub trace_url_suffix: String,
+}
+
+/// Add a new variant here (plus an ExternalLocationProvider impl and match arm in `make_provider`) to support a new provider.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(tag = "providerKind", rename_all = "camelCase")]
+pub enum SosTraceProvider {
+    Erss(ErssProviderConfig),
+}
+
+/// Generic SOS trace config stored in Redis per SOS ID.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct SosBroadcasterConfig {
+    pub external_reference_id: String,
+    pub base_url: String,
+    pub access_token: String,
+    pub token_expires_at: i64,
+    pub ny_reauth_url: String,
+    pub ny_api_key: String,
+    pub merchant_operating_city_id: String,
+    pub polling_interval_secs: u32,
+    pub time_diff_secs: i64,
+    pub last_trace_ts: Option<i64>,
+    pub expires_at: Option<i64>,
+    pub provider: SosTraceProvider,
 }
