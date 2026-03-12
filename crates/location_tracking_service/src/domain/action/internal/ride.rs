@@ -8,10 +8,12 @@
 
 use crate::domain::types::ui::location::PersonType;
 use crate::environment::AppState;
+use crate::outbound::types::LocationUpdate;
 use crate::redis::commands::*;
 use crate::tools::error::AppError;
 use crate::{common::types::*, domain::types::internal::ride::*};
 use actix_web::web::Data;
+use chrono::Utc;
 use std::str::FromStr;
 
 pub async fn ride_create(
@@ -73,9 +75,10 @@ pub async fn ride_end(
     )
     .await?;
 
-    on_ride_driver_locations.push(Point {
+    on_ride_driver_locations.push(LocationUpdate {
         lat: request_body.lat,
         lon: request_body.lon,
+        ts: Some(request_body.ts.unwrap_or_else(|| Utc::now().timestamp())),
     });
 
     ride_cleanup(

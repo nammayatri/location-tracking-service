@@ -8,6 +8,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::common::types::*;
+use crate::outbound::types::LocationUpdate;
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -37,6 +38,7 @@ pub struct ResponseData {
 pub struct RideEndRequest {
     pub lat: Latitude,
     pub lon: Longitude,
+    pub ts: Option<i64>,
     pub driver_id: DriverId,
     pub merchant_id: MerchantId,
     pub next_ride_id: Option<RideId>,
@@ -53,7 +55,7 @@ pub struct DriverLocationRequest {
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct DriverLocationResponse {
-    pub loc: Vec<Point>,
+    pub loc: Vec<LocationUpdate>,
     pub timestamp: Option<TimeStamp>,
 }
 
@@ -61,7 +63,7 @@ pub struct DriverLocationResponse {
 #[serde(rename_all = "camelCase")]
 pub struct RideEndResponse {
     pub ride_id: RideId,
-    pub loc: Vec<Point>,
+    pub loc: Vec<LocationUpdate>,
     pub driver_id: DriverId,
 }
 
