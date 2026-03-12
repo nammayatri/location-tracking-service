@@ -93,12 +93,16 @@ pub enum EntityInfo {
 }
 
 /// Request body for entity upsert (create/start/end). person_type is in the URL path.
+/// For `EntityStart`, include `broadcaster_config` to atomically register the broadcaster
+/// alongside the entity — eliminating the need for a separate setExternalConfig call.
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct EntityUpsertRequest {
     pub person_id: String,
     pub merchant_id: MerchantId,
     pub entity_info: EntityInfo,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub broadcaster_config: Option<BroadcasterConfigRequest>,
 }
 
 /// Response for entity upsert: success for create/start, or batched locations for end.
@@ -107,4 +111,30 @@ pub struct EntityUpsertRequest {
 pub enum EntityUpsertResponse {
     APISuccess(crate::common::types::APISuccess),
     EntityEnd { loc: Vec<Point> },
+}
+
+/// Request body for registering a broadcaster config. Sent as part of `EntityStart`.
+/// The `provider` field carries provider-kind discriminant + provider-specific fields.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct BroadcasterConfigRequest {
+    pub external_reference_id: String,
+    pub base_url: String,
+    pub access_token: String,
+    pub token_expires_at: i64,
+    pub ny_reauth_url: String,
+    pub ny_api_key: String,
+    pub merchant_operating_city_id: String,
+    pub polling_interval_secs: u32,
+    pub time_diff_secs: i64,
+    pub expires_at: Option<i64>,
+    pub provider: TraceProvider,
+}
+
+/// Response from an external provider reauth endpoint.
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalReauthResponse {
+    pub access_token: String,
+    pub expires_at: i64,
 }

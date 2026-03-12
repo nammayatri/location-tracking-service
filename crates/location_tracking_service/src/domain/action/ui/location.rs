@@ -1347,6 +1347,7 @@ pub async fn track_person_entity_location(
     Ok(PersonLocationResponse {
         curr_point: details.last_known_location.location,
         last_update: details.last_known_location.timestamp,
+        accuracy: details.last_known_location.accuracy,
     })
 }
 
@@ -1402,7 +1403,7 @@ pub async fn update_person_location(
                 tag = "[Person Location Updates]",
                 "Got location updates for Rider Id : {:?} (entity: {:?})",
                 person_id.inner(),
-                entity_details.entity_id
+                entity_details.entities
             );
             let city = get_city(&latest.pt.lat, &latest.pt.lon, &data.polygon)?;
             sliding_window_limiter(
@@ -1458,6 +1459,7 @@ async fn process_person_locations(
             timestamp: last.ts,
             merchant_id: merchant_id.clone(),
             bear: last.bear,
+            accuracy: last.acc,
         },
     };
     set_person_detail(
@@ -1468,5 +1470,251 @@ async fn process_person_locations(
         &data.redis_expiry,
     )
     .await?;
+
+    // For each active entity, check if it has broadcasters that need location pings.
+    let entity_map =
+        get_entity_details_for_person(&data.redis, &merchant_id, person_type, &person_id).await?;
+    if let Some(map) = entity_map {
+        for (entity_type, entry) in &map.entities {
+            for broadcaster_id in &entry.broadcaster_ids {
+                if let Some(cfg) = entry
+                    .broadcaster_configs
+                    .iter()
+                    .find(|c| c.broadcaster_id == *broadcaster_id)
+                {
+                    let redis_clone = data.redis.clone();
+                    let broadcaster_id_owned = broadcaster_id.clone();
+                    let cfg_owned = cfg.clone();
+                    let lat = last.pt.lat.inner();
+                    let lon = last.pt.lon.inner();
+                    let redis_expiry = data.redis_expiry;
+                    let merchant_id_clone = merchant_id.clone();
+                    let person_id_clone = person_id.clone();
+                    let entity_type_clone = entity_type.clone();
+                    Arbiter::current().spawn(async move {
+                        try_send_broadcast_trace(
+                            redis_clone,
+                            broadcaster_id_owned,
+                            cfg_owned,
+                            lat,
+                            lon,
+                            redis_expiry,
+                            merchant_id_clone,
+                            person_type,
+                            person_id_clone,
+                            entity_type_clone,
+                        )
+                        .await;
+                    });
+                }
+            }
+        }
+    }
+
     Ok(())
+}
+
+/// Fire-and-forget: rate-limits via a Redis lock, refreshes the bearer token reactively on 401,
+/// and POSTs a location trace via the appropriate ExternalLocationProvider.
+async fn try_send_broadcast_trace(
+    redis: std::sync::Arc<RedisConnectionPool>,
+    broadcaster_id: String,
+    mut cfg: BroadcastTraceConfig,
+    lat: f64,
+    lon: f64,
+    redis_expiry: u32,
+    merchant_id: MerchantId,
+    person_type: PersonType,
+    person_id: PersonId,
+    entity_type: String,
+) {
+    let now_secs = chrono::Utc::now().timestamp();
+
+    // Rate-limit: skip if we traced within the last polling_interval_secs.
+    let should_trace = match cfg.last_trace_ts {
+        None => true,
+        Some(last_ts) => now_secs - last_ts >= cfg.polling_interval_secs as i64,
+    };
+    if !should_trace {
+        return;
+    }
+
+    // time_diff_secs shifts the UTC epoch into city-local wall-clock time so the provider
+    // receives a human-readable local datetime string in YYYY-MM-DD HH:MM:SS format.
+    let local_ts = chrono::DateTime::from_timestamp(now_secs + cfg.time_diff_secs, 0)
+        .unwrap_or_else(chrono::Utc::now);
+    let datetime_str = local_ts.format("%Y-%m-%d %H:%M:%S").to_string();
+
+    // Proactive token refresh: renew 60 seconds before expiry.
+    // if cfg.token_expires_at <= now_secs + 60 {
+    //     tracing::info!(
+    //         "[broadcast trace] broadcaster_id={} | step: token expiring soon (expires_at={}, now={}), proactive refresh",
+    //         broadcaster_id, cfg.token_expires_at, now_secs
+    //     );
+    //     match refresh_token(&redis, &broadcaster_id, &mut cfg, redis_expiry, now_secs).await {
+    //         Ok(()) => {
+    //             tracing::info!("[broadcast trace] broadcaster_id={} | step: proactive token refresh succeeded", broadcaster_id);
+    //         }
+    //         Err(()) => return,
+    //     }
+    // }
+
+    let mut provider = match crate::outbound::provider::make_provider(&cfg) {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::error!(
+                "Failed to build provider for broadcaster {}: {}",
+                broadcaster_id,
+                e
+            );
+            return;
+        }
+    };
+
+    let trace_result = provider.send_ping(lat, lon, &datetime_str).await;
+
+    let trace_result = match trace_result {
+        Err(AppError::TraceTokenExpired) => {
+            // Reactive token refresh: provider returned 401 — refresh and retry once.
+            match refresh_token(
+                &redis,
+                &broadcaster_id,
+                &mut cfg,
+                redis_expiry,
+                now_secs,
+                &merchant_id,
+                person_type,
+                &person_id,
+                &entity_type,
+            )
+            .await
+            {
+                Ok(()) => {
+                    provider.update_token(cfg.access_token.clone(), cfg.token_expires_at);
+                    provider.send_ping(lat, lon, &datetime_str).await
+                }
+                Err(()) => return,
+            }
+        }
+        other => other,
+    };
+
+    match trace_result {
+        Ok(()) => {
+            cfg.last_trace_ts = Some(now_secs);
+            if let Err(e) = persist_broadcaster_config(
+                &redis,
+                &merchant_id,
+                person_type,
+                &person_id,
+                &entity_type,
+                &broadcaster_id,
+                &cfg,
+                &redis_expiry,
+            )
+            .await
+            {
+                tracing::error!(
+                    "Failed to update broadcast_trace_config after trace for {}: {}",
+                    broadcaster_id,
+                    e
+                );
+            }
+        }
+        Err(e) => {
+            tracing::error!(
+                "Broadcast trace failed for broadcaster {}: {}",
+                broadcaster_id,
+                e
+            );
+        }
+    }
+}
+
+/// Persist updated BroadcastTraceConfig back into the entity_details map.
+async fn persist_broadcaster_config(
+    redis: &RedisConnectionPool,
+    merchant_id: &MerchantId,
+    person_type: PersonType,
+    person_id: &PersonId,
+    entity_type: &str,
+    broadcaster_id: &str,
+    cfg: &BroadcastTraceConfig,
+    expiry: &u32,
+) -> Result<(), AppError> {
+    let mut map = get_entity_details_for_person(redis, merchant_id, person_type, person_id)
+        .await?
+        .unwrap_or_else(|| PersonEntityDetailsMap {
+            entities: std::collections::HashMap::new(),
+            merchant_id: merchant_id.clone(),
+        });
+    if let Some(entry) = map.entities.get_mut(entity_type) {
+        if let Some(existing) = entry
+            .broadcaster_configs
+            .iter_mut()
+            .find(|c| c.broadcaster_id == broadcaster_id)
+        {
+            *existing = cfg.clone();
+        } else {
+            let mut new_cfg = cfg.clone();
+            new_cfg.broadcaster_id = broadcaster_id.to_string();
+            entry.broadcaster_configs.push(new_cfg);
+        }
+    }
+    set_entity_details_for_person(redis, merchant_id, person_type, person_id, &map, expiry).await
+}
+
+/// Refresh the external bearer token via reauth and persist the updated config.
+/// Returns `Ok(())` on success, `Err(())` if the refresh failed (already logged).
+async fn refresh_token(
+    redis: &RedisConnectionPool,
+    broadcaster_id: &str,
+    cfg: &mut BroadcastTraceConfig,
+    redis_expiry: u32,
+    _now_secs: i64,
+    merchant_id: &MerchantId,
+    person_type: PersonType,
+    person_id: &PersonId,
+    entity_type: &str,
+) -> Result<(), ()> {
+    match crate::outbound::external::refresh_external_trace_token(
+        &cfg.ny_reauth_url,
+        &cfg.ny_api_key,
+        &cfg.merchant_operating_city_id,
+    )
+    .await
+    {
+        Ok(resp) => {
+            cfg.access_token = resp.access_token;
+            cfg.token_expires_at = resp.expires_at;
+            // Persist refreshed token so sibling workers pick it up.
+            if let Err(e) = persist_broadcaster_config(
+                redis,
+                merchant_id,
+                person_type,
+                person_id,
+                entity_type,
+                broadcaster_id,
+                cfg,
+                &redis_expiry,
+            )
+            .await
+            {
+                tracing::error!(
+                    "Failed to persist refreshed external token for {}: {}",
+                    broadcaster_id,
+                    e
+                );
+            }
+            Ok(())
+        }
+        Err(e) => {
+            tracing::error!(
+                "External token refresh failed for broadcaster {}: {}",
+                broadcaster_id,
+                e
+            );
+            Err(())
+        }
+    }
 }

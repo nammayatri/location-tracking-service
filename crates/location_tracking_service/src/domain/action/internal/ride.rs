@@ -227,6 +227,28 @@ pub async fn ride_details(
     Ok(APISuccess::default())
 }
 
+/// Build a BroadcastTraceConfig from the incoming request.
+fn build_broadcaster_config(
+    broadcaster_id: String,
+    req: BroadcasterConfigRequest,
+) -> BroadcastTraceConfig {
+    BroadcastTraceConfig {
+        broadcaster_id,
+        external_reference_id: req.external_reference_id,
+        base_url: req.base_url,
+        access_token: req.access_token,
+        token_expires_at: req.token_expires_at,
+        ny_reauth_url: req.ny_reauth_url,
+        ny_api_key: req.ny_api_key,
+        merchant_operating_city_id: req.merchant_operating_city_id,
+        polling_interval_secs: req.polling_interval_secs,
+        time_diff_secs: req.time_diff_secs,
+        last_trace_ts: None,
+        expires_at: req.expires_at,
+        provider: req.provider,
+    }
+}
+
 /// Generic entity upsert: create (ride only), start, or end. Uses generic Redis keys; rider-only for now.
 pub async fn entity_upsert(
     person_type: &str,
@@ -257,16 +279,18 @@ pub async fn entity_upsert(
                     "EntityCreate is not supported for SOS".to_string(),
                 ));
             }
-            let details = PersonEntityDetails {
+            let entry = EntityEntry {
                 entity_id: entity_id.clone(),
-                merchant_id: merchant_id.clone(),
+                broadcaster_ids: Vec::new(),
+                broadcaster_configs: Vec::new(),
             };
-            set_entity_details_for_person(
+            add_entity_for_person(
                 &data.redis,
                 merchant_id,
                 person_type,
                 &person_id,
-                &details,
+                entity_type,
+                entry,
                 &data.redis_expiry,
             )
             .await?;
@@ -281,16 +305,29 @@ pub async fn entity_upsert(
             Ok(EntityUpsertResponse::APISuccess(APISuccess::default()))
         }
         EntityInfo::EntityStart => {
-            let details = PersonEntityDetails {
-                entity_id: entity_id.clone(),
-                merchant_id: merchant_id.clone(),
+            let broadcaster_ids = if entity_type.eq_ignore_ascii_case("sos") {
+                vec![entity_id_str.to_string()]
+            } else {
+                Vec::new()
             };
-            set_entity_details_for_person(
+            let broadcaster_configs = if let Some(cfg) = request_body.broadcaster_config {
+                let config = build_broadcaster_config(entity_id_str.to_string(), cfg);
+                vec![config]
+            } else {
+                Vec::new()
+            };
+            let entry = EntityEntry {
+                entity_id: entity_id.clone(),
+                broadcaster_ids,
+                broadcaster_configs,
+            };
+            add_entity_for_person(
                 &data.redis,
                 merchant_id,
                 person_type,
                 &person_id,
-                &details,
+                entity_type,
+                entry,
                 &data.redis_expiry,
             )
             .await?;
@@ -318,6 +355,15 @@ pub async fn entity_upsert(
                 lat: *lat,
                 lon: *lon,
             });
+            // Remove only this entity type from the map, then clean up related keys.
+            remove_entity_for_person(
+                &data.redis,
+                merchant_id,
+                person_type,
+                &person_id,
+                entity_type,
+            )
+            .await?;
             entity_cleanup_generic(
                 &data.redis,
                 merchant_id,
