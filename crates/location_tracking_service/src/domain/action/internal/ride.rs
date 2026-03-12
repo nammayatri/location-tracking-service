@@ -7,10 +7,12 @@
 */
 
 use crate::environment::AppState;
+use crate::outbound::types::LocationUpdate;
 use crate::redis::commands::*;
 use crate::tools::error::AppError;
 use crate::{common::types::*, domain::types::internal::ride::*};
 use actix_web::web::Data;
+use chrono::Utc;
 
 pub async fn ride_create(
     ride_id: RideId,
@@ -71,9 +73,10 @@ pub async fn ride_end(
     )
     .await?;
 
-    on_ride_driver_locations.push(Point {
+    on_ride_driver_locations.push(LocationUpdate {
         lat: request_body.lat,
         lon: request_body.lon,
+        ts: Some(request_body.ts.unwrap_or_else(|| Utc::now().timestamp())),
     });
 
     ride_cleanup(

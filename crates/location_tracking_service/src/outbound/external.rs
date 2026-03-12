@@ -92,7 +92,7 @@ pub async fn bulk_location_update_dobpp(
     bulk_location_callback_url: &Url,
     ride_id: RideId,
     driver_id: DriverId,
-    on_ride_driver_locations: Vec<Point>,
+    on_ride_driver_locations: Vec<LocationUpdate>,
 ) -> Result<APISuccess, AppError> {
     call_api::<APISuccess, BulkDataReq>(
         Protocol::Http1,

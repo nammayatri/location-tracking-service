@@ -6,6 +6,7 @@
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 use crate::common::types::*;
+use crate::outbound::types::LocationUpdate;
 use crate::redis::keys::*;
 use crate::tools::error::AppError;
 use fred::types::{GeoPosition, GeoUnit, SortOrder};
@@ -395,7 +396,7 @@ pub async fn push_on_ride_driver_locations(
     redis: &RedisConnectionPool,
     driver_id: &DriverId,
     merchant_id: &MerchantId,
-    geo_entries: Vec<Point>,
+    geo_entries: Vec<LocationUpdate>,
     rpush_expiry: &u32,
 ) -> Result<i64, AppError> {
     redis
@@ -454,9 +455,9 @@ pub async fn get_on_ride_driver_locations_and_delete(
     driver_id: &DriverId,
     merchant_id: &MerchantId,
     len: i64,
-) -> Result<Vec<Point>, AppError> {
+) -> Result<Vec<LocationUpdate>, AppError> {
     redis
-        .lpop::<Point>(&on_ride_loc_key(merchant_id, driver_id), Some(len as usize))
+        .lpop::<LocationUpdate>(&on_ride_loc_key(merchant_id, driver_id), Some(len as usize))
         .await
         .map_err(|err| AppError::InternalError(err.to_string()))
 }
@@ -481,9 +482,9 @@ pub async fn get_on_ride_driver_locations(
     driver_id: &DriverId,
     merchant_id: &MerchantId,
     len: i64,
-) -> Result<Vec<Point>, AppError> {
+) -> Result<Vec<LocationUpdate>, AppError> {
     redis
-        .lrange::<Point>(&on_ride_loc_key(merchant_id, driver_id), 0, len)
+        .lrange::<LocationUpdate>(&on_ride_loc_key(merchant_id, driver_id), 0, len)
         .await
         .map_err(|err| AppError::InternalError(err.to_string()))
 }
