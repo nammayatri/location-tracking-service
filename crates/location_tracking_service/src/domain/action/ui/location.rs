@@ -24,7 +24,7 @@ use crate::outbound::external::{
     authenticate_dobpp, bulk_location_update_dobpp, driver_reached_destination, trigger_fcm_bap,
     trigger_fcm_dobpp, trigger_stop_detection_event,
 };
-use crate::outbound::types::ViolationDetectionReq;
+use crate::outbound::types::{LocationUpdate, ViolationDetectionReq};
 use crate::redis::{commands::*, keys::*};
 use crate::tools::error::AppError;
 use crate::tools::prometheus::MEASURE_DURATION;
@@ -859,13 +859,14 @@ async fn process_driver_locations(
                     let geo_entries = locations
                         .iter()
                         .filter_map(|(loc, location_type)| match location_type {
-                            LocationType::UNFILTERED => Some(Point {
+                            LocationType::UNFILTERED => Some(LocationUpdate {
                                 lat: loc.pt.lat,
                                 lon: loc.pt.lon,
+                                ts: Some(loc.ts.0.timestamp()),
                             }),
                             LocationType::FILTERED => None,
                         })
-                        .collect::<Vec<Point>>();
+                        .collect::<Vec<LocationUpdate>>();
 
                     let on_ride_driver_locations_count = get_on_ride_driver_locations_count(
                         &data.redis,
@@ -889,7 +890,14 @@ async fn process_driver_locations(
                                 &data.bulk_location_callback_url,
                                 ride_id.to_owned(),
                                 driver_id.to_owned(),
-                                on_ride_driver_locations,
+                                on_ride_driver_locations
+                                    .into_iter()
+                                    .map(|dl| LocationUpdate {
+                                        lat: dl.lat,
+                                        lon: dl.lon,
+                                        ts: dl.ts,
+                                    })
+                                    .collect(),
                             )
                             .await
                             .map_err(|err| {
