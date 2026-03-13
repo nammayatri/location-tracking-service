@@ -75,6 +75,8 @@ let stop_detection_bus_config = {=}
 let stop_detection_config = {=}
   with SEDAN = stop_detection_cab_config
   with BUS_AC = stop_detection_bus_config
+  with AUTO_RICKSHAW = stop_detection_cab_config
+  with BIKE = stop_detection_cab_config
 
 -- drainer_delay :: 4 * 1024KB * 1024MB * 1024GB / 100 Bytes = 41943040
 let stoppedDetectionConfig = {
@@ -193,7 +195,7 @@ let detection_violation_cab_config_new = {=}
 
 let detection_violation_cab_config_inprogress = {=}
   with Stopped = {
-    enabled = False,
+    enabled = True,
     detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
     detection_config = DetectionConfigType.StoppedDetection stoppedDetectionConfig
   }
@@ -322,7 +324,7 @@ let detection_anti_violation_cab_config_new = {=}
 
 let detection_anti_violation_cab_config_inprogress = {=}
   with Stopped = {
-    enabled = False,
+    enabled = True,
     detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
     detection_config = DetectionConfigType.StoppedDetection stoppedAntiDetectionConfig
   }
@@ -440,10 +442,14 @@ let detection_anti_violation_bus_config = {=}
 let detection_violation_config = {=}
   with SEDAN = detection_violation_cab_config
   with BUS_AC = detection_violation_bus_config
+  with AUTO_RICKSHAW = detection_violation_cab_config
+  with BIKE = detection_violation_cab_config
 
 let detection_anti_violation_config = {=}
   with SEDAN = detection_anti_violation_cab_config
   with BUS_AC = detection_anti_violation_bus_config
+  with AUTO_RICKSHAW = detection_anti_violation_cab_config
+  with BIKE = detection_anti_violation_cab_config
 in {
     logger_cfg = logger_cfg,
     redis_cfg = redis_cfg,
