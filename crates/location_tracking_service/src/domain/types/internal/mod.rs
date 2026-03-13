@@ -8,3 +8,4 @@
 
 pub mod location;
 pub mod ride;
+pub mod transit_proximity;

@@ -5,7 +5,28 @@
     or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more details. You should have received a copy of
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
+use actix_web::{
+    post,
+    web::{Data, Json},
+};
 
-pub mod location;
-pub mod ride;
-pub mod transit_proximity;
+use crate::tools::error::AppError;
+use crate::{
+    domain::{
+        action::internal::transit_proximity,
+        types::internal::transit_proximity::*,
+    },
+    environment::AppState,
+};
+
+#[post("/internal/transit/proximity")]
+async fn transit_proximity_eta(
+    data: Data<AppState>,
+    param_obj: Json<TransitProximityRequest>,
+) -> Result<Json<TransitProximityResponse>, AppError> {
+    let request_body = param_obj.into_inner();
+
+    Ok(Json(
+        transit_proximity::transit_proximity(data, request_body).await?,
+    ))
+}
