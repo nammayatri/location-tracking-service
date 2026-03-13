@@ -12,11 +12,8 @@ use crate::domain::types::internal::transit_proximity::*;
 use crate::environment::AppState;
 use crate::redis::commands::*;
 use crate::tools::error::AppError;
-use crate::tools::prometheus::MEASURE_DURATION;
 use actix_web::web::Data;
 use chrono::Utc;
-use shared::measure_latency_duration;
-use shared::tools::logger::*;
 
 /// Average walking speed in meters per second (5 km/h).
 const WALKING_SPEED_MPS: f64 = 5.0 * 1000.0 / 3600.0;
@@ -24,7 +21,6 @@ const WALKING_SPEED_MPS: f64 = 5.0 * 1000.0 / 3600.0;
 /// Buffer time in seconds to account for walking variability.
 const WALKING_BUFFER_SECONDS: i64 = 60;
 
-#[macros::measure_duration]
 pub async fn transit_proximity(
     data: Data<AppState>,
     request_body: TransitProximityRequest,
