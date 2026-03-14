@@ -265,3 +265,14 @@ pub fn person_processing_lock_key(
 pub fn special_location_drivers_key(special_location_id: &str, bucket: &u64) -> String {
     format!("lts:special_loc:{}:{}", special_location_id, bucket)
 }
+
+/// Redis key for SOS ERSS config (stored by LTS, set by NY on SOS creation).
+pub fn sos_erss_config_key(sos_id: &str) -> String {
+    format!("lts:sos_erss_config:{}", sos_id)
+}
+
+/// Redis key used to deduplicate concurrent ERSS trace calls for a given SOS ID.
+/// TTL is set to polling_interval_secs so at most one trace fires per interval.
+pub fn sos_erss_trace_lock_key(sos_id: &str) -> String {
+    format!("lts:sos_erss_trace_lock:{}", sos_id)
+}

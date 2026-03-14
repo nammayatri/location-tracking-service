@@ -604,26 +604,26 @@ pub async fn set_person_identifier(
         .map_err(|err| AppError::InternalError(err.to_string()))
 }
 
-/// Gets entity details for a person (current entity_id, merchant_id).
+/// Gets entity details map for a person.
 pub async fn get_entity_details_for_person(
     redis: &RedisConnectionPool,
     merchant_id: &MerchantId,
     person_type: PersonType,
     person_id: &PersonId,
-) -> Result<Option<PersonEntityDetails>, AppError> {
+) -> Result<Option<PersonEntityDetailsMap>, AppError> {
     redis
-        .get_key::<PersonEntityDetails>(&entity_details_key(merchant_id, person_type, person_id))
+        .get_key::<PersonEntityDetailsMap>(&entity_details_key(merchant_id, person_type, person_id))
         .await
         .map_err(|err| AppError::InternalError(err.to_string()))
 }
 
-/// Sets entity details for a person.
+/// Sets entity details map for a person.
 pub async fn set_entity_details_for_person(
     redis: &RedisConnectionPool,
     merchant_id: &MerchantId,
     person_type: PersonType,
     person_id: &PersonId,
-    details: &PersonEntityDetails,
+    details: &PersonEntityDetailsMap,
     expiry: &u32,
 ) -> Result<(), AppError> {
     redis
@@ -634,6 +634,60 @@ pub async fn set_entity_details_for_person(
         )
         .await
         .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
+/// Adds (or replaces) a single entity entry in the person's entity details map.
+/// Creates the map if it doesn't exist yet.
+pub async fn add_entity_for_person(
+    redis: &RedisConnectionPool,
+    merchant_id: &MerchantId,
+    person_type: PersonType,
+    person_id: &PersonId,
+    entity_type: &str,
+    entry: EntityEntry,
+    expiry: &u32,
+) -> Result<(), AppError> {
+    let mut map = get_entity_details_for_person(redis, merchant_id, person_type, person_id)
+        .await?
+        .unwrap_or_else(|| PersonEntityDetailsMap {
+            entities: std::collections::HashMap::new(),
+            merchant_id: merchant_id.clone(),
+        });
+    map.entities.insert(entity_type.to_string(), entry);
+    set_entity_details_for_person(redis, merchant_id, person_type, person_id, &map, expiry).await
+}
+
+/// Removes a single entity type from the person's entity details map.
+/// Deletes the Redis key if the map becomes empty.
+pub async fn remove_entity_for_person(
+    redis: &RedisConnectionPool,
+    merchant_id: &MerchantId,
+    person_type: PersonType,
+    person_id: &PersonId,
+    entity_type: &str,
+) -> Result<(), AppError> {
+    let mut map =
+        match get_entity_details_for_person(redis, merchant_id, person_type, person_id).await? {
+            Some(m) => m,
+            None => return Ok(()),
+        };
+    map.entities.remove(entity_type);
+    if map.entities.is_empty() {
+        redis
+            .delete_key(&entity_details_key(merchant_id, person_type, person_id))
+            .await
+            .map_err(|err| AppError::InternalError(err.to_string()))
+    } else {
+        set_entity_details_for_person(
+            redis,
+            merchant_id,
+            person_type,
+            person_id,
+            &map,
+            &3600, // default expiry for partial cleanup
+        )
+        .await
+    }
 }
 
 /// Gets person ID by entity (entity_type: "ride" | "sos", entity_id: id string).
@@ -1043,6 +1097,28 @@ pub async fn add_driver_to_special_location_zset(
         .map_err(|err| AppError::InternalError(err.to_string()))?;
     redis
         .set_expiry(&key, bucket_expiry)
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
+pub async fn get_sos_broadcaster_config(
+    redis: &RedisConnectionPool,
+    sos_id: &str,
+) -> Result<Option<SosBroadcasterConfig>, AppError> {
+    redis
+        .get_key::<SosBroadcasterConfig>(&sos_erss_config_key(sos_id))
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
+pub async fn set_sos_broadcaster_config(
+    redis: &RedisConnectionPool,
+    sos_id: &str,
+    config: &SosBroadcasterConfig,
+    expiry_secs: u32,
+) -> Result<(), AppError> {
+    redis
+        .set_key(&sos_erss_config_key(sos_id), config.clone(), expiry_secs)
         .await
         .map_err(|err| AppError::InternalError(err.to_string()))
 }

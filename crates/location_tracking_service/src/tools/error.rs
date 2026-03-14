@@ -52,6 +52,7 @@ pub enum AppError {
     MissingApiKey,
     InvalidGPSData(String),
     VehicleNotInActiveTrip(String),
+    ErssTokenExpired,
     RiderSosAuthFailed,
     RiderLocationNotFound,
 }
@@ -138,6 +139,7 @@ impl AppError {
             AppError::MissingApiKey => "MISSING_API_KEY",
             AppError::InvalidGPSData(_) => "INVALID_GPS_DATA",
             AppError::VehicleNotInActiveTrip(_) => "VEHICLE_NOT_IN_ACTIVE_TRIP",
+            AppError::ErssTokenExpired => "ERSS_TOKEN_EXPIRED",
             AppError::RiderSosAuthFailed => "RIDER_SOS_AUTH_FAILED",
             AppError::RiderLocationNotFound => "RIDER_LOCATION_NOT_FOUND",
         }
@@ -184,6 +186,7 @@ impl ResponseError for AppError {
             AppError::MissingApiKey => StatusCode::BAD_REQUEST,
             AppError::InvalidGPSData(_) => StatusCode::UNPROCESSABLE_ENTITY,
             AppError::VehicleNotInActiveTrip(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            AppError::ErssTokenExpired => StatusCode::UNAUTHORIZED,
             AppError::RiderSosAuthFailed => StatusCode::UNAUTHORIZED,
             AppError::RiderLocationNotFound => StatusCode::NOT_FOUND,
         }
