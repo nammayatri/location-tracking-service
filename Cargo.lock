@@ -143,6 +143,7 @@ version = "2.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "28f32d40287d3f402ae0028a9d54bef51af15c8769492826a69d28f81893151d"
 dependencies = [
+ "actix-macros",
  "futures-core",
  "tokio",
 ]
@@ -1004,7 +1005,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "regex",
- "rustc-hash",
+ "rustc-hash 1.1.0",
  "shlex",
  "syn 2.0.100",
  "which",
@@ -2786,12 +2787,13 @@ dependencies = [
  "rdkafka",
  "regex",
  "reqwest",
+ "rmp-serde",
  "rstar 0.12.2",
- "rustc-hash",
+ "rustc-hash 1.1.0",
  "serde",
  "serde_dhall",
  "serde_json",
- "shared 0.1.0 (git+https://github.com/nammayatri/shared-kernel-rs?rev=09197c6)",
+ "shared",
  "strum",
  "strum_macros",
  "thiserror 1.0.52",
@@ -2834,17 +2836,7 @@ dependencies = [
 [[package]]
 name = "macros"
 version = "0.1.0"
-source = "git+https://github.com/nammayatri/shared-kernel-rs?rev=09197c6#09197c6a162e0e42649f423f3fcf29639b2f0bb9"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.100",
-]
-
-[[package]]
-name = "macros"
-version = "0.1.0"
-source = "git+https://github.com/nammayatri/shared-kernel-rs?rev=2bb5555#2bb5555ea1167214e38a3bf0625691c97b214ae5"
+source = "git+https://github.com/nammayatri/shared-kernel-rs?rev=7c6cf55#7c6cf55ca7942c69498fa452c7c545728b7b87be"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3069,9 +3061,9 @@ dependencies = [
 
 [[package]]
 name = "num-traits"
-version = "0.2.17"
+version = "0.2.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "39e3200413f237f41ab11ad6d161bc7239c84dcb631773ccd7de3dfe4b5c267c"
+checksum = "071dfc062690e90b734c0b2273ce72ad0ffa95f0c74596bc250dcfd960262841"
 dependencies = [
  "autocfg",
  "libm",
@@ -3722,6 +3714,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "rmp"
+version = "0.8.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4ba8be72d372b2c9b35542551678538b562e7cf86c3315773cae48dfbfe7790c"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
+name = "rmp-serde"
+version = "1.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72f81bee8c8ef9b577d1681a70ebbc962c232461e397b22c208c43c04b67a155"
+dependencies = [
+ "rmp",
+ "serde",
+]
+
+[[package]]
 name = "robust"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3760,6 +3771,12 @@ name = "rustc-hash"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "08d43f7aa6b08d49f382cde6a7982047c3426db949b1424bc4b7ec9ae12c6ce2"
+
+[[package]]
+name = "rustc-hash"
+version = "2.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "357703d41365b4b27c590e3ed91eabb1b663f07c4c084095e60cbed4362dff0d"
 
 [[package]]
 name = "rustc_version"
@@ -3979,18 +3996,28 @@ checksum = "836fa6a3e1e547f9a2c4040802ec865b5d85f4014efe00555d7090a3dcaa1090"
 
 [[package]]
 name = "serde"
-version = "1.0.219"
+version = "1.0.228"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5f0e2c6ed6606019b4e29e69dbaba95b11854410e5347d525002456dbbb786b6"
+checksum = "9a8e94ea7f378bd32cbbd37198a4a91436180c5bb472411e48b5ec2e2124ae9e"
+dependencies = [
+ "serde_core",
+ "serde_derive",
+]
+
+[[package]]
+name = "serde_core"
+version = "1.0.228"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "41d385c7d4ca58e59fc732af25c3983b67ac852c1a25000afe1175de458b67ad"
 dependencies = [
  "serde_derive",
 ]
 
 [[package]]
 name = "serde_derive"
-version = "1.0.219"
+version = "1.0.228"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b0276cf7f2c73365f7157c8123c21cd9a50fbbd844757af28ca1f5925fc2a00"
+checksum = "d540f220d3187173da220f885ab66608367b6574e925011a9353e4badda91d79"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4067,7 +4094,7 @@ dependencies = [
 [[package]]
 name = "shared"
 version = "0.1.0"
-source = "git+https://github.com/nammayatri/shared-kernel-rs?rev=09197c6#09197c6a162e0e42649f423f3fcf29639b2f0bb9"
+source = "git+https://github.com/nammayatri/shared-kernel-rs?rev=7c6cf55#7c6cf55ca7942c69498fa452c7c545728b7b87be"
 dependencies = [
  "actix",
  "actix-http",
@@ -4082,51 +4109,12 @@ dependencies = [
  "fred",
  "futures",
  "google-cloud-storage",
- "macros 0.1.0 (git+https://github.com/nammayatri/shared-kernel-rs?rev=09197c6)",
+ "macros 0.1.0 (git+https://github.com/nammayatri/shared-kernel-rs?rev=7c6cf55)",
  "once_cell",
  "prometheus",
  "regex",
  "reqwest",
- "rustc-hash",
- "serde",
- "serde_json",
- "strum_macros",
- "thiserror 1.0.52",
- "tokio",
- "tracing",
- "tracing-actix-web",
- "tracing-appender",
- "tracing-bunyan-formatter",
- "tracing-log 0.1.4",
- "tracing-subscriber",
- "urlencoding",
- "uuid",
-]
-
-[[package]]
-name = "shared"
-version = "0.1.0"
-source = "git+https://github.com/nammayatri/shared-kernel-rs?rev=2bb5555#2bb5555ea1167214e38a3bf0625691c97b214ae5"
-dependencies = [
- "actix",
- "actix-http",
- "actix-web",
- "actix-web-prom",
- "async-trait",
- "aws-config",
- "aws-sdk-s3",
- "aws-types",
- "chrono",
- "error-stack",
- "fred",
- "futures",
- "google-cloud-storage",
- "macros 0.1.0 (git+https://github.com/nammayatri/shared-kernel-rs?rev=2bb5555)",
- "once_cell",
- "prometheus",
- "regex",
- "reqwest",
- "rustc-hash",
+ "rustc-hash 1.1.0",
  "serde",
  "serde_json",
  "strum_macros",
@@ -4380,17 +4368,21 @@ dependencies = [
 name = "tests"
 version = "0.1.0"
 dependencies = [
+ "actix-rt",
+ "actix-web",
  "anyhow",
  "arc-swap",
  "chrono",
+ "fred",
  "futures",
  "location_tracking_service",
  "rand",
  "reqwest",
+ "rustc-hash 2.1.1",
  "serde",
  "serde_dhall",
  "serde_json",
- "shared 0.1.0 (git+https://github.com/nammayatri/shared-kernel-rs?rev=2bb5555)",
+ "shared",
  "strum",
  "strum_macros",
  "tokio",

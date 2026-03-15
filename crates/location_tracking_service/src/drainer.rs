@@ -7,7 +7,10 @@
 */
 use crate::queue_drainer_latency;
 use crate::special_location::{lookup_special_location, SpecialLocationCache};
-use crate::tools::prometheus::{QUEUE_DRAINER_LATENCY, TOTAL_LOCATION_UPDATES};
+use crate::tools::prometheus::{
+    DRAINER_BATCH_SIZE, DRAINER_FLUSHES_TOTAL, DRAINER_FLUSH_DURATION, DRAINER_LAG_SECONDS,
+    QUEUE_DRAINER_LATENCY, TOTAL_LOCATION_UPDATES,
+};
 use crate::{
     common::{
         types::*,
@@ -15,7 +18,7 @@ use crate::{
     },
     redis::{
         commands::{
-            add_driver_to_special_location_zset, batch_check_drivers_on_ride,
+            batch_add_drivers_to_special_location_zset, batch_check_drivers_on_ride,
             batch_get_driver_queue_trackings, push_drainer_driver_location, DriverQueueTracking,
         },
         keys::{driver_loc_bucket_key, driver_queue_tracking_key, special_location_queue_key},
@@ -35,7 +38,6 @@ use std::{
 };
 use std::{sync::Arc, time::Duration};
 use tokio::sync::mpsc;
-use tokio::time::interval;
 use tokio::time::Instant;
 use tracing::{error, info};
 
@@ -230,28 +232,25 @@ async fn drain_driver_locations(
         "Queue: {:?}\nPushing to redis server", driver_locations
     );
 
-    if let Err(err) = push_drainer_driver_location(driver_locations, &bucket_expiry, redis).await {
-        error!(tag = "[Error Pushing To Redis]", error = %err);
-    }
-
-    for (key, entries) in special_location_entries {
-        for (driver_id, bucket, score) in entries {
-            let ts = chrono::TimeZone::timestamp_opt(&Utc, *score as i64, 0)
-                .single()
-                .unwrap_or_else(Utc::now);
-            if let Err(err) = add_driver_to_special_location_zset(
-                redis,
-                key,
-                *bucket,
-                driver_id,
-                &TimeStamp(ts),
-                bucket_expiry,
+    // Run geo push and special location writes concurrently
+    let (geo_result, _) = tokio::join!(
+        push_drainer_driver_location(driver_locations, &bucket_expiry, redis),
+        async {
+            futures::future::join_all(
+                special_location_entries.iter().map(|(key, entries)| async move {
+                    if let Err(err) =
+                        batch_add_drivers_to_special_location_zset(redis, key, entries, bucket_expiry)
+                            .await
+                    {
+                        error!(tag = "[Error Adding To Special Location ZSET]", key = %key, error = %err);
+                    }
+                }),
             )
-            .await
-            {
-                error!(tag = "[Error Adding To Special Location ZSET]", key = %key, error = %err);
-            }
-        }
+            .await;
+        },
+    );
+    if let Err(err) = geo_result {
+        error!(tag = "[Error Pushing To Redis]", error = %err);
     }
 
     // Fire-and-forget queue actions in a spawned task so they don't block the main drain.
@@ -284,9 +283,24 @@ fn cleanup_drainer(
         queue_drainer_latency!(*min_drainer_ts, *max_drainer_ts);
     };
     *drainer_size = 0;
-    *driver_locations = FxHashMap::default();
-    *special_location_zset_entries = FxHashMap::default();
+    driver_locations.clear();
+    special_location_zset_entries.clear();
     *drainer_queue_min_max_timestamp_range = None;
+}
+
+/// Records metrics after a drainer flush: flush duration, batch size, lag, and trigger type.
+fn record_flush_metrics(
+    batch_size: usize,
+    flush_start: Instant,
+    batch_start_time: Option<Instant>,
+    trigger: &str,
+) {
+    DRAINER_FLUSH_DURATION.observe(flush_start.elapsed().as_secs_f64());
+    DRAINER_BATCH_SIZE.observe(batch_size as f64);
+    DRAINER_FLUSHES_TOTAL.with_label_values(&[trigger]).inc();
+    if let Some(start) = batch_start_time {
+        DRAINER_LAG_SECONDS.observe(start.elapsed().as_secs_f64());
+    }
 }
 
 /// Asynchronously runs a drainer.
@@ -317,14 +331,17 @@ pub async fn run_drainer(
     enable_special_location_bucketing: bool,
     queue_expiry_seconds: u64,
 ) {
-    let mut driver_locations: DriversLocationMap = FxHashMap::default();
+    // Pre-allocate maps with capacity hints based on expected batch size
+    let mut driver_locations: DriversLocationMap =
+        FxHashMap::with_capacity_and_hasher(drainer_capacity / 4, Default::default());
     let mut special_location_zset_entries: FxHashMap<String, Vec<(DriverId, u64, f64)>> =
         FxHashMap::default();
     let mut queue_actions: Vec<QueueAction> = Vec::new();
-    let mut timer = interval(Duration::from_secs(drainer_delay));
     let mut drainer_queue_min_max_timestamp_range = None;
 
     let mut drainer_size = 0;
+    let mut batch_start_time: Option<Instant> = None;
+    let flush_delay = Duration::from_secs(drainer_delay);
 
     let bucket_expiry = (bucket_size * near_by_bucket_threshold) as i64;
 
@@ -335,6 +352,7 @@ pub async fn run_drainer(
             if drainer_size > 0 {
                 info!(tag = "[Force Draining Queue]", length = %drainer_size);
                 let actions = std::mem::take(&mut queue_actions);
+                let flush_start = Instant::now();
                 drain_driver_locations(
                     &driver_locations,
                     &special_location_zset_entries,
@@ -344,6 +362,7 @@ pub async fn run_drainer(
                     &redis,
                 )
                 .await;
+                record_flush_metrics(drainer_size, flush_start, batch_start_time, "shutdown");
                 cleanup_drainer(
                     &mut drainer_size,
                     &mut driver_locations,
@@ -353,73 +372,111 @@ pub async fn run_drainer(
             }
             break;
         }
-        // TODO :: When drainer is ticked that time all locations coming to reciever could get dropped and vice versa.
+        // Deadline-based flush: compute remaining time until first item in batch
+        // has waited `flush_delay`. If no batch is pending, the timer branch is disabled.
+        let time_until_flush = match batch_start_time {
+            Some(start) => {
+                let target = start + flush_delay;
+                target.saturating_duration_since(Instant::now())
+            }
+            None => Duration::from_secs(86400), // irrelevant — guard disables this branch
+        };
+
         tokio::select! {
             item = rx.recv() => {
                 info!(tag = "[Recieved Entries For Queuing]");
                 match item {
-                    Some((Dimensions { merchant_id, city, vehicle_type, created_at, merchant_operating_city_id }, Latitude(latitude), Longitude(longitude), TimeStamp(timestamp), DriverId(driver_id))) => {
-                        let bucket = get_bucket_from_timestamp(&bucket_size, TimeStamp(timestamp));
+                    Some(first_item) => {
+                        if batch_start_time.is_none() {
+                            batch_start_time = Some(Instant::now());
+                        }
 
-                        let skip_normal_drain = if let Some(ref cache) = special_location_cache {
-                            let guard = cache.read().await;
-                            if let Some(entry) = lookup_special_location(
-                                &guard,
-                                &merchant_operating_city_id,
-                                &Latitude(latitude),
-                                &Longitude(longitude),
-                            ) {
-                                if enable_special_location_bucketing {
-                                    special_location_zset_entries
-                                        .entry(entry.id.0.clone())
-                                        .or_default()
-                                        .push((
-                                            DriverId(driver_id.clone()),
-                                            bucket,
-                                            timestamp.timestamp() as f64,
-                                        ));
-                                }
-                                // Queue entry: if this special location is queue-enabled, enqueue driver
-                                if entry.is_queue_enabled {
-                                    queue_actions.push(QueueAction::Enter {
-                                        merchant_id: merchant_id.0.clone(),
-                                        driver_id: driver_id.clone(),
-                                        special_location_id: entry.id.0.clone(),
-                                        vehicle_type: vehicle_type.to_string(),
-                                        timestamp: timestamp.timestamp() as f64,
-                                    });
-                                }
-                                !entry.is_open_market_enabled
-                            } else {
-                                // No special location match → possible exit from queue
-                                queue_actions.push(QueueAction::PossibleExit {
-                                    merchant_id: merchant_id.0.clone(),
-                                    driver_id: driver_id.clone(),
-                                });
-                                false
+                        // Batch-collect: drain remaining buffered items in one pass
+                        let mut batch = Vec::with_capacity(drainer_capacity - drainer_size);
+                        batch.push(first_item);
+                        while batch.len() + drainer_size < drainer_capacity {
+                            match rx.try_recv() {
+                                Ok(item) => batch.push(item),
+                                Err(_) => break,
                             }
-                        } else {
-                            false
+                        }
+
+                        let batch_len = batch.len();
+
+                        // Acquire special location cache lock once for entire batch
+                        let special_location_guard = match special_location_cache.as_ref() {
+                            Some(cache) => Some(cache.read().await),
+                            None => None,
                         };
 
-                        if !skip_normal_drain {
-                            driver_locations
-                                .entry(driver_loc_bucket_key(&merchant_id, &city, &vehicle_type, &bucket))
-                                .or_default()
-                                .push(GeoValue {
-                                    coordinates: GeoPosition {
-                                        latitude,
-                                        longitude,
-                                    },
-                                    member: driver_id.into(),
-                                });
+                        for (Dimensions { merchant_id, city, vehicle_type, created_at, merchant_operating_city_id }, Latitude(latitude), Longitude(longitude), TimeStamp(timestamp), driver_id) in batch {
+                            let bucket = get_bucket_from_timestamp(&bucket_size, TimeStamp(timestamp));
+
+                            let skip_normal_drain = if let Some(ref guard) = special_location_guard {
+                                if let Some(entry) = lookup_special_location(
+                                    guard,
+                                    &merchant_operating_city_id,
+                                    &Latitude(latitude),
+                                    &Longitude(longitude),
+                                ) {
+                                    if enable_special_location_bucketing {
+                                        special_location_zset_entries
+                                            .entry(entry.id.0.clone())
+                                            .or_default()
+                                            .push((
+                                                driver_id.clone(),
+                                                bucket,
+                                                timestamp.timestamp() as f64,
+                                            ));
+                                    }
+                                    // Queue entry: if this special location is queue-enabled, enqueue driver
+                                    if entry.is_queue_enabled {
+                                        queue_actions.push(QueueAction::Enter {
+                                            merchant_id: merchant_id.0.clone(),
+                                            driver_id: driver_id.0.clone(),
+                                            special_location_id: entry.id.0.clone(),
+                                            vehicle_type: vehicle_type.to_string(),
+                                            timestamp: timestamp.timestamp() as f64,
+                                        });
+                                    }
+                                    !entry.is_open_market_enabled
+                                } else {
+                                    // No special location match → possible exit from queue
+                                    queue_actions.push(QueueAction::PossibleExit {
+                                        merchant_id: merchant_id.0.clone(),
+                                        driver_id: driver_id.0.clone(),
+                                    });
+                                    false
+                                }
+                            } else {
+                                false
+                            };
+
+                            if !skip_normal_drain {
+                                let key = driver_loc_bucket_key(&merchant_id, &city, &vehicle_type, &bucket);
+                                driver_locations
+                                    .entry(key)
+                                    .or_default()
+                                    .push(GeoValue {
+                                        coordinates: GeoPosition {
+                                            latitude,
+                                            longitude,
+                                        },
+                                        member: driver_id.0.into(),
+                                    });
+                            }
+                            drainer_queue_min_max_timestamp_range = drainer_queue_min_max_timestamp_range.map_or(Some((created_at, created_at)), |(min_duration, max_duration)| Some((min(created_at, min_duration), max(created_at, max_duration))));
                         }
-                        drainer_queue_min_max_timestamp_range = drainer_queue_min_max_timestamp_range.map_or(Some((created_at, created_at)), |(min_duration, max_duration)| Some((min(created_at, min_duration), max(created_at, max_duration))));
-                        drainer_size += 1;
+                        // Drop the lock before potential drain
+                        drop(special_location_guard);
+
+                        drainer_size += batch_len;
+                        TOTAL_LOCATION_UPDATES.inc_by(batch_len as u64);
 
                         if drainer_size >= drainer_capacity {
                             info!(tag = "[Force Draining Queue]", length = %drainer_size);
                             let actions = std::mem::take(&mut queue_actions);
+                            let flush_start = Instant::now();
                             drain_driver_locations(
                                 &driver_locations,
                                 &special_location_zset_entries,
@@ -429,15 +486,15 @@ pub async fn run_drainer(
                                 &redis,
                             )
                             .await;
+                            record_flush_metrics(drainer_size, flush_start, batch_start_time, "capacity");
                             cleanup_drainer(
                                 &mut drainer_size,
                                 &mut driver_locations,
                                 &mut special_location_zset_entries,
                                 &mut drainer_queue_min_max_timestamp_range
                             );
+                            batch_start_time = None;
                         }
-
-                        TOTAL_LOCATION_UPDATES.inc()
                     },
                     None => {
                         error!("MPSC Sender is Disconnected, Should not happen while pod is serving traffic!");
@@ -445,26 +502,27 @@ pub async fn run_drainer(
                     },
                 }
             },
-            _ = timer.tick() => {
-                if drainer_size > 0 {
-                    info!(tag = "[Draining Queue]", length = %drainer_size);
-                    let actions = std::mem::take(&mut queue_actions);
-                    drain_driver_locations(
-                        &driver_locations,
-                        &special_location_zset_entries,
-                        actions,
-                        bucket_expiry,
-                        queue_expiry_seconds,
-                        &redis,
-                    )
-                    .await;
-                    cleanup_drainer(
-                        &mut drainer_size,
-                        &mut driver_locations,
-                        &mut special_location_zset_entries,
-                        &mut drainer_queue_min_max_timestamp_range
-                    );
-                }
+            _ = tokio::time::sleep(time_until_flush), if drainer_size > 0 => {
+                info!(tag = "[Draining Queue]", length = %drainer_size);
+                let actions = std::mem::take(&mut queue_actions);
+                let flush_start = Instant::now();
+                drain_driver_locations(
+                    &driver_locations,
+                    &special_location_zset_entries,
+                    actions,
+                    bucket_expiry,
+                    queue_expiry_seconds,
+                    &redis,
+                )
+                .await;
+                record_flush_metrics(drainer_size, flush_start, batch_start_time, "deadline");
+                cleanup_drainer(
+                    &mut drainer_size,
+                    &mut driver_locations,
+                    &mut special_location_zset_entries,
+                    &mut drainer_queue_min_max_timestamp_range
+                );
+                batch_start_time = None;
             },
         }
     }

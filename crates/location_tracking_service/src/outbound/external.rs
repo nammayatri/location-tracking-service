@@ -9,6 +9,7 @@ use super::types::*;
 use crate::common::types::*;
 use crate::domain::types::internal::ride::ExternalReauthResponse;
 use crate::tools::error::AppError;
+use crate::tools::prometheus::EXTERNAL_API_ERRORS_TOTAL;
 use actix_http::StatusCode;
 use reqwest::{Method, Url};
 use serde::{Deserialize, Serialize};
@@ -151,7 +152,7 @@ pub async fn bulk_location_update_dobpp(
         Some(BulkDataReq {
             ride_id,
             driver_id,
-            loc: on_ride_driver_locations.clone(),
+            loc: on_ride_driver_locations,
         }),
         None,
     )
@@ -531,5 +532,10 @@ pub async fn get_special_locations_list(
         Some("special-location-list"),
     )
     .await
-    .map_err(|e| AppError::InternalError(e.to_string()))
+    .map_err(|e| {
+        EXTERNAL_API_ERRORS_TOTAL
+            .with_label_values(&["special-location-list"])
+            .inc();
+        AppError::InternalError(e.to_string())
+    })
 }

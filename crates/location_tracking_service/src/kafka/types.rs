@@ -8,7 +8,7 @@
 use crate::common::types::*;
 use serde::Serialize;
 
-#[derive(Serialize, Clone, PartialEq)]
+#[derive(Serialize, Clone, Copy, PartialEq)]
 pub enum DriverRideStatus {
     #[serde(rename = "ON_RIDE")]
     OnRide,

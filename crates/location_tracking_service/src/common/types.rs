@@ -241,7 +241,7 @@ pub enum RideInfo {
     },
 }
 
-#[derive(Debug, Clone, EnumString, Display, Serialize, Deserialize, Eq, Hash, PartialEq)]
+#[derive(Debug, Clone, Copy, EnumString, Display, Serialize, Deserialize, Eq, Hash, PartialEq)]
 pub enum RideStatus {
     NEW,
     INPROGRESS,
@@ -254,7 +254,7 @@ pub enum LocationType {
     FILTERED,
 }
 
-#[derive(Debug, Clone, EnumString, Display, Serialize, Deserialize, Eq, Hash, PartialEq)]
+#[derive(Debug, Clone, Copy, EnumString, Display, Serialize, Deserialize, Eq, Hash, PartialEq)]
 pub enum DriverMode {
     ONLINE,
     OFFLINE,
@@ -313,7 +313,7 @@ pub struct DriversRideStatus {
     pub location: Point,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub struct Point {
     pub lat: Latitude,
     pub lon: Longitude,
@@ -540,7 +540,7 @@ pub struct Stop {
     pub stop_type: StopType,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq)]
 pub enum StopType {
     IntermediateStop,
     RouteCorrectionStop,
@@ -565,7 +565,7 @@ pub struct ProjectionPoint {
 pub type ViolationDetectionTriggerMap = FxHashMap<DetectionType, Option<DetectionStatus>>;
 pub type ViolationDetectionStateMap = FxHashMap<DetectionType, ViolationDetectionState>;
 
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, Hash, PartialEq, EnumIter)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, Hash, PartialEq, EnumIter)]
 pub enum DetectionType {
     Stopped,
     RouteDeviation,
@@ -716,7 +716,7 @@ pub struct DetectionContext<'a> {
     pub ride_stops: Option<&'a Vec<Point>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum DetectionStatus {
     ContinuedViolation,
     ContinuedAntiViolation,

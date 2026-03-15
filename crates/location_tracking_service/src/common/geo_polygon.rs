@@ -5,8 +5,6 @@
     or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more details. You should have received a copy of
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-#![allow(clippy::expect_used)]
-
 use geo::{coord, Coord, LineString, MultiPolygon, Polygon};
 use geojson::{Geometry, PolygonType, Position, Value};
 use serde_json::from_str;
@@ -29,11 +27,11 @@ use crate::common::types::MultiPolygonBody;
 /// # Returns
 /// A vector of `MultiPolygonBody` structures if successful.
 ///
-/// # Panics
-/// If directory does not exist, then the function panics.
+/// # Errors
+/// Returns an error if the directory cannot be read or a GeoJSON file is invalid.
 pub fn read_geo_polygon(config_path: &str) -> Result<Vec<MultiPolygonBody>> {
     // Read files in the directory
-    let geometries = fs::read_dir(config_path).expect("Failed to read config path");
+    let geometries = fs::read_dir(config_path)?;
 
     let mut regions: Vec<MultiPolygonBody> = vec![];
 
@@ -51,8 +49,7 @@ pub fn read_geo_polygon(config_path: &str) -> Result<Vec<MultiPolygonBody>> {
 
         // Filename is the region name
         let region = file_name;
-        let multi_poly =
-            parse_geojson_multi_polygon(&region, &contents).expect("Failed to parse GeoJSON");
+        let multi_poly = parse_geojson_multi_polygon(&region, &contents)?;
 
         regions.push(multi_poly);
     }

@@ -256,7 +256,11 @@ impl AppState {
         );
 
         let geo_config_path = var("GEO_CONFIG").unwrap_or_else(|_| "./geo_config".to_string());
-        let polygons = read_geo_polygon(&geo_config_path).expect("Failed to read geoJSON");
+        let polygons = tokio::task::spawn_blocking(move || {
+            read_geo_polygon(&geo_config_path).expect("Failed to read geoJSON")
+        })
+        .await
+        .expect("Failed to join blocking task for geo polygon read");
 
         let routes = read_route_data(
             &redis,
@@ -272,13 +276,19 @@ impl AppState {
         // TODO: When the new special location API is released, remove this old blacklist loading and use the new implementation (see SPECIAL_LOCATION_DRIVERS_PLAN.md).
         let blacklist_geo_config_path =
             var("BLACKLIST_GEO_CONFIG").unwrap_or_else(|_| "./blacklist_geo_config".to_string());
-        let blacklist_polygons = read_geo_polygon(&blacklist_geo_config_path)
-            .expect("Failed to read specialzone geoJSON");
-
         let bus_depot_geo_config_path =
             var("BUS_DEPOT_GEO_CONFIG").unwrap_or_else(|_| "./bus_depot_geo_config".to_string());
-        let bus_depot_polygons =
-            read_geo_polygon(&bus_depot_geo_config_path).expect("Failed to read bus depot geoJSON");
+
+        // Run blocking file I/O off the async runtime
+        let (blacklist_polygons, bus_depot_polygons) = tokio::task::spawn_blocking(move || {
+            let blacklist = read_geo_polygon(&blacklist_geo_config_path)
+                .expect("Failed to read specialzone geoJSON");
+            let bus_depot = read_geo_polygon(&bus_depot_geo_config_path)
+                .expect("Failed to read bus depot geoJSON");
+            (blacklist, bus_depot)
+        })
+        .await
+        .expect("Failed to join blocking task for polygon reads");
 
         let producer: Option<FutureProducer>;
 

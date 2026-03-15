@@ -7,11 +7,13 @@
 */
 use super::types::*;
 use crate::{
-    common::{kafka::push_to_kafka, types::*},
+    common::{kafka::push_to_kafka_raw, types::*},
     domain::types::ui::location::UpdateDriverLocationRequest,
+    tools::prometheus::DB_WRITE_DURATION_SECONDS,
 };
-use log::*;
 use rdkafka::producer::FutureProducer;
+use serde_json;
+use tracing::error;
 
 /// Streams location updates for drivers to a Kafka topic.
 ///
@@ -63,38 +65,63 @@ pub async fn kafka_stream_updates(
         (None, None, None)
     };
 
-    for (loc, location_type) in locations {
-        let message = LocationUpdate {
-            r_id: ride_id.to_owned(),
-            m_id: merchant_id.to_owned(),
-            pt: Point {
+    let on_ride = ride_status != DriverRideStatus::IDLE;
+
+    // Pre-serialize all messages to avoid repeated serde work during async sends
+    let serialized: Vec<_> = locations
+        .into_iter()
+        .filter_map(|(loc, location_type)| {
+            let message = LocationUpdate {
+                r_id: ride_id.clone(),
+                m_id: merchant_id.clone(),
+                pt: Point {
+                    lat: loc.pt.lat,
+                    lon: loc.pt.lon,
+                },
+                da: true,
+                rid: ride_id.clone(),
+                mocid: merchant_operating_city_id.clone(),
+                ts: loc.ts,
+                st: server_timestamp,
                 lat: loc.pt.lat,
                 lon: loc.pt.lon,
-            },
-            da: true,
-            rid: ride_id.to_owned(),
-            mocid: merchant_operating_city_id.to_owned(),
-            ts: loc.ts,
-            st: server_timestamp,
-            lat: loc.pt.lat,
-            lon: loc.pt.lon,
-            speed: loc.v.unwrap_or(SpeedInMeterPerSecond(0.0)),
-            acc: loc.acc.unwrap_or(Accuracy(0.0)),
-            ride_status: ride_status.to_owned(),
-            on_ride: ride_status != DriverRideStatus::IDLE,
-            active: true,
-            mode: driver_mode.to_owned(),
-            bear: loc.bear,
-            vehicle_variant: vehicle_type.to_owned(),
-            is_stop_detected,
-            stop_lat,
-            stop_lon,
-            location_type,
-            next_upcoming_stop_eta, // travelled_distance: travelled_distance.to_owned(),
-        };
-        if let Err(err) =
-            push_to_kafka(producer, secondary_producer, topic, key.as_str(), message).await
-        {
+                speed: loc.v.unwrap_or(SpeedInMeterPerSecond(0.0)),
+                acc: loc.acc.unwrap_or(Accuracy(0.0)),
+                ride_status,
+                on_ride,
+                active: true,
+                mode: driver_mode,
+                bear: loc.bear,
+                vehicle_variant: vehicle_type,
+                is_stop_detected,
+                stop_lat,
+                stop_lon,
+                location_type,
+                next_upcoming_stop_eta,
+            };
+            match serde_json::to_string(&message) {
+                Ok(s) => Some(s),
+                Err(err) => {
+                    error!("Error serializing kafka message => {}", err);
+                    None
+                }
+            }
+        })
+        .collect();
+
+    // Send all serialized messages concurrently to Kafka
+    let _timer = DB_WRITE_DURATION_SECONDS
+        .with_label_values(&["kafka_publish"])
+        .start_timer();
+    let futures: Vec<_> = serialized
+        .iter()
+        .map(|msg_str| {
+            push_to_kafka_raw(producer, secondary_producer, topic, key.as_str(), msg_str)
+        })
+        .collect();
+
+    for result in futures::future::join_all(futures).await {
+        if let Err(err) = result {
             error!("Error occured in push_to_kafka => {}", err.message())
         }
     }

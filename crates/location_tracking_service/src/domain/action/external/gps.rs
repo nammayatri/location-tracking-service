@@ -55,13 +55,12 @@ pub async fn handle_external_gps_location(
     // Group by plate_number for efficient processing
     let mut plate_groups: FxHashMap<String, Vec<ExternalGPSLocationReq>> = FxHashMap::default();
     for gps_data in gps_batch {
-        plate_groups
-            .entry(gps_data.plate_number.clone())
-            .or_default()
-            .push(gps_data);
+        // plate_number is moved into entry key or matched against existing
+        let plate = gps_data.plate_number.clone();
+        plate_groups.entry(plate).or_default().push(gps_data);
     }
 
-    // Step 1: Get all unique plate numbers
+    // Step 1: Get all unique plate numbers (collect keys before borrowing map)
     let plate_numbers: Vec<String> = plate_groups.keys().cloned().collect();
 
     // Step 2: Batch fetch all driver info using MGET (single network call)
@@ -112,7 +111,7 @@ pub async fn handle_external_gps_location(
         .into_iter()
         .filter_map(|driver_info| {
             plate_groups
-                .remove(&driver_info.bus_number.clone().unwrap_or_default())
+                .remove(driver_info.bus_number.as_deref().unwrap_or_default())
                 .map(|locations| {
                     process_vehicle_locations(driver_info, locations, app_state.clone())
                 })
@@ -134,7 +133,7 @@ async fn process_vehicle_locations(
     locations: Vec<ExternalGPSLocationReq>,
     app_state: Data<AppState>,
 ) -> Result<(), AppError> {
-    let plate_number = driver_info.bus_number.clone().unwrap_or_default();
+    let plate_number = driver_info.bus_number.unwrap_or_default();
 
     info!(
         tag = "[Processing Vehicle]",
