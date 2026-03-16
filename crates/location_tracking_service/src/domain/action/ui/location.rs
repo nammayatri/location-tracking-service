@@ -15,8 +15,8 @@ use crate::common::utils::{
 };
 use crate::common::{sliding_window_rate_limiter::sliding_window_limiter, types::*};
 use crate::domain::types::ui::location::{
-    DriverLocationResponse, PersonLocationResponse, PersonType, UpdateDriverLocationRequest,
-    UpdatePersonLocationRequest,
+    DriverLocationResponse, EntityType, PersonLocationResponse, PersonType,
+    UpdateDriverLocationRequest, UpdatePersonLocationRequest,
 };
 use crate::environment::AppState;
 use crate::kafka::producers::kafka_stream_updates;
@@ -1334,10 +1334,10 @@ pub async fn track_driver_location(
 pub async fn track_person_entity_location(
     data: Data<AppState>,
     person_type: PersonType,
-    entity_type: &str,
+    entity_type: EntityType,
     entity_id: &str,
 ) -> Result<PersonLocationResponse, AppError> {
-    let person_id_str = get_person_by_entity(&data.redis, entity_type, entity_id)
+    let person_id_str = get_person_by_entity(&data.redis, entity_type.as_str(), entity_id)
         .await?
         .ok_or(AppError::RiderLocationNotFound)?;
     let person_id = PersonId(person_id_str);

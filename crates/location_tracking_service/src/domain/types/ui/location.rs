@@ -59,6 +59,13 @@ impl FromStr for EntityType {
 }
 
 impl EntityType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            EntityType::Ride => "ride",
+            EntityType::Sos => "sos",
+        }
+    }
+
     pub fn to_entity_id(&self, id: &str) -> EntityId {
         match self {
             EntityType::Ride => EntityId::Ride(RideId(id.to_string())),
