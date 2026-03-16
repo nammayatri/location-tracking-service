@@ -14,12 +14,16 @@ use crate::{
         utils::{abs_diff_utc_as_sec, get_bucket_from_timestamp},
     },
     redis::{
-        commands::{add_driver_to_special_location_zset, push_drainer_driver_location},
-        keys::driver_loc_bucket_key,
+        commands::{
+            add_driver_to_special_location_zset, batch_get_driver_queue_trackings,
+            push_drainer_driver_location, DriverQueueTracking,
+        },
+        keys::{driver_loc_bucket_key, driver_queue_tracking_key, special_location_queue_key},
     },
 };
 use chrono::{DateTime, Utc};
-use fred::types::{GeoPosition, GeoValue};
+use fred::prelude::{KeysInterface, SortedSetsInterface};
+use fred::types::{GeoPosition, GeoValue, RedisValue, SetOptions};
 use rustc_hash::FxHashMap;
 use shared::redis::types::RedisConnectionPool;
 use shared::termination;
@@ -34,6 +38,140 @@ use tokio::sync::mpsc;
 use tokio::time::interval;
 use tokio::time::Instant;
 use tracing::{error, info};
+
+/// Queue action collected during the drainer loop.
+enum QueueAction {
+    Enter {
+        merchant_id: String,
+        driver_id: String,
+        special_location_id: String,
+        vehicle_type: String,
+        timestamp: f64,
+    },
+    PossibleExit {
+        merchant_id: String,
+        driver_id: String,
+    },
+}
+
+/// Process queue actions (enter/exit) in the background using batched Redis operations.
+/// Uses MGET to fetch all tracking keys in one round trip, then a pipeline for all writes.
+/// Errors are logged but never block the caller.
+async fn drain_queue_actions(
+    actions: Vec<QueueAction>,
+    redis: &RedisConnectionPool,
+    queue_expiry: u64,
+) {
+    let expiry_i64 = queue_expiry as i64;
+
+    // Step 1: Collect all (merchant_id, driver_id) pairs to fetch tracking info via MGET
+    let pairs: Vec<(&str, &str)> = actions
+        .iter()
+        .map(|a| match a {
+            QueueAction::Enter {
+                merchant_id,
+                driver_id,
+                ..
+            } => (merchant_id.as_str(), driver_id.as_str()),
+            QueueAction::PossibleExit {
+                merchant_id,
+                driver_id,
+            } => (merchant_id.as_str(), driver_id.as_str()),
+        })
+        .collect();
+
+    let trackings = match batch_get_driver_queue_trackings(redis, &pairs).await {
+        Ok(t) => t,
+        Err(e) => {
+            error!(tag = "[Queue Batch MGET]", error = %e);
+            return;
+        }
+    };
+
+    // Step 2: Build all write commands into a single pipeline
+    let pipeline = redis.writer_pool.next().pipeline();
+
+    for (action, old_tracking) in actions.iter().zip(trackings.iter()) {
+        match action {
+            QueueAction::Enter {
+                merchant_id,
+                driver_id,
+                special_location_id,
+                vehicle_type,
+                timestamp,
+            } => {
+                let new_tracking = DriverQueueTracking {
+                    special_location_id: special_location_id.clone(),
+                    vehicle_type: vehicle_type.clone(),
+                };
+
+                // If driver was in a different queue, remove from old one
+                if let Some(ref old) = old_tracking {
+                    if *old != new_tracking {
+                        let old_key =
+                            special_location_queue_key(&old.special_location_id, &old.vehicle_type);
+                        let old_member = serde_json::to_string(driver_id.as_str())
+                            .unwrap_or_else(|_| driver_id.clone());
+                        let _ = pipeline
+                            .zrem::<RedisValue, _, _>(&old_key, old_member)
+                            .await;
+                    }
+                }
+
+                // ZADD NX to new queue
+                let queue_key = special_location_queue_key(special_location_id, vehicle_type);
+                let member =
+                    serde_json::to_string(driver_id.as_str()).unwrap_or_else(|_| driver_id.clone());
+                let _ = pipeline
+                    .zadd::<RedisValue, _, _>(
+                        &queue_key,
+                        Some(SetOptions::NX),
+                        None,
+                        false,
+                        false,
+                        (*timestamp, member.as_str()),
+                    )
+                    .await;
+                let _ = pipeline.expire::<(), _>(&queue_key, expiry_i64).await;
+
+                // SET tracking key without expiry — only deleted on explicit queue exit.
+                // This ensures we always know which queue a driver is in, even if
+                // location updates stop temporarily.
+                let tracking_key = driver_queue_tracking_key(merchant_id, driver_id);
+                if let Ok(value) = serde_json::to_string(&new_tracking) {
+                    let _ = pipeline
+                        .set::<RedisValue, _, _>(&tracking_key, value, None, None, false)
+                        .await;
+                }
+            }
+            QueueAction::PossibleExit {
+                merchant_id,
+                driver_id,
+            } => {
+                if let Some(ref tracking) = old_tracking {
+                    // ZREM from queue
+                    let queue_key = special_location_queue_key(
+                        &tracking.special_location_id,
+                        &tracking.vehicle_type,
+                    );
+                    let member = serde_json::to_string(driver_id.as_str())
+                        .unwrap_or_else(|_| driver_id.clone());
+                    let _ = pipeline.zrem::<RedisValue, _, _>(&queue_key, member).await;
+
+                    // DEL tracking key
+                    let tracking_key = driver_queue_tracking_key(merchant_id, driver_id);
+                    let _ = pipeline.del::<RedisValue, _>(&tracking_key).await;
+                }
+            }
+        }
+    }
+
+    // Step 3: Execute entire pipeline in one round trip
+    let result: Result<Vec<RedisValue>, _> = pipeline.all().await;
+    if let Err(e) = result {
+        error!(tag = "[Queue Pipeline Execute]", error = %e);
+    }
+}
 
 /// Asynchronously drains driver locations to a Redis server.
 ///
@@ -62,8 +200,10 @@ use tracing::{error, info};
 async fn drain_driver_locations(
     driver_locations: &DriversLocationMap,
     special_location_entries: &FxHashMap<String, Vec<(DriverId, u64, f64)>>,
+    queue_actions: Vec<QueueAction>,
     bucket_expiry: i64,
-    redis: &RedisConnectionPool,
+    queue_expiry: u64,
+    redis: &Arc<RedisConnectionPool>,
 ) {
     info!(
         tag = "[Queued Entries For Draining]",
@@ -92,6 +232,14 @@ async fn drain_driver_locations(
                 error!(tag = "[Error Adding To Special Location ZSET]", key = %key, error = %err);
             }
         }
+    }
+
+    // Fire-and-forget queue actions in a spawned task so they don't block the main drain.
+    if !queue_actions.is_empty() {
+        let redis = Arc::clone(redis);
+        tokio::spawn(async move {
+            drain_queue_actions(queue_actions, &redis, queue_expiry).await;
+        });
     }
 }
 
@@ -144,13 +292,15 @@ pub async fn run_drainer(
     drainer_delay: u64,
     bucket_size: u64,
     near_by_bucket_threshold: u64,
-    redis: &RedisConnectionPool,
+    redis: Arc<RedisConnectionPool>,
     special_location_cache: Option<SpecialLocationCache>,
     enable_special_location_bucketing: bool,
+    queue_expiry_seconds: u64,
 ) {
     let mut driver_locations: DriversLocationMap = FxHashMap::default();
     let mut special_location_zset_entries: FxHashMap<String, Vec<(DriverId, u64, f64)>> =
         FxHashMap::default();
+    let mut queue_actions: Vec<QueueAction> = Vec::new();
     let mut timer = interval(Duration::from_secs(drainer_delay));
     let mut drainer_queue_min_max_timestamp_range = None;
 
@@ -164,11 +314,14 @@ pub async fn run_drainer(
             info!(tag = "[Graceful Shutting Down]", length = %drainer_size);
             if drainer_size > 0 {
                 info!(tag = "[Force Draining Queue]", length = %drainer_size);
+                let actions = std::mem::take(&mut queue_actions);
                 drain_driver_locations(
                     &driver_locations,
                     &special_location_zset_entries,
+                    actions,
                     bucket_expiry,
-                    redis,
+                    queue_expiry_seconds,
+                    &redis,
                 )
                 .await;
                 cleanup_drainer(
@@ -206,8 +359,23 @@ pub async fn run_drainer(
                                             timestamp.timestamp() as f64,
                                         ));
                                 }
+                                // Queue entry: if this special location is queue-enabled, enqueue driver
+                                if entry.is_queue_enabled {
+                                    queue_actions.push(QueueAction::Enter {
+                                        merchant_id: merchant_id.0.clone(),
+                                        driver_id: driver_id.clone(),
+                                        special_location_id: entry.id.0.clone(),
+                                        vehicle_type: vehicle_type.to_string(),
+                                        timestamp: timestamp.timestamp() as f64,
+                                    });
+                                }
                                 !entry.is_open_market_enabled
                             } else {
+                                // No special location match → possible exit from queue
+                                queue_actions.push(QueueAction::PossibleExit {
+                                    merchant_id: merchant_id.0.clone(),
+                                    driver_id: driver_id.clone(),
+                                });
                                 false
                             }
                         } else {
@@ -231,11 +399,14 @@ pub async fn run_drainer(
 
                         if drainer_size >= drainer_capacity {
                             info!(tag = "[Force Draining Queue]", length = %drainer_size);
+                            let actions = std::mem::take(&mut queue_actions);
                             drain_driver_locations(
                                 &driver_locations,
                                 &special_location_zset_entries,
+                                actions,
                                 bucket_expiry,
-                                redis,
+                                queue_expiry_seconds,
+                                &redis,
                             )
                             .await;
                             cleanup_drainer(
@@ -257,11 +428,14 @@ pub async fn run_drainer(
             _ = timer.tick() => {
                 if drainer_size > 0 {
                     info!(tag = "[Draining Queue]", length = %drainer_size);
+                    let actions = std::mem::take(&mut queue_actions);
                     drain_driver_locations(
                         &driver_locations,
                         &special_location_zset_entries,
+                        actions,
                         bucket_expiry,
-                        redis,
+                        queue_expiry_seconds,
+                        &redis,
                     )
                     .await;
                     cleanup_drainer(

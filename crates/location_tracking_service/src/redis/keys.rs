@@ -265,3 +265,18 @@ pub fn person_processing_lock_key(
 pub fn special_location_drivers_key(special_location_id: &str, bucket: &u64) -> String {
     format!("lts:special_loc:{}:{}", special_location_id, bucket)
 }
+
+/// Key for the FIFO queue ZSET of a special location per vehicle type.
+/// Score = entry timestamp, member = driver_id JSON string.
+pub fn special_location_queue_key(special_location_id: &str, vehicle_type: &str) -> String {
+    format!(
+        "lts:special_loc_queue:{}:{}",
+        special_location_id, vehicle_type
+    )
+}
+
+/// Tracking key to know which queue a driver is currently in.
+/// STRING storing JSON-encoded DriverQueueTracking value.
+pub fn driver_queue_tracking_key(merchant_id: &str, driver_id: &str) -> String {
+    format!("lts:driver_queue:{}:{}", merchant_id, driver_id)
+}

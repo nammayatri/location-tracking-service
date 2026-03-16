@@ -84,3 +84,14 @@ async fn get_special_location_drivers(
         location::get_special_location_drivers(data, special_location_id).await?,
     ))
 }
+
+#[get("/internal/special-locations/{special_location_id}/queue/{vehicle_type}/drivers/{driver_id}/position")]
+async fn get_driver_queue_position(
+    data: Data<AppState>,
+    path: Path<(String, String, String)>,
+) -> Result<Json<DriverQueuePositionResponse>, AppError> {
+    let (special_location_id, vehicle_type, driver_id) = path.into_inner();
+    Ok(Json(
+        location::driver_queue_position(data, special_location_id, vehicle_type, driver_id).await?,
+    ))
+}
