@@ -76,10 +76,7 @@ fn parse_geojson_multi_polygon(region: &str, geojson_str: &str) -> Result<MultiP
 
     match geom.value {
         Value::MultiPolygon(multi_polygon) => Ok(create_multipolygon_body(region, multi_polygon)),
-        _ => Err(io::Error::new(
-            io::ErrorKind::Other,
-            "GeoJSON is not a valid MultiPolygon.",
-        )),
+        _ => Err(io::Error::other("GeoJSON is not a valid MultiPolygon.")),
     }
 }
 

@@ -81,6 +81,18 @@ pub struct AppConfig {
     pub special_location_list_base_url: Option<String>,
     #[serde(default)]
     pub enable_special_location_bucketing: bool,
+    #[serde(default = "default_queue_expiry")]
+    pub queue_expiry_seconds: u64,
+    #[serde(default = "default_queue_position_range_offset")]
+    pub queue_position_range_offset: u64,
+}
+
+fn default_queue_expiry() -> u64 {
+    86400
+}
+
+fn default_queue_position_range_offset() -> u64 {
+    2
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -180,6 +192,8 @@ pub struct AppState {
     pub special_location_list_base_url: Option<Url>,
     pub enable_special_location_bucketing: bool,
     pub special_location_cache: SpecialLocationCache,
+    pub queue_expiry_seconds: u64,
+    pub queue_position_range_offset: u64,
 }
 
 impl AppState {
@@ -347,6 +361,8 @@ impl AppState {
                 .and_then(|s| Url::parse(s).ok()),
             enable_special_location_bucketing: app_config.enable_special_location_bucketing,
             special_location_cache: Arc::new(RwLock::new(FxHashMap::default())),
+            queue_expiry_seconds: app_config.queue_expiry_seconds,
+            queue_position_range_offset: app_config.queue_position_range_offset,
         }
     }
 }

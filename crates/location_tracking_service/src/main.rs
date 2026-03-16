@@ -126,6 +126,7 @@ async fn start_server() -> std::io::Result<()> {
         .as_ref()
         .map(|_| data.special_location_cache.clone());
     let enable_special_location_bucketing = data.enable_special_location_bucketing;
+    let queue_expiry_seconds = data.queue_expiry_seconds;
     let channel_thread = tokio::spawn(async move {
         run_drainer(
             receiver,
@@ -134,9 +135,10 @@ async fn start_server() -> std::io::Result<()> {
             drainer_delay,
             bucket_size,
             nearby_bucket_threshold,
-            &redis,
+            redis,
             special_location_cache,
             enable_special_location_bucketing,
+            queue_expiry_seconds,
         )
         .await;
     });
@@ -192,10 +194,7 @@ async fn start_server() -> std::io::Result<()> {
         }
     }
 
-    Err(std::io::Error::new(
-        std::io::ErrorKind::Other,
-        "[MAIN_THREAD_ENDED]",
-    ))
+    Err(std::io::Error::other("[MAIN_THREAD_ENDED]"))
 }
 
 fn main() {

@@ -86,3 +86,11 @@ pub struct SpecialLocationDriversResponse {
 }
 
 pub type TrackVehiclesResponse = Vec<TrackVehicleResponse>;
+
+/// Response for GET /internal/special-locations/{special_location_id}/queue/drivers/{driver_id}/position
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct DriverQueuePositionResponse {
+    pub queue_position_range: Option<(u64, u64)>,
+    pub queue_size: u64,
+}

@@ -19,6 +19,7 @@ use tokio::sync::RwLock;
 pub struct SpecialLocationEntry {
     pub id: SpecialLocationId,
     pub is_open_market_enabled: bool,
+    pub is_queue_enabled: bool,
     pub multipolygon: geo::MultiPolygon<f64>,
 }
 
@@ -42,6 +43,7 @@ pub fn build_special_location_cache(
         let entry = SpecialLocationEntry {
             id: loc.id.clone(),
             is_open_market_enabled: loc.is_open_market_enabled,
+            is_queue_enabled: loc.is_queue_enabled,
             multipolygon,
         };
         by_city

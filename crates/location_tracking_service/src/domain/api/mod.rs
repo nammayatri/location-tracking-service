@@ -25,6 +25,7 @@ pub fn handler(config: &mut ServiceConfig) {
         .service(internal::location::track_vehicles)
         .service(internal::location::post_track_vehicles)
         .service(internal::location::get_special_location_drivers)
+        .service(internal::location::get_driver_queue_position)
         .service(external::gps::external_gps_location)
         .service(ui::location::track_person_entity_location)
         .service(ui::location::update_person_location)
