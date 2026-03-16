@@ -19,6 +19,8 @@ pub struct SpecialLocationFull {
     pub merchant_operating_city_id: Option<String>,
     pub geo_json: Option<String>,
     pub is_open_market_enabled: bool,
+    #[serde(default)]
+    pub is_queue_enabled: bool,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Deserialize, Serialize)]

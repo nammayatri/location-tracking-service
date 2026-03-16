@@ -541,6 +541,29 @@ pub async fn track_vehicles(
         .collect())
 }
 
+pub async fn driver_queue_position(
+    data: Data<AppState>,
+    special_location_id: String,
+    vehicle_type: String,
+    driver_id: String,
+) -> Result<DriverQueuePositionResponse, AppError> {
+    let queue_size = get_queue_size(&data.redis, &special_location_id, &vehicle_type).await?;
+    let rank =
+        get_driver_queue_position(&data.redis, &special_location_id, &vehicle_type, &driver_id)
+            .await?;
+    let offset = data.queue_position_range_offset;
+    let queue_position_range = rank.map(|r| {
+        let pos = r + 1; // 1-indexed
+        let low = if pos <= offset { 1 } else { pos - offset };
+        let high = std::cmp::min(pos + offset, queue_size);
+        (low, high)
+    });
+    Ok(DriverQueuePositionResponse {
+        queue_position_range,
+        queue_size,
+    })
+}
+
 pub async fn get_special_location_drivers(
     data: Data<AppState>,
     special_location_id: String,
