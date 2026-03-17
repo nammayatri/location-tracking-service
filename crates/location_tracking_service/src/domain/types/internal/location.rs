@@ -94,3 +94,10 @@ pub struct DriverQueuePositionResponse {
     pub queue_position_range: Option<(u64, u64)>,
     pub queue_size: u64,
 }
+
+/// Request body for POST manual queue add
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ManualQueueAddRequest {
+    pub queue_position: u64, // 1-indexed desired position
+}

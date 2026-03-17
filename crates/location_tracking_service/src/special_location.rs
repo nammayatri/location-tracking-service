@@ -34,8 +34,12 @@ pub fn build_special_location_cache(
     let mut by_city: FxHashMap<MerchantOperatingCityId, Vec<SpecialLocationEntry>> =
         FxHashMap::default();
     for loc in list {
-        let Some(ref mocid_str) = loc.merchant_operating_city_id else { continue };
-        let Some(ref geo_json_str) = loc.geo_json else { continue };
+        let Some(ref mocid_str) = loc.merchant_operating_city_id else {
+            continue;
+        };
+        let Some(ref geo_json_str) = loc.geo_json else {
+            continue;
+        };
         let multipolygon = match parse_geojson_to_multipolygon(geo_json_str) {
             Ok(m) => m,
             Err(_) => continue,
