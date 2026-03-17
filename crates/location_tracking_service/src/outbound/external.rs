@@ -7,6 +7,7 @@
 */
 use super::types::*;
 use crate::common::types::*;
+use crate::domain::types::internal::ride::ExternalReauthResponse;
 use crate::tools::error::AppError;
 use actix_http::StatusCode;
 use reqwest::{Method, Url};
@@ -74,10 +75,10 @@ pub async fn authenticate_dobpp(
     .await
 }
 
-/// Authenticates a rider SOS session using the BAP API.
+/// Authenticates a rider session using the BAP API.
 ///
 /// Communicates with the BAP authentication service to verify the token
-/// and obtain SOS ID and merchant context.
+/// and obtain entity ID and merchant context.
 pub async fn authenticate_bap(
     auth_url: &Url,
     token: &str,
@@ -106,15 +107,15 @@ pub async fn authenticate_bap(
                     if let Ok(error_resp) = resp
                         .json::<AuthError>()
                         .await
-                        .map_err(|_| AppError::RiderSosAuthFailed)
+                        .map_err(|_| AppError::RiderAuthFailed)
                     {
                         if error_resp.error_code == "TOKEN_EXPIRED" {
-                            return AppError::RiderSosAuthFailed;
+                            return AppError::RiderAuthFailed;
                         }
                     }
-                    AppError::RiderSosAuthFailed
+                    AppError::RiderAuthFailed
                 } else {
-                    AppError::RiderSosAuthFailed
+                    AppError::RiderAuthFailed
                 }
             })
         }),
@@ -475,6 +476,40 @@ pub async fn get_distance_matrix(
     .await
     .map_err(|e| e.into())
 }
+
+/// Call reauth endpoint to obtain a fresh external access token for broadcast trace.
+/// Returns `(access_token, expires_at_epoch_secs)`.
+pub async fn refresh_external_trace_token(
+    ny_reauth_url: &str,
+    ny_api_key: &str,
+    merchant_operating_city_id: &str,
+) -> Result<ExternalReauthResponse, AppError> {
+    #[derive(Serialize, Debug)]
+    #[serde(rename_all = "camelCase")]
+    struct ReauthReq<'a> {
+        merchant_operating_city_id: &'a str,
+    }
+    let url = Url::parse(ny_reauth_url)
+        .map_err(|e| AppError::InvalidRequest(format!("Invalid reauth URL: {}", e)))?;
+    call_api::<ExternalReauthResponse, ReauthReq>(
+        Protocol::Http1,
+        Method::POST,
+        &url,
+        vec![
+            ("content-type", "application/json"),
+            ("api-key", ny_api_key),
+        ],
+        Some(ReauthReq {
+            merchant_operating_city_id,
+        }),
+        None,
+    )
+    .await
+    .map_err(|e| AppError::InternalError(format!("External reauth failed: {}", e)))
+}
+
+// send_trace has been moved to outbound::provider::ExternalLocationProvider trait.
+// Use `make_provider(&cfg).send_ping(...)` instead.
 
 /// Fetches special locations list from internal driver app.
 /// Uses getAllLocations=true so one call returns data for all cities (JSON response).
