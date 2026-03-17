@@ -14,6 +14,7 @@ use crate::redis::commands::*;
 use crate::tools::error::AppError;
 use actix_web::web::Data;
 use chrono::Utc;
+use tracing::{info, warn};
 
 /// Average walking speed in meters per second (5 km/h).
 const WALKING_SPEED_MPS: f64 = 5.0 * 1000.0 / 3600.0;
@@ -21,18 +22,104 @@ const WALKING_SPEED_MPS: f64 = 5.0 * 1000.0 / 3600.0;
 /// Buffer time in seconds to account for walking variability.
 const WALKING_BUFFER_SECONDS: i64 = 60;
 
+/// Maximum reasonable latitude value.
+const MAX_LATITUDE: f64 = 90.0;
+
+/// Maximum reasonable longitude value.
+const MAX_LONGITUDE: f64 = 180.0;
+
+/// Validates the transit proximity request fields.
+fn validate_request(request_body: &TransitProximityRequest) -> Result<(), AppError> {
+    let Latitude(rider_lat) = request_body.rider_location.lat;
+    let Longitude(rider_lon) = request_body.rider_location.lon;
+    let Latitude(stop_lat) = request_body.target_stop_location.lat;
+    let Longitude(stop_lon) = request_body.target_stop_location.lon;
+
+    if rider_lat.abs() > MAX_LATITUDE || stop_lat.abs() > MAX_LATITUDE {
+        return Err(AppError::InvalidRequest(format!(
+            "Latitude out of range [-90, 90]: rider_lat={}, stop_lat={}",
+            rider_lat, stop_lat
+        )));
+    }
+
+    if rider_lon.abs() > MAX_LONGITUDE || stop_lon.abs() > MAX_LONGITUDE {
+        return Err(AppError::InvalidRequest(format!(
+            "Longitude out of range [-180, 180]: rider_lon={}, stop_lon={}",
+            rider_lon, stop_lon
+        )));
+    }
+
+    if request_body.route_code.trim().is_empty() {
+        return Err(AppError::InvalidRequest(
+            "route_code must not be empty".to_string(),
+        ));
+    }
+
+    if request_body.target_stop_code.trim().is_empty() {
+        return Err(AppError::InvalidRequest(
+            "target_stop_code must not be empty".to_string(),
+        ));
+    }
+
+    if request_body.gtfs_id.trim().is_empty() {
+        return Err(AppError::InvalidRequest(
+            "gtfs_id must not be empty".to_string(),
+        ));
+    }
+
+    Ok(())
+}
+
 pub async fn transit_proximity(
     data: Data<AppState>,
     request_body: TransitProximityRequest,
 ) -> Result<TransitProximityResponse, AppError> {
+    // Step 0: Validate input fields.
+    validate_request(&request_body)?;
+
+    info!(
+        route_code = %request_body.route_code,
+        stop_code = %request_body.target_stop_code,
+        gtfs_id = %request_body.gtfs_id,
+        "Processing transit proximity request"
+    );
+
     // Step 1: Calculate walking distance and ETA from rider to target stop.
     let walking_distance =
         distance_between_in_meters(&request_body.rider_location, &request_body.target_stop_location);
     let walking_eta_seconds = (walking_distance / WALKING_SPEED_MPS).ceil() as i64;
 
+    info!(
+        walking_distance_m = walking_distance,
+        walking_eta_s = walking_eta_seconds,
+        "Computed walking ETA"
+    );
+
     // Step 2: Look up tracked vehicles on the given route code using existing Redis infrastructure.
-    let tracked_vehicles =
-        get_route_location(&data.redis, &request_body.route_code).await?;
+    let tracked_vehicles = match get_route_location(&data.redis, &request_body.route_code).await {
+        Ok(vehicles) => vehicles,
+        Err(err) => {
+            warn!(
+                route_code = %request_body.route_code,
+                error = %err,
+                "Failed to fetch tracked vehicles from Redis, proceeding with empty vehicle set"
+            );
+            std::collections::HashMap::new()
+        }
+    };
+
+    if tracked_vehicles.is_empty() {
+        info!(
+            route_code = %request_body.route_code,
+            "No tracked vehicles found for route"
+        );
+    } else {
+        info!(
+            route_code = %request_body.route_code,
+            vehicle_count = tracked_vehicles.len(),
+            "Found tracked vehicles for route"
+        );
+    }
 
     // Step 3: Find the best (closest) vehicle heading toward the target stop.
     let vehicle_eta = find_best_vehicle_eta(
@@ -42,9 +129,31 @@ pub async fn transit_proximity(
         &request_body.scheduled_departure,
     );
 
+    if let Some(ref eta) = vehicle_eta {
+        info!(
+            vehicle_id = %eta.vehicle_id,
+            eta_to_stop_s = eta.eta_to_stop_seconds,
+            delay_s = eta.current_delay_seconds,
+            is_live = eta.is_live,
+            "Best vehicle ETA determined"
+        );
+    } else {
+        warn!(
+            route_code = %request_body.route_code,
+            stop_code = %request_body.target_stop_code,
+            "No vehicle ETA could be determined"
+        );
+    }
+
     // Step 4: Determine advisory based on walking ETA vs vehicle ETA.
     let (should_leave_now, advisory_message) =
         compute_advisory(walking_eta_seconds, &vehicle_eta);
+
+    info!(
+        should_leave_now = should_leave_now,
+        advisory = %advisory_message,
+        "Transit proximity advisory computed"
+    );
 
     Ok(TransitProximityResponse {
         walking_eta_to_stop: walking_eta_seconds,
@@ -56,6 +165,10 @@ pub async fn transit_proximity(
 }
 
 /// Finds the vehicle with the best (lowest) ETA to the target stop from the tracked vehicles map.
+///
+/// Upcoming-stop-based ETAs are always preferred over distance-based estimates because
+/// they come from real-time schedule data and are more accurate. Distance-based estimates
+/// are only used when no vehicle has upcoming stop information for the target stop.
 fn find_best_vehicle_eta(
     tracked_vehicles: &std::collections::HashMap<String, VehicleTrackingInfo>,
     target_stop_location: &Point,
@@ -64,13 +177,18 @@ fn find_best_vehicle_eta(
 ) -> Option<VehicleEta> {
     let now = Utc::now();
 
-    let mut best: Option<(String, i64, i64, bool, TimeStamp)> = None;
+    // Track the best upcoming-stop-based match and the best distance-based match separately.
+    // Fields: (vehicle_id, eta_seconds, delay_seconds, is_live, last_updated)
+    let mut best_stop_based: Option<(String, i64, i64, bool, TimeStamp)> = None;
+    let mut best_distance_based: Option<(String, i64, i64, bool, TimeStamp)> = None;
 
     for (vehicle_id, info) in tracked_vehicles {
         let vehicle_location = Point {
             lat: info.latitude,
             lon: info.longitude,
         };
+
+        let mut found_upcoming_stop_match = false;
 
         // Check if the vehicle has upcoming stop information that includes the target stop.
         if let Some(ref upcoming_stops) = info.upcoming_stops {
@@ -96,8 +214,10 @@ fn find_best_vehicle_eta(
 
                     let last_updated = info.timestamp.unwrap_or(TimeStamp(now));
 
-                    if best.is_none() || eta_seconds < best.as_ref().unwrap().1 {
-                        best = Some((
+                    if best_stop_based.is_none()
+                        || eta_seconds < best_stop_based.as_ref().unwrap().1
+                    {
+                        best_stop_based = Some((
                             vehicle_id.clone(),
                             eta_seconds,
                             delay_seconds,
@@ -105,13 +225,14 @@ fn find_best_vehicle_eta(
                             last_updated,
                         ));
                     }
+                    found_upcoming_stop_match = true;
                     break;
                 }
             }
         }
 
-        // If no upcoming stop match, fall back to distance-based ETA estimation.
-        if best.is_none() || !best.as_ref().unwrap().3 {
+        // If no upcoming stop match for this vehicle, fall back to distance-based ETA estimation.
+        if !found_upcoming_stop_match {
             let distance_to_stop =
                 distance_between_in_meters(&vehicle_location, target_stop_location);
 
@@ -135,8 +256,10 @@ fn find_best_vehicle_eta(
             let last_updated = info.timestamp.unwrap_or(TimeStamp(now));
             let is_live = info.timestamp.is_some();
 
-            if best.is_none() || eta_seconds < best.as_ref().unwrap().1 {
-                best = Some((
+            if best_distance_based.is_none()
+                || eta_seconds < best_distance_based.as_ref().unwrap().1
+            {
+                best_distance_based = Some((
                     vehicle_id.clone(),
                     eta_seconds,
                     delay_seconds,
@@ -146,6 +269,9 @@ fn find_best_vehicle_eta(
             }
         }
     }
+
+    // Prefer upcoming-stop-based matches over distance-based estimates.
+    let best = best_stop_based.or(best_distance_based);
 
     best.map(
         |(vehicle_id, eta_to_stop_seconds, current_delay_seconds, is_live, last_updated)| {
@@ -932,6 +1058,103 @@ mod tests {
         let eta = result.unwrap();
         // Should pick the first STOP_X match (200s), not the second (500s)
         assert!((eta.eta_to_stop_seconds - 200).abs() <= 2);
+    }
+
+    // ── Input validation tests ──────────────────────────────────────────
+
+    fn make_request(
+        rider_lat: f64,
+        rider_lon: f64,
+        stop_lat: f64,
+        stop_lon: f64,
+        route_code: &str,
+        stop_code: &str,
+    ) -> TransitProximityRequest {
+        TransitProximityRequest {
+            rider_location: make_point(rider_lat, rider_lon),
+            target_stop_location: make_point(stop_lat, stop_lon),
+            route_code: route_code.to_string(),
+            target_stop_code: stop_code.to_string(),
+            scheduled_departure: TimeStamp(Utc::now() + Duration::seconds(600)),
+            gtfs_id: "gtfs_1".to_string(),
+        }
+    }
+
+    #[test]
+    fn test_validate_request_valid() {
+        let req = make_request(12.97, 77.59, 12.98, 77.60, "ROUTE_1", "STOP_X");
+        assert!(validate_request(&req).is_ok());
+    }
+
+    #[test]
+    fn test_validate_request_latitude_out_of_range() {
+        let req = make_request(91.0, 77.59, 12.98, 77.60, "ROUTE_1", "STOP_X");
+        let err = validate_request(&req);
+        assert!(err.is_err());
+    }
+
+    #[test]
+    fn test_validate_request_negative_latitude_out_of_range() {
+        let req = make_request(-91.0, 77.59, 12.98, 77.60, "ROUTE_1", "STOP_X");
+        assert!(validate_request(&req).is_err());
+    }
+
+    #[test]
+    fn test_validate_request_longitude_out_of_range() {
+        let req = make_request(12.97, 181.0, 12.98, 77.60, "ROUTE_1", "STOP_X");
+        assert!(validate_request(&req).is_err());
+    }
+
+    #[test]
+    fn test_validate_request_stop_latitude_out_of_range() {
+        let req = make_request(12.97, 77.59, 95.0, 77.60, "ROUTE_1", "STOP_X");
+        assert!(validate_request(&req).is_err());
+    }
+
+    #[test]
+    fn test_validate_request_empty_route_code() {
+        let req = make_request(12.97, 77.59, 12.98, 77.60, "", "STOP_X");
+        assert!(validate_request(&req).is_err());
+    }
+
+    #[test]
+    fn test_validate_request_whitespace_route_code() {
+        let req = make_request(12.97, 77.59, 12.98, 77.60, "   ", "STOP_X");
+        assert!(validate_request(&req).is_err());
+    }
+
+    #[test]
+    fn test_validate_request_empty_stop_code() {
+        let req = make_request(12.97, 77.59, 12.98, 77.60, "ROUTE_1", "");
+        assert!(validate_request(&req).is_err());
+    }
+
+    #[test]
+    fn test_validate_request_empty_gtfs_id() {
+        let mut req = make_request(12.97, 77.59, 12.98, 77.60, "ROUTE_1", "STOP_X");
+        req.gtfs_id = "".to_string();
+        assert!(validate_request(&req).is_err());
+    }
+
+    #[test]
+    fn test_validate_request_whitespace_gtfs_id() {
+        let mut req = make_request(12.97, 77.59, 12.98, 77.60, "ROUTE_1", "STOP_X");
+        req.gtfs_id = "   ".to_string();
+        assert!(validate_request(&req).is_err());
+    }
+
+    #[test]
+    fn test_validate_request_boundary_latitude_90() {
+        // Exactly 90 is valid (North Pole)
+        let req = make_request(90.0, 0.0, -90.0, 0.0, "ROUTE_1", "STOP_X");
+        assert!(validate_request(&req).is_ok());
+    }
+
+    #[test]
+    fn test_validate_request_boundary_longitude_180() {
+        // Exactly 180 is valid (International Date Line)
+        let req = make_request(0.0, 180.0, 0.0, -180.0, "ROUTE_1", "STOP_X");
+        assert!(validate_request(&req).is_ok());
     }
 
     // ── Stress / load test scenarios (documented, not executed) ────────
