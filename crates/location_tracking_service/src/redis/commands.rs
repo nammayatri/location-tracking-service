@@ -975,6 +975,53 @@ pub async fn batch_get_driver_queue_trackings(
         .map_err(|err| AppError::InternalError(err.to_string()))
 }
 
+/// Add a driver to the queue ZSET using ZADD (without NX — overwrites existing score).
+/// Used for manual queue insertion at a specific position.
+pub async fn add_driver_to_queue_force(
+    redis: &RedisConnectionPool,
+    special_location_id: &str,
+    vehicle_type: &str,
+    driver_id: &str,
+    score: f64,
+    queue_expiry: i64,
+) -> Result<(), AppError> {
+    let key = special_location_queue_key(special_location_id, vehicle_type);
+    let member =
+        serde_json::to_string(driver_id).map_err(|e| AppError::InternalError(e.to_string()))?;
+    redis
+        .zadd(
+            &key,
+            None, // no NX/XX option — always set
+            None,
+            false,
+            false,
+            vec![(score, member.as_str())],
+        )
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))?;
+    redis
+        .set_expiry(&key, queue_expiry)
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
+/// Get (member, score) pairs for a rank range in the queue ZSET (ZRANGE WITHSCORES).
+pub async fn get_queue_scores_at_range(
+    redis: &RedisConnectionPool,
+    special_location_id: &str,
+    vehicle_type: &str,
+    start: i64,
+    end: i64,
+) -> Result<Vec<(String, f64)>, AppError> {
+    let key = special_location_queue_key(special_location_id, vehicle_type);
+    let results: Vec<(String, f64)> = redis
+        .reader_pool
+        .zrange(&key, start, end, None, false, None, true)
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))?;
+    Ok(results)
+}
+
 /// Get all driver IDs in a special location by querying recent buckets.
 pub async fn get_drivers_in_special_location(
     redis: &RedisConnectionPool,

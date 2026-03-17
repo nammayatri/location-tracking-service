@@ -6,7 +6,7 @@
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 use actix_web::{
-    get, post,
+    delete, get, post,
     web::{Data, Json, Path},
     HttpRequest,
 };
@@ -93,5 +93,44 @@ async fn get_driver_queue_position(
     let (special_location_id, vehicle_type, driver_id) = path.into_inner();
     Ok(Json(
         location::driver_queue_position(data, special_location_id, vehicle_type, driver_id).await?,
+    ))
+}
+
+#[delete("/internal/special-locations/{special_location_id}/queue/{vehicle_type}/drivers/{merchant_id}/{driver_id}")]
+async fn manual_queue_remove(
+    data: Data<AppState>,
+    path: Path<(String, String, String, String)>,
+) -> Result<Json<APISuccess>, AppError> {
+    let (special_location_id, vehicle_type, merchant_id, driver_id) = path.into_inner();
+    Ok(Json(
+        location::manual_queue_remove(
+            data,
+            special_location_id,
+            vehicle_type,
+            merchant_id,
+            driver_id,
+        )
+        .await?,
+    ))
+}
+
+#[post("/internal/special-locations/{special_location_id}/queue/{vehicle_type}/drivers/{merchant_id}/{driver_id}")]
+async fn manual_queue_add(
+    data: Data<AppState>,
+    path: Path<(String, String, String, String)>,
+    body: Json<ManualQueueAddRequest>,
+) -> Result<Json<APISuccess>, AppError> {
+    let (special_location_id, vehicle_type, merchant_id, driver_id) = path.into_inner();
+    let request_body = body.into_inner();
+    Ok(Json(
+        location::manual_queue_add(
+            data,
+            special_location_id,
+            vehicle_type,
+            merchant_id,
+            driver_id,
+            request_body.queue_position,
+        )
+        .await?,
     ))
 }
