@@ -564,6 +564,118 @@ pub async fn driver_queue_position(
     })
 }
 
+pub async fn manual_queue_remove(
+    data: Data<AppState>,
+    special_location_id: String,
+    vehicle_type: String,
+    merchant_id: String,
+    driver_id: String,
+) -> Result<APISuccess, AppError> {
+    remove_driver_from_queue(&data.redis, &special_location_id, &vehicle_type, &driver_id).await?;
+    delete_driver_queue_tracking(&data.redis, &merchant_id, &driver_id).await?;
+    Ok(APISuccess::default())
+}
+
+pub async fn manual_queue_add(
+    data: Data<AppState>,
+    special_location_id: String,
+    vehicle_type: String,
+    merchant_id: String,
+    driver_id: String,
+    queue_position: u64, // 1-indexed
+) -> Result<APISuccess, AppError> {
+    // First remove the driver if already in a different queue
+    let existing_tracking =
+        get_driver_queue_tracking(&data.redis, &merchant_id, &driver_id).await?;
+    if let Some(old) = &existing_tracking {
+        if old.special_location_id != special_location_id || old.vehicle_type != vehicle_type {
+            remove_driver_from_queue(
+                &data.redis,
+                &old.special_location_id,
+                &old.vehicle_type,
+                &driver_id,
+            )
+            .await?;
+        }
+    }
+
+    // Also remove from the target queue if already present (to re-insert at new position)
+    remove_driver_from_queue(&data.redis, &special_location_id, &vehicle_type, &driver_id).await?;
+
+    // Recompute queue size after removal
+    let queue_size_after_removal =
+        get_queue_size(&data.redis, &special_location_id, &vehicle_type).await?;
+
+    // Compute the score for the desired position
+    let target_rank = if queue_position == 0 {
+        0u64
+    } else {
+        (queue_position - 1).min(queue_size_after_removal)
+    };
+
+    let score = if queue_size_after_removal == 0 {
+        // Empty queue — use current timestamp
+        Utc::now().timestamp() as f64
+    } else if target_rank == 0 {
+        // Insert at the front — use score slightly before the first member
+        let scores =
+            get_queue_scores_at_range(&data.redis, &special_location_id, &vehicle_type, 0, 0)
+                .await?;
+        if let Some((_, first_score)) = scores.first() {
+            first_score - 1.0
+        } else {
+            Utc::now().timestamp() as f64
+        }
+    } else if target_rank >= queue_size_after_removal {
+        // Insert at the end — use score slightly after the last member
+        let last = queue_size_after_removal as i64 - 1;
+        let scores =
+            get_queue_scores_at_range(&data.redis, &special_location_id, &vehicle_type, last, last)
+                .await?;
+        if let Some((_, last_score)) = scores.first() {
+            last_score + 1.0
+        } else {
+            Utc::now().timestamp() as f64
+        }
+    } else {
+        // Insert between ranks (target_rank - 1) and target_rank
+        let before = target_rank as i64 - 1;
+        let at = target_rank as i64;
+        let scores =
+            get_queue_scores_at_range(&data.redis, &special_location_id, &vehicle_type, before, at)
+                .await?;
+        if scores.len() == 2 {
+            (scores[0].1 + scores[1].1) / 2.0
+        } else {
+            Utc::now().timestamp() as f64
+        }
+    };
+
+    add_driver_to_queue_force(
+        &data.redis,
+        &special_location_id,
+        &vehicle_type,
+        &driver_id,
+        score,
+        data.queue_expiry_seconds as i64,
+    )
+    .await?;
+
+    // Set tracking key
+    set_driver_queue_tracking(
+        &data.redis,
+        &merchant_id,
+        &driver_id,
+        &DriverQueueTracking {
+            special_location_id,
+            vehicle_type,
+        },
+    )
+    .await?;
+
+    Ok(APISuccess::default())
+}
+
 pub async fn get_special_location_drivers(
     data: Data<AppState>,
     special_location_id: String,
