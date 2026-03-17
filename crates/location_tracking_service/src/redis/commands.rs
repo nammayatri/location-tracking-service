@@ -1207,6 +1207,26 @@ pub async fn batch_get_driver_queue_trackings(
         .map_err(|err| AppError::InternalError(err.to_string()))
 }
 
+pub async fn batch_check_drivers_on_ride(
+    redis: &RedisConnectionPool,
+    pairs: &[(&str, &str)],
+) -> Result<Vec<bool>, AppError> {
+    if pairs.is_empty() {
+        return Ok(vec![]);
+    }
+    let keys: Vec<String> = pairs
+        .iter()
+        .map(|(mid, did)| {
+            on_ride_details_key(&MerchantId(mid.to_string()), &DriverId(did.to_string()))
+        })
+        .collect();
+    let results = redis
+        .mget_keys::<RideDetails>(keys)
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))?;
+    Ok(results.iter().map(|r| r.is_some()).collect())
+}
+
 /// Add a driver to the queue ZSET using ZADD (without NX — overwrites existing score).
 /// Used for manual queue insertion at a specific position.
 pub async fn add_driver_to_queue_force(
