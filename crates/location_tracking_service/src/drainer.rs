@@ -15,8 +15,8 @@ use crate::{
     },
     redis::{
         commands::{
-            add_driver_to_special_location_zset, batch_get_driver_queue_trackings,
-            push_drainer_driver_location, DriverQueueTracking,
+            add_driver_to_special_location_zset, batch_check_drivers_on_ride,
+            batch_get_driver_queue_trackings, push_drainer_driver_location, DriverQueueTracking,
         },
         keys::{driver_loc_bucket_key, driver_queue_tracking_key, special_location_queue_key},
     },
@@ -80,7 +80,12 @@ async fn drain_queue_actions(
         })
         .collect();
 
-    let trackings = match batch_get_driver_queue_trackings(redis, &pairs).await {
+    let (trackings, on_ride_flags) = tokio::join!(
+        batch_get_driver_queue_trackings(redis, &pairs),
+        batch_check_drivers_on_ride(redis, &pairs)
+    );
+
+    let trackings = match trackings {
         Ok(t) => t,
         Err(e) => {
             error!(tag = "[Queue Batch MGET]", error = %e);
@@ -88,10 +93,22 @@ async fn drain_queue_actions(
         }
     };
 
+    let on_ride_flags = match on_ride_flags {
+        Ok(f) => f,
+        Err(e) => {
+            error!(tag = "[Queue Batch On Ride Check]", error = %e);
+            vec![false; actions.len()]
+        }
+    };
+
     // Step 2: Build all write commands into a single pipeline
     let pipeline = redis.writer_pool.next().pipeline();
 
-    for (action, old_tracking) in actions.iter().zip(trackings.iter()) {
+    for ((action, old_tracking), is_on_ride) in actions
+        .iter()
+        .zip(trackings.iter())
+        .zip(on_ride_flags.iter())
+    {
         match action {
             QueueAction::Enter {
                 merchant_id,
@@ -100,6 +117,9 @@ async fn drain_queue_actions(
                 vehicle_type,
                 timestamp,
             } => {
+                if *is_on_ride {
+                    continue;
+                }
                 let new_tracking = DriverQueueTracking {
                     special_location_id: special_location_id.clone(),
                     vehicle_type: vehicle_type.clone(),
