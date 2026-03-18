@@ -38,4 +38,6 @@ pub struct TransitProximityResponse {
     pub vehicle_eta: Option<VehicleEta>,
     pub should_leave_now: bool,
     pub advisory_message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data_quality: Option<String>,
 }

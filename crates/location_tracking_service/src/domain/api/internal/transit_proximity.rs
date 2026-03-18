@@ -12,10 +12,7 @@ use actix_web::{
 
 use crate::tools::error::AppError;
 use crate::{
-    domain::{
-        action::internal::transit_proximity,
-        types::internal::transit_proximity::*,
-    },
+    domain::{action::internal::transit_proximity, types::internal::transit_proximity::*},
     environment::AppState,
 };
 

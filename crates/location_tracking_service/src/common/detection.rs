@@ -23,6 +23,7 @@ use crate::{
 
 use super::utils::find_closest_point_on_route;
 use crate::outbound::types::RideStopReachedDetectionData;
+use crate::outbound::types::TripNotStartedDetectionData;
 
 pub fn check(
     violation_config: &ViolationDetectionConfig,
@@ -161,7 +162,7 @@ fn violation_check(
                                     + current_speed.inner())
                                     / (prev_batch_size as f64 + 1.0);
                                 copy_list.pop_back();
-                                copy_list.push_back((current_avg_speed, prev_batch_datapoints + 1));
+                                copy_list.push_back((current_avg_speed, prev_batch_size + 1));
                                 total_datapoints += 1;
                                 if total_datapoints == sample_size as u64 {
                                     // get this by the average of the values fro the list in the state
@@ -340,7 +341,6 @@ fn violation_check(
                                             / (prev_batch_size as f64 + 1.0),
                                     ),
                                 };
-                                let mut copy_list = avg_deviation_record.clone();
                                 copy_list.pop_back();
                                 copy_list.push_back((current_avg_point, prev_batch_size + 1));
                                 total_datapoints += 1;
@@ -586,7 +586,6 @@ fn violation_check(
                                             / (prev_batch_size as f64 + 1.0),
                                     ),
                                 };
-                                let mut copy_list = avg_coord_mean.clone();
                                 copy_list.pop_back();
                                 copy_list.push_back((current_avg_point, prev_batch_size + 1));
                                 total_datapoints += 1;
@@ -778,6 +777,7 @@ fn handle_ride_stop_reached_check(
                     Some(true),
                 ));
             } else {
+                // Anti-violation triggered: driver has left the stop.
                 return Some((
                     ViolationDetectionState::RideStopReached(RideStopReachedState {
                         total_datapoints: 0,
@@ -785,7 +785,7 @@ fn handle_ride_stop_reached_check(
                         current_stop_index,
                         avg_coord_mean: VecDeque::new(),
                     }),
-                    Some(false),
+                    Some(true),
                 ));
             }
         } else {
@@ -931,14 +931,13 @@ fn anti_violation_check(
                         if let Some(prev_tuple) = copy_list.back() {
                             let prev_average_speed = prev_tuple.0;
                             let prev_batch_size = prev_tuple.1;
-                            // Starting opied
                             if prev_batch_size < max_batch_size {
                                 let current_avg_speed = (prev_average_speed
                                     * prev_batch_size as f64
                                     + current_speed.inner())
                                     / (prev_batch_size as f64 + 1.0);
                                 copy_list.pop_back();
-                                copy_list.push_back((current_avg_speed, prev_batch_datapoints + 1));
+                                copy_list.push_back((current_avg_speed, prev_batch_size + 1));
                                 total_datapoints += 1;
                                 if total_datapoints == sample_size as u64 {
                                     // get this by the average of the values fro the list in the state
@@ -1118,7 +1117,6 @@ fn anti_violation_check(
                                             / (prev_batch_size as f64 + 1.0),
                                     ),
                                 };
-                                let mut copy_list = avg_deviation_record.clone();
                                 copy_list.pop_back();
                                 copy_list.push_back((current_avg_point, prev_batch_size + 1));
                                 total_datapoints += 1;
@@ -1409,6 +1407,18 @@ fn get_triggered_state_req(
                     None
                 }
             }
+            Some(ViolationDetectionState::TripNotStarted(TripNotStartedState { .. })) => {
+                Some(ViolationDetectionReq {
+                    ride_id: context.ride_id,
+                    driver_id: context.driver_id,
+                    is_violated: true,
+                    detection_data: DetectionData::TripNotStartedDetection(
+                        TripNotStartedDetectionData {
+                            location: context.location,
+                        },
+                    ),
+                })
+            }
             _ => None,
         },
         Some(DetectionStatus::AntiViolated) => match curr_anti_violation_state {
@@ -1504,6 +1514,18 @@ fn get_triggered_state_req(
                 } else {
                     None
                 }
+            }
+            Some(ViolationDetectionState::TripNotStarted(TripNotStartedState { .. })) => {
+                Some(ViolationDetectionReq {
+                    ride_id: context.ride_id,
+                    driver_id: context.driver_id,
+                    is_violated: false,
+                    detection_data: DetectionData::TripNotStartedDetection(
+                        TripNotStartedDetectionData {
+                            location: context.location,
+                        },
+                    ),
+                })
             }
             _ => None,
         },

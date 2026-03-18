@@ -28,6 +28,9 @@ const MAX_LATITUDE: f64 = 90.0;
 /// Maximum reasonable longitude value.
 const MAX_LONGITUDE: f64 = 180.0;
 
+/// Maximum age in seconds for a vehicle's timestamp to be considered fresh.
+const VEHICLE_FRESHNESS_THRESHOLD_SECONDS: i64 = 300;
+
 /// Validates the transit proximity request fields.
 fn validate_request(request_body: &TransitProximityRequest) -> Result<(), AppError> {
     let Latitude(rider_lat) = request_body.rider_location.lat;
@@ -85,8 +88,10 @@ pub async fn transit_proximity(
     );
 
     // Step 1: Calculate walking distance and ETA from rider to target stop.
-    let walking_distance =
-        distance_between_in_meters(&request_body.rider_location, &request_body.target_stop_location);
+    let walking_distance = distance_between_in_meters(
+        &request_body.rider_location,
+        &request_body.target_stop_location,
+    );
     let walking_eta_seconds = (walking_distance / WALKING_SPEED_MPS).ceil() as i64;
 
     info!(
@@ -96,14 +101,17 @@ pub async fn transit_proximity(
     );
 
     // Step 2: Look up tracked vehicles on the given route code using existing Redis infrastructure.
+    let mut data_quality: Option<String> = None;
     let tracked_vehicles = match get_route_location(&data.redis, &request_body.route_code).await {
         Ok(vehicles) => vehicles,
         Err(err) => {
             warn!(
                 route_code = %request_body.route_code,
                 error = %err,
+                data_quality = "degraded",
                 "Failed to fetch tracked vehicles from Redis, proceeding with empty vehicle set"
             );
+            data_quality = Some("degraded".to_string());
             std::collections::HashMap::new()
         }
     };
@@ -146,8 +154,7 @@ pub async fn transit_proximity(
     }
 
     // Step 4: Determine advisory based on walking ETA vs vehicle ETA.
-    let (should_leave_now, advisory_message) =
-        compute_advisory(walking_eta_seconds, &vehicle_eta);
+    let (should_leave_now, advisory_message) = compute_advisory(walking_eta_seconds, &vehicle_eta);
 
     info!(
         should_leave_now = should_leave_now,
@@ -161,6 +168,7 @@ pub async fn transit_proximity(
         vehicle_eta,
         should_leave_now,
         advisory_message,
+        data_quality,
     })
 }
 
@@ -183,6 +191,47 @@ fn find_best_vehicle_eta(
     let mut best_distance_based: Option<(String, i64, i64, bool, TimeStamp)> = None;
 
     for (vehicle_id, info) in tracked_vehicles {
+        // Fix 1: Skip vehicles that are not live (no timestamp).
+        let last_updated = match info.timestamp {
+            Some(ts) => ts,
+            None => {
+                warn!(
+                    vehicle_id = %vehicle_id,
+                    "Skipping vehicle with no timestamp (not live)"
+                );
+                continue;
+            }
+        };
+
+        // Fix 1: Skip vehicles whose timestamp is stale (older than freshness threshold).
+        let age_seconds = now
+            .signed_duration_since(last_updated.inner())
+            .num_seconds();
+        if age_seconds > VEHICLE_FRESHNESS_THRESHOLD_SECONDS {
+            warn!(
+                vehicle_id = %vehicle_id,
+                age_seconds = age_seconds,
+                "Skipping stale vehicle (older than {} seconds)",
+                VEHICLE_FRESHNESS_THRESHOLD_SECONDS
+            );
+            continue;
+        }
+
+        // Fix 2: Skip vehicles where the target stop has already been reached.
+        if let Some(ref upcoming_stops) = info.upcoming_stops {
+            let target_reached = upcoming_stops.iter().any(|us| {
+                us.stop.stop_code == target_stop_code && us.status == UpcomingStopStatus::Reached
+            });
+            if target_reached {
+                warn!(
+                    vehicle_id = %vehicle_id,
+                    stop_code = %target_stop_code,
+                    "Skipping vehicle that has already passed the target stop"
+                );
+                continue;
+            }
+        }
+
         let vehicle_location = Point {
             lat: info.latitude,
             lon: info.longitude,
@@ -202,6 +251,7 @@ fn find_best_vehicle_eta(
                         .signed_duration_since(now)
                         .num_seconds();
 
+                    // Fix 2: Skip vehicles with negative ETA (already passed the stop).
                     if eta_seconds < 0 {
                         continue;
                     }
@@ -211,8 +261,6 @@ fn find_best_vehicle_eta(
                             .inner()
                             .signed_duration_since(now)
                             .num_seconds();
-
-                    let last_updated = info.timestamp.unwrap_or(TimeStamp(now));
 
                     if best_stop_based.is_none()
                         || eta_seconds < best_stop_based.as_ref().unwrap().1
@@ -241,7 +289,11 @@ fn find_best_vehicle_eta(
                 .speed
                 .map(|s| {
                     let SpeedInMeterPerSecond(v) = s;
-                    if v > 0.5 { v } else { 20.0 * 1000.0 / 3600.0 }
+                    if v > 0.5 {
+                        v
+                    } else {
+                        20.0 * 1000.0 / 3600.0
+                    }
                 })
                 .unwrap_or(20.0 * 1000.0 / 3600.0);
 
@@ -253,7 +305,6 @@ fn find_best_vehicle_eta(
                 .num_seconds();
             let delay_seconds = eta_seconds - scheduled_eta_seconds;
 
-            let last_updated = info.timestamp.unwrap_or(TimeStamp(now));
             let is_live = info.timestamp.is_some();
 
             if best_distance_based.is_none()
@@ -316,12 +367,10 @@ fn compute_advisory(walking_eta_seconds: i64, vehicle_eta: &Option<VehicleEta>) 
                 }
             }
         }
-        None => {
-            (
-                true,
-                "No live vehicle data available, leave now to be safe".to_string(),
-            )
-        }
+        None => (
+            true,
+            "No live vehicle data available, leave now to be safe".to_string(),
+        ),
     }
 }
 
@@ -353,7 +402,11 @@ mod tests {
         }
     }
 
-    fn make_upcoming_stop(stop_code: &str, eta_offset_secs: i64, status: UpcomingStopStatus) -> UpcomingStop {
+    fn make_upcoming_stop(
+        stop_code: &str,
+        eta_offset_secs: i64,
+        status: UpcomingStopStatus,
+    ) -> UpcomingStop {
         UpcomingStop {
             stop: make_stop_obj(stop_code),
             eta: TimeStamp(Utc::now() + Duration::seconds(eta_offset_secs)),
@@ -478,9 +531,11 @@ mod tests {
     #[test]
     fn test_vehicle_with_upcoming_stop_match() {
         let mut vehicles = HashMap::new();
-        let upcoming = vec![
-            make_upcoming_stop("STOP_X", 300, UpcomingStopStatus::Upcoming),
-        ];
+        let upcoming = vec![make_upcoming_stop(
+            "STOP_X",
+            300,
+            UpcomingStopStatus::Upcoming,
+        )];
         vehicles.insert(
             "bus_1".to_string(),
             make_vehicle(12.96, 77.58, Some(5.0), Some(Utc::now()), Some(upcoming)),
@@ -501,9 +556,11 @@ mod tests {
     #[test]
     fn test_vehicle_with_upcoming_stop_already_reached() {
         let mut vehicles = HashMap::new();
-        let upcoming = vec![
-            make_upcoming_stop("STOP_X", 300, UpcomingStopStatus::Reached),
-        ];
+        let upcoming = vec![make_upcoming_stop(
+            "STOP_X",
+            300,
+            UpcomingStopStatus::Reached,
+        )];
         vehicles.insert(
             "bus_1".to_string(),
             make_vehicle(12.96, 77.58, Some(5.0), Some(Utc::now()), Some(upcoming)),
@@ -512,18 +569,20 @@ mod tests {
         let target = make_point(12.97, 77.59);
         let scheduled = TimeStamp(Utc::now() + Duration::seconds(300));
 
-        // The stop status is Reached, so it should fall back to distance-based ETA.
+        // The stop status is Reached, so the vehicle should be excluded entirely.
         let result = find_best_vehicle_eta(&vehicles, &target, "STOP_X", &scheduled);
-        assert!(result.is_some());
+        assert!(result.is_none());
     }
 
     #[test]
     fn test_vehicle_with_negative_eta_skipped() {
         let mut vehicles = HashMap::new();
         // ETA is in the past (negative offset).
-        let upcoming = vec![
-            make_upcoming_stop("STOP_X", -60, UpcomingStopStatus::Upcoming),
-        ];
+        let upcoming = vec![make_upcoming_stop(
+            "STOP_X",
+            -60,
+            UpcomingStopStatus::Upcoming,
+        )];
         vehicles.insert(
             "bus_1".to_string(),
             make_vehicle(12.96, 77.58, Some(5.0), Some(Utc::now()), Some(upcoming)),
@@ -562,10 +621,10 @@ mod tests {
     #[test]
     fn test_vehicle_fallback_default_speed() {
         let mut vehicles = HashMap::new();
-        // No speed reported and no timestamp (not live).
+        // No speed reported but with a timestamp (live).
         vehicles.insert(
             "bus_3".to_string(),
-            make_vehicle(12.96, 77.58, None, None, None),
+            make_vehicle(12.96, 77.58, None, Some(Utc::now()), None),
         );
 
         let target = make_point(12.97, 77.59);
@@ -574,7 +633,45 @@ mod tests {
         let result = find_best_vehicle_eta(&vehicles, &target, "STOP_X", &scheduled);
         assert!(result.is_some());
         let eta = result.unwrap();
-        assert!(!eta.is_live); // No timestamp means not live.
+        assert!(eta.is_live);
+    }
+
+    #[test]
+    fn test_vehicle_without_timestamp_is_skipped() {
+        let mut vehicles = HashMap::new();
+        // No timestamp (not live) - should be skipped.
+        vehicles.insert(
+            "bus_no_ts".to_string(),
+            make_vehicle(12.96, 77.58, None, None, None),
+        );
+
+        let target = make_point(12.97, 77.59);
+        let scheduled = TimeStamp(Utc::now() + Duration::seconds(600));
+
+        let result = find_best_vehicle_eta(&vehicles, &target, "STOP_X", &scheduled);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_stale_vehicle_is_skipped() {
+        let mut vehicles = HashMap::new();
+        // Timestamp is 10 minutes old (beyond 5-minute threshold).
+        vehicles.insert(
+            "bus_stale".to_string(),
+            make_vehicle(
+                12.96,
+                77.58,
+                Some(5.0),
+                Some(Utc::now() - Duration::seconds(600)),
+                None,
+            ),
+        );
+
+        let target = make_point(12.97, 77.59);
+        let scheduled = TimeStamp(Utc::now() + Duration::seconds(600));
+
+        let result = find_best_vehicle_eta(&vehicles, &target, "STOP_X", &scheduled);
+        assert!(result.is_none());
     }
 
     #[test]
@@ -622,9 +719,11 @@ mod tests {
     fn test_upcoming_stop_preferred_over_distance() {
         let mut vehicles = HashMap::new();
         // Bus with upcoming stop info giving 200s ETA.
-        let upcoming = vec![
-            make_upcoming_stop("STOP_X", 200, UpcomingStopStatus::Upcoming),
-        ];
+        let upcoming = vec![make_upcoming_stop(
+            "STOP_X",
+            200,
+            UpcomingStopStatus::Upcoming,
+        )];
         vehicles.insert(
             "bus_with_stops".to_string(),
             make_vehicle(13.00, 77.60, Some(5.0), Some(Utc::now()), Some(upcoming)),
@@ -736,7 +835,10 @@ mod tests {
         let p1 = make_point(-33.8688, 151.2093);
         let p2 = make_point(-33.8600, 151.2100);
         let d = distance_between_in_meters(&p1, &p2);
-        assert!(d > 500.0 && d < 2000.0, "Distance should be reasonable for nearby Sydney points");
+        assert!(
+            d > 500.0 && d < 2000.0,
+            "Distance should be reasonable for nearby Sydney points"
+        );
     }
 
     #[test]
@@ -801,7 +903,10 @@ mod tests {
         assert!(result.is_some());
         // ETA will be very large but should not panic or overflow
         let eta = result.unwrap();
-        assert!(eta.eta_to_stop_seconds > 100_000, "Very distant vehicle should have very large ETA");
+        assert!(
+            eta.eta_to_stop_seconds > 100_000,
+            "Very distant vehicle should have very large ETA"
+        );
     }
 
     // ── Points at exact boundary distances ─────────────────────────────
@@ -812,7 +917,11 @@ mod tests {
         let p1 = make_point(12.970000, 77.590000);
         let p2 = make_point(12.970009, 77.590000); // ~1m north
         let d = distance_between_in_meters(&p1, &p2);
-        assert!(d > 0.5 && d < 3.0, "Should be approximately 1 meter apart, got {}", d);
+        assert!(
+            d > 0.5 && d < 3.0,
+            "Should be approximately 1 meter apart, got {}",
+            d
+        );
     }
 
     #[test]
@@ -893,9 +1002,11 @@ mod tests {
     #[test]
     fn test_vehicle_upcoming_stops_wrong_stop_code() {
         let mut vehicles = HashMap::new();
-        let upcoming = vec![
-            make_upcoming_stop("STOP_Y", 300, UpcomingStopStatus::Upcoming),
-        ];
+        let upcoming = vec![make_upcoming_stop(
+            "STOP_Y",
+            300,
+            UpcomingStopStatus::Upcoming,
+        )];
         vehicles.insert(
             "bus_wrong_stop".to_string(),
             make_vehicle(12.96, 77.58, Some(5.0), Some(Utc::now()), Some(upcoming)),
@@ -980,7 +1091,9 @@ mod tests {
             assert!(
                 (rounded - expected).abs() < 0.01,
                 "Expected {} for input {}, got {}",
-                expected, input, rounded
+                expected,
+                input,
+                rounded
             );
         }
     }
@@ -1032,7 +1145,10 @@ mod tests {
         };
         // walking + buffer = -100 + 60 = -40. -40 < 300 => wait.
         let (should_leave, _msg) = compute_advisory(-100, &Some(eta));
-        assert!(!should_leave, "Negative walking ETA + buffer is below vehicle ETA, can wait");
+        assert!(
+            !should_leave,
+            "Negative walking ETA + buffer is below vehicle ETA, can wait"
+        );
     }
 
     // ── Multiple upcoming stops for same vehicle ───────────────────────
@@ -1175,5 +1291,4 @@ mod tests {
     //    - Vehicle positions updating every 100ms while proximity queries run.
     //    - Expected: no stale data crashes, consistent advisory output.
     //    - Watch for: Redis race conditions, timestamp comparison edge cases.
-
 }
