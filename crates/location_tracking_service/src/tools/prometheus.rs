@@ -8,7 +8,10 @@
 #![allow(clippy::expect_used)]
 
 use actix_web_prom::PrometheusMetrics;
-use prometheus::{opts, register_histogram_vec, register_int_counter, HistogramVec, IntCounter};
+use prometheus::{
+    opts, register_gauge, register_histogram, register_histogram_vec, register_int_counter,
+    register_int_gauge, Gauge, Histogram, HistogramVec, IntCounter, IntGauge,
+};
 pub use shared::tools::prometheus::*;
 
 pub static QUEUE_DRAINER_LATENCY: once_cell::sync::Lazy<HistogramVec> =
@@ -33,6 +36,51 @@ pub static GPS_UPDATES_IGNORED_NO_ACTIVE_RIDE: once_cell::sync::Lazy<IntCounter>
             "GPS updates ignored because vehicle has no active ride"
         )
         .expect("Failed to register GPS ignored updates metrics")
+    });
+
+pub static DRAINER_QUEUE_DEPTH: once_cell::sync::Lazy<IntGauge> =
+    once_cell::sync::Lazy::new(|| {
+        register_int_gauge!("drainer_queue_depth", "Current drainer queue depth")
+            .expect("Failed to register drainer queue depth metric")
+    });
+
+pub static DRAINER_BATCH_SIZE_ACTUAL: once_cell::sync::Lazy<Histogram> =
+    once_cell::sync::Lazy::new(|| {
+        register_histogram!(
+            "drainer_batch_size_actual",
+            "Actual batch sizes used during draining",
+            vec![1.0, 5.0, 10.0, 20.0, 30.0, 50.0, 100.0, 200.0]
+        )
+        .expect("Failed to register drainer batch size actual metric")
+    });
+
+pub static DRAINER_QUEUE_SATURATION_RATIO: once_cell::sync::Lazy<Gauge> =
+    once_cell::sync::Lazy::new(|| {
+        register_gauge!(
+            "drainer_queue_saturation_ratio",
+            "Ratio of drainer queue depth to capacity"
+        )
+        .expect("Failed to register drainer queue saturation ratio metric")
+    });
+
+pub static BATCH_LTS_RECEIVE_LATENCY_SECONDS: once_cell::sync::Lazy<Histogram> =
+    once_cell::sync::Lazy::new(|| {
+        register_histogram!(
+            "batch_lts_receive_latency_seconds",
+            "Latency from client batch to LTS receive in seconds",
+            vec![0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]
+        )
+        .expect("Failed to register batch LTS receive latency metric")
+    });
+
+pub static REDIS_PIPELINE_LATENCY_SECONDS: once_cell::sync::Lazy<Histogram> =
+    once_cell::sync::Lazy::new(|| {
+        register_histogram!(
+            "redis_pipeline_latency_seconds",
+            "Latency of Redis pipeline operations in seconds",
+            vec![0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0]
+        )
+        .expect("Failed to register Redis pipeline latency metric")
     });
 
 /// Macro that observes the latency of a queue drainer process.
@@ -95,6 +143,31 @@ pub fn prometheus_metrics() -> PrometheusMetrics {
         .registry
         .register(Box::new(GPS_UPDATES_IGNORED_NO_ACTIVE_RIDE.to_owned()))
         .expect("Failed to register GPS ignored updates metrics");
+
+    prometheus
+        .registry
+        .register(Box::new(DRAINER_QUEUE_DEPTH.to_owned()))
+        .expect("Failed to register drainer queue depth metric");
+
+    prometheus
+        .registry
+        .register(Box::new(DRAINER_BATCH_SIZE_ACTUAL.to_owned()))
+        .expect("Failed to register drainer batch size actual metric");
+
+    prometheus
+        .registry
+        .register(Box::new(DRAINER_QUEUE_SATURATION_RATIO.to_owned()))
+        .expect("Failed to register drainer queue saturation ratio metric");
+
+    prometheus
+        .registry
+        .register(Box::new(BATCH_LTS_RECEIVE_LATENCY_SECONDS.to_owned()))
+        .expect("Failed to register batch LTS receive latency metric");
+
+    prometheus
+        .registry
+        .register(Box::new(REDIS_PIPELINE_LATENCY_SECONDS.to_owned()))
+        .expect("Failed to register Redis pipeline latency metric");
 
     prometheus
 }

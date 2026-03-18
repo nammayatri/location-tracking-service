@@ -509,5 +509,9 @@ in {
     rider_auth_token_expiry = 86400,
     special_location_list_base_url = Some "http://127.0.0.1:8016",
     enable_special_location_bucketing = False,
-    queue_position_range_offset = 2
+    queue_position_range_offset = 2,
+    drainer_queue_capacity = 10000,
+    num_drainer_workers = 1,
+    telemetry_sample_rate = 0.1,
+    batch_telemetry_topic = "batch-telemetry"
 }

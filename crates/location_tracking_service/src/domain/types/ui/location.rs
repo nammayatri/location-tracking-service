@@ -74,6 +74,12 @@ pub struct UpdateDriverLocationRequest {
     pub acc: Option<Accuracy>,
     pub v: Option<SpeedInMeterPerSecond>,
     pub bear: Option<Direction>,
+    #[serde(default)]
+    pub batch_trace_id: Option<String>,
+    #[serde(default)]
+    pub point_seq_no: Option<u32>,
+    #[serde(default)]
+    pub client_batched_at: Option<i64>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

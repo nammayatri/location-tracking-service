@@ -203,6 +203,9 @@ fn convert_gps_to_location_updates(
             v: speed,
             acc: None,
             bear: bearing,
+            batch_trace_id: None,
+            point_seq_no: None,
+            client_batched_at: None,
         });
     }
 

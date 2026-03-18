@@ -7,7 +7,7 @@
 */
 #![allow(clippy::expect_used)]
 
-use std::{env::var, sync::Arc};
+use std::{env::var, sync::Arc, sync::atomic::AtomicUsize};
 
 use chrono::NaiveTime;
 use rdkafka::{error::KafkaError, producer::FutureProducer, ClientConfig};
@@ -91,6 +91,14 @@ pub struct AppConfig {
     pub queue_expiry_seconds: u64,
     #[serde(default = "default_queue_position_range_offset")]
     pub queue_position_range_offset: u64,
+    #[serde(default = "default_drainer_queue_capacity")]
+    pub drainer_queue_capacity: usize,
+    #[serde(default = "default_num_drainer_workers")]
+    pub num_drainer_workers: usize,
+    #[serde(default = "default_telemetry_sample_rate")]
+    pub telemetry_sample_rate: f64,
+    #[serde(default = "default_batch_telemetry_topic")]
+    pub batch_telemetry_topic: String,
 }
 
 fn default_queue_expiry() -> u64 {
@@ -99,6 +107,22 @@ fn default_queue_expiry() -> u64 {
 
 fn default_queue_position_range_offset() -> u64 {
     2
+}
+
+fn default_drainer_queue_capacity() -> usize {
+    10000
+}
+
+fn default_num_drainer_workers() -> usize {
+    1
+}
+
+fn default_telemetry_sample_rate() -> f64 {
+    0.1
+}
+
+fn default_batch_telemetry_topic() -> String {
+    "batch-telemetry".to_string()
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -206,6 +230,19 @@ pub struct AppState {
     pub special_location_cache: SpecialLocationCache,
     pub queue_expiry_seconds: u64,
     pub queue_position_range_offset: u64,
+    pub drainer_queue_depth: Arc<AtomicUsize>,
+    pub drainer_queue_capacity: usize,
+    pub batch_config: Arc<RwLock<BatchConfig>>,
+    pub batch_telemetry_topic: String,
+}
+
+/// Hot-reloadable batch pipeline configuration.
+#[derive(Debug, Clone)]
+pub struct BatchConfig {
+    pub drainer_delay: u64,
+    pub drainer_size: usize,
+    pub batch_size: i64,
+    pub telemetry_sample_rate: f64,
 }
 
 impl AppState {
@@ -410,6 +447,15 @@ impl AppState {
             special_location_cache: Arc::new(RwLock::new(FxHashMap::default())),
             queue_expiry_seconds: app_config.queue_expiry_seconds,
             queue_position_range_offset: app_config.queue_position_range_offset,
+            drainer_queue_depth: Arc::new(AtomicUsize::new(0)),
+            drainer_queue_capacity: app_config.drainer_queue_capacity,
+            batch_config: Arc::new(RwLock::new(BatchConfig {
+                drainer_delay: app_config.drainer_delay,
+                drainer_size: app_config.drainer_size,
+                batch_size: app_config.batch_size,
+                telemetry_sample_rate: app_config.telemetry_sample_rate,
+            })),
+            batch_telemetry_topic: app_config.batch_telemetry_topic,
         }
     }
 }

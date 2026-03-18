@@ -5,9 +5,14 @@
     or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more details. You should have received a copy of
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
+use crate::common::kafka::push_to_kafka;
+use crate::environment::BatchConfig;
 use crate::queue_drainer_latency;
 use crate::special_location::{lookup_special_location, SpecialLocationCache};
-use crate::tools::prometheus::{QUEUE_DRAINER_LATENCY, TOTAL_LOCATION_UPDATES};
+use crate::tools::prometheus::{
+    DRAINER_BATCH_SIZE_ACTUAL, DRAINER_QUEUE_DEPTH, DRAINER_QUEUE_SATURATION_RATIO,
+    QUEUE_DRAINER_LATENCY, REDIS_PIPELINE_LATENCY_SECONDS, TOTAL_LOCATION_UPDATES,
+};
 use crate::{
     common::{
         types::*,
@@ -24,20 +29,36 @@ use crate::{
 use chrono::{DateTime, Utc};
 use fred::prelude::{KeysInterface, SortedSetsInterface};
 use fred::types::{GeoPosition, GeoValue, RedisValue, SetOptions};
+use rdkafka::producer::FutureProducer;
 use rustc_hash::FxHashMap;
+use serde::Serialize;
 use shared::redis::types::RedisConnectionPool;
 use shared::termination;
 use shared::tools::prometheus::TERMINATION;
 use std::cmp::max;
 use std::{
     cmp::min,
-    sync::atomic::{AtomicBool, Ordering},
+    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 use std::{sync::Arc, time::Duration};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, RwLock};
 use tokio::time::interval;
 use tokio::time::Instant;
 use tracing::{error, info};
+
+/// Telemetry message emitted for batches with trace ids.
+#[derive(Serialize)]
+struct BatchTelemetryMessage {
+    batch_trace_id: String,
+    stage: String,
+    point_count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    client_batched_at: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    lts_received_at: Option<i64>,
+    lts_drained_at: i64,
+    drainer_queue_depth: usize,
+}
 
 /// Queue action collected during the drainer loop.
 enum QueueAction {
@@ -230,9 +251,11 @@ async fn drain_driver_locations(
         "Queue: {:?}\nPushing to redis server", driver_locations
     );
 
+    let redis_start = Instant::now();
     if let Err(err) = push_drainer_driver_location(driver_locations, &bucket_expiry, redis).await {
         error!(tag = "[Error Pushing To Redis]", error = %err);
     }
+    REDIS_PIPELINE_LATENCY_SECONDS.observe(redis_start.elapsed().as_secs_f64());
 
     for (key, entries) in special_location_entries {
         for (driver_id, bucket, score) in entries {
@@ -289,6 +312,216 @@ fn cleanup_drainer(
     *drainer_queue_min_max_timestamp_range = None;
 }
 
+/// Redis key for persisted drainer queue on shutdown.
+const DRAINER_PERSIST_KEY: &str = "lts:drainer:persisted_queue";
+
+/// Persist remaining items from receiver to Redis on shutdown.
+async fn persist_drainer_queue(
+    rx: &mut mpsc::Receiver<(Dimensions, Latitude, Longitude, TimeStamp, DriverId)>,
+    redis: &RedisConnectionPool,
+) {
+    let mut items: Vec<(Dimensions, Latitude, Longitude, TimeStamp, DriverId)> = Vec::new();
+    while let Ok(item) = rx.try_recv() {
+        items.push(item);
+    }
+    if items.is_empty() {
+        return;
+    }
+
+    // Serialize items using a simple JSON array of tuples
+    #[derive(Serialize)]
+    struct PersistedItem {
+        merchant_id: String,
+        city: String,
+        vehicle_type: String,
+        created_at: DateTime<Utc>,
+        merchant_operating_city_id: String,
+        latitude: f64,
+        longitude: f64,
+        timestamp: DateTime<Utc>,
+        driver_id: String,
+    }
+
+    let persisted: Vec<PersistedItem> = items
+        .into_iter()
+        .map(
+            |(dims, Latitude(lat), Longitude(lon), TimeStamp(ts), DriverId(did))| PersistedItem {
+                merchant_id: dims.merchant_id.0,
+                city: dims.city.0,
+                vehicle_type: dims.vehicle_type.to_string(),
+                created_at: dims.created_at,
+                merchant_operating_city_id: dims.merchant_operating_city_id.0,
+                latitude: lat,
+                longitude: lon,
+                timestamp: ts,
+                driver_id: did,
+            },
+        )
+        .collect();
+
+    match serde_json::to_string(&persisted) {
+        Ok(json) => {
+            let result: Result<(), _> = redis
+                .set_key_as_str(DRAINER_PERSIST_KEY, json.as_str(), 300_u32)
+                .await;
+            match result {
+                Ok(()) => info!(
+                    tag = "[Drainer Persist]",
+                    "Persisted {} items to Redis",
+                    persisted.len()
+                ),
+                Err(e) => error!(tag = "[Drainer Persist Error]", error = %e),
+            }
+        }
+        Err(e) => error!(tag = "[Drainer Persist Serialize Error]", error = %e),
+    }
+}
+
+/// Restore persisted queue items from Redis on startup.
+async fn restore_drainer_queue(
+    tx: &mpsc::Sender<(Dimensions, Latitude, Longitude, TimeStamp, DriverId)>,
+    redis: &RedisConnectionPool,
+) {
+    #[derive(serde::Deserialize)]
+    struct PersistedItem {
+        merchant_id: String,
+        city: String,
+        vehicle_type: String,
+        created_at: DateTime<Utc>,
+        merchant_operating_city_id: String,
+        latitude: f64,
+        longitude: f64,
+        timestamp: DateTime<Utc>,
+        driver_id: String,
+    }
+
+    let json: Result<Option<String>, _> = redis.get_key_as_str(DRAINER_PERSIST_KEY).await;
+    let json = match json {
+        Ok(Some(j)) => j,
+        _ => return,
+    };
+
+    let items: Vec<PersistedItem> = match serde_json::from_str(&json) {
+        Ok(v) => v,
+        Err(e) => {
+            error!(tag = "[Drainer Restore Parse Error]", error = %e);
+            return;
+        }
+    };
+
+    let count = items.len();
+    for item in items {
+        let vehicle_type = item
+            .vehicle_type
+            .parse::<VehicleType>()
+            .unwrap_or(VehicleType::SEDAN);
+        let dims = Dimensions {
+            merchant_id: MerchantId(item.merchant_id),
+            city: CityName(item.city),
+            vehicle_type,
+            created_at: item.created_at,
+            merchant_operating_city_id: MerchantOperatingCityId(item.merchant_operating_city_id),
+        };
+        let _ = tx
+            .send((
+                dims,
+                Latitude(item.latitude),
+                Longitude(item.longitude),
+                TimeStamp(item.timestamp),
+                DriverId(item.driver_id),
+            ))
+            .await;
+    }
+
+    // Delete the persisted key after restore
+    let _: Result<(), _> = redis.delete_key(DRAINER_PERSIST_KEY).await;
+    info!(
+        tag = "[Drainer Restore]",
+        "Restored {} items from Redis",
+        count
+    );
+}
+
+/// Compute dynamic batch capacity based on queue saturation.
+fn compute_dynamic_capacity(
+    current_capacity: usize,
+    default_capacity: usize,
+    saturation: f64,
+) -> usize {
+    let max_capacity: usize = 50;
+    if saturation > 0.7 {
+        // Scale up by 50%, capped at max
+        min((current_capacity * 3) / 2, max_capacity)
+    } else if saturation < 0.3 {
+        // Reset to default
+        default_capacity
+    } else {
+        // Hysteresis: keep current
+        current_capacity
+    }
+}
+
+/// Compute adaptive drain interval based on queue saturation.
+fn compute_dynamic_interval(
+    current_delay_secs: u64,
+    default_delay_secs: u64,
+    saturation: f64,
+    sustained_low_ticks: u64,
+) -> u64 {
+    if saturation > 0.5 {
+        // Queue > 50% full: halve interval, min 2s
+        max(current_delay_secs / 2, 2)
+    } else if saturation < 0.2 && sustained_low_ticks >= 5 {
+        // Queue < 20% for sustained period: increase, max 60s
+        min((current_delay_secs * 3) / 2, 60)
+    } else {
+        // Default if nothing special
+        default_delay_secs
+    }
+}
+
+/// Emit batch telemetry messages for traced items in the current drain batch.
+async fn emit_batch_telemetry(
+    drainer_size: usize,
+    queue_depth: usize,
+    producer: &Option<FutureProducer>,
+    secondary_producer: &Option<FutureProducer>,
+    topic: &str,
+    telemetry_sample_rate: f64,
+) {
+    // Only emit if we have a producer and a non-zero sample rate
+    if producer.is_none() || telemetry_sample_rate <= 0.0 {
+        return;
+    }
+
+    // Sample-based: emit a summary telemetry event for this drain cycle
+    let should_emit = if telemetry_sample_rate >= 1.0 {
+        true
+    } else {
+        rand::random::<f64>() < telemetry_sample_rate
+    };
+
+    if !should_emit {
+        return;
+    }
+
+    let now = Utc::now().timestamp_millis();
+    let message = BatchTelemetryMessage {
+        batch_trace_id: format!("drain-cycle-{}", now),
+        stage: "lts_drainer".to_string(),
+        point_count: drainer_size,
+        client_batched_at: None,
+        lts_received_at: None,
+        lts_drained_at: now,
+        drainer_queue_depth: queue_depth,
+    };
+
+    if let Err(err) = push_to_kafka(producer, secondary_producer, topic, "telemetry", message).await
+    {
+        error!(tag = "[Batch Telemetry Kafka Error]", error = %err.message());
+    }
+}
+
 /// Asynchronously runs a drainer.
 ///
 /// This function listens to incoming driver location data and periodically drains it
@@ -316,15 +549,27 @@ pub async fn run_drainer(
     special_location_cache: Option<SpecialLocationCache>,
     enable_special_location_bucketing: bool,
     queue_expiry_seconds: u64,
+    drainer_queue_depth: Arc<AtomicUsize>,
+    drainer_queue_capacity: usize,
+    batch_config: Arc<RwLock<BatchConfig>>,
+    producer: Option<FutureProducer>,
+    secondary_producer: Option<FutureProducer>,
+    batch_telemetry_topic: String,
 ) {
+    // Restoration of persisted queue is done externally in main.rs
+    // before spawning the drainer via restore_persisted_queue().
+
     let mut driver_locations: DriversLocationMap = FxHashMap::default();
     let mut special_location_zset_entries: FxHashMap<String, Vec<(DriverId, u64, f64)>> =
         FxHashMap::default();
     let mut queue_actions: Vec<QueueAction> = Vec::new();
-    let mut timer = interval(Duration::from_secs(drainer_delay));
+    let mut current_delay = drainer_delay;
+    let mut timer = interval(Duration::from_secs(current_delay));
     let mut drainer_queue_min_max_timestamp_range = None;
 
     let mut drainer_size = 0;
+    let mut dynamic_capacity = drainer_capacity;
+    let mut sustained_low_ticks: u64 = 0;
 
     let bucket_expiry = (bucket_size * near_by_bucket_threshold) as i64;
 
@@ -351,14 +596,55 @@ pub async fn run_drainer(
                     &mut drainer_queue_min_max_timestamp_range,
                 );
             }
+            // Persist remaining items in channel to Redis
+            persist_drainer_queue(&mut rx, &redis).await;
             break;
         }
+
+        // Compute queue saturation for dynamic adjustments
+        let depth = drainer_queue_depth.load(Ordering::Relaxed);
+        let saturation = if drainer_queue_capacity > 0 {
+            depth as f64 / drainer_queue_capacity as f64
+        } else {
+            0.0
+        };
+
+        // Update Prometheus metrics
+        DRAINER_QUEUE_DEPTH.set(depth as i64);
+        DRAINER_QUEUE_SATURATION_RATIO.set(saturation);
+
+        // Dynamic batch sizing
+        {
+            let config = batch_config.read().await;
+            dynamic_capacity =
+                compute_dynamic_capacity(dynamic_capacity, config.drainer_size, saturation);
+        }
+
+        // Adaptive drain interval
+        let new_delay = {
+            let config = batch_config.read().await;
+            compute_dynamic_interval(current_delay, config.drainer_delay, saturation, sustained_low_ticks)
+        };
+        if new_delay != current_delay {
+            current_delay = new_delay;
+            timer = interval(Duration::from_secs(current_delay));
+        }
+
+        // Track sustained low saturation
+        if saturation < 0.2 {
+            sustained_low_ticks += 1;
+        } else {
+            sustained_low_ticks = 0;
+        }
+
         // TODO :: When drainer is ticked that time all locations coming to reciever could get dropped and vice versa.
         tokio::select! {
             item = rx.recv() => {
                 info!(tag = "[Recieved Entries For Queuing]");
                 match item {
                     Some((Dimensions { merchant_id, city, vehicle_type, created_at, merchant_operating_city_id }, Latitude(latitude), Longitude(longitude), TimeStamp(timestamp), DriverId(driver_id))) => {
+                        drainer_queue_depth.fetch_add(1, Ordering::Relaxed);
+
                         let bucket = get_bucket_from_timestamp(&bucket_size, TimeStamp(timestamp));
 
                         let skip_normal_drain = if let Some(ref cache) = special_location_cache {
@@ -417,8 +703,26 @@ pub async fn run_drainer(
                         drainer_queue_min_max_timestamp_range = drainer_queue_min_max_timestamp_range.map_or(Some((created_at, created_at)), |(min_duration, max_duration)| Some((min(created_at, min_duration), max(created_at, max_duration))));
                         drainer_size += 1;
 
-                        if drainer_size >= drainer_capacity {
+                        if drainer_size >= dynamic_capacity {
                             info!(tag = "[Force Draining Queue]", length = %drainer_size);
+                            DRAINER_BATCH_SIZE_ACTUAL.observe(drainer_size as f64);
+
+                            let current_depth = drainer_queue_depth.load(Ordering::Relaxed);
+                            let telemetry_rate = {
+                                let config = batch_config.read().await;
+                                config.telemetry_sample_rate
+                            };
+
+                            emit_batch_telemetry(
+                                drainer_size,
+                                current_depth,
+                                &producer,
+                                &secondary_producer,
+                                &batch_telemetry_topic,
+                                telemetry_rate,
+                            )
+                            .await;
+
                             let actions = std::mem::take(&mut queue_actions);
                             drain_driver_locations(
                                 &driver_locations,
@@ -429,6 +733,9 @@ pub async fn run_drainer(
                                 &redis,
                             )
                             .await;
+
+                            drainer_queue_depth.fetch_sub(drainer_size.min(drainer_queue_depth.load(Ordering::Relaxed)), Ordering::Relaxed);
+
                             cleanup_drainer(
                                 &mut drainer_size,
                                 &mut driver_locations,
@@ -448,6 +755,24 @@ pub async fn run_drainer(
             _ = timer.tick() => {
                 if drainer_size > 0 {
                     info!(tag = "[Draining Queue]", length = %drainer_size);
+                    DRAINER_BATCH_SIZE_ACTUAL.observe(drainer_size as f64);
+
+                    let current_depth = drainer_queue_depth.load(Ordering::Relaxed);
+                    let telemetry_rate = {
+                        let config = batch_config.read().await;
+                        config.telemetry_sample_rate
+                    };
+
+                    emit_batch_telemetry(
+                        drainer_size,
+                        current_depth,
+                        &producer,
+                        &secondary_producer,
+                        &batch_telemetry_topic,
+                        telemetry_rate,
+                    )
+                    .await;
+
                     let actions = std::mem::take(&mut queue_actions);
                     drain_driver_locations(
                         &driver_locations,
@@ -458,6 +783,9 @@ pub async fn run_drainer(
                         &redis,
                     )
                     .await;
+
+                    drainer_queue_depth.fetch_sub(drainer_size.min(drainer_queue_depth.load(Ordering::Relaxed)), Ordering::Relaxed);
+
                     cleanup_drainer(
                         &mut drainer_size,
                         &mut driver_locations,
@@ -468,4 +796,54 @@ pub async fn run_drainer(
             },
         }
     }
+}
+
+/// Start a background task that polls Redis for hot-reloadable batch config.
+pub fn spawn_batch_config_reloader(
+    redis: Arc<RedisConnectionPool>,
+    batch_config: Arc<RwLock<BatchConfig>>,
+) {
+    tokio::spawn(async move {
+        let mut reload_interval = interval(Duration::from_secs(60));
+        loop {
+            reload_interval.tick().await;
+
+            let key = "batch_pipeline_config:global";
+            let json: Result<Option<String>, _> = redis.get_key(key).await;
+            if let Ok(Some(json_str)) = json {
+                #[derive(serde::Deserialize)]
+                struct ReloadableConfig {
+                    drainer_delay: Option<u64>,
+                    drainer_size: Option<usize>,
+                    batch_size: Option<i64>,
+                    telemetry_sample_rate: Option<f64>,
+                }
+
+                if let Ok(reloaded) = serde_json::from_str::<ReloadableConfig>(&json_str) {
+                    let mut config = batch_config.write().await;
+                    if let Some(v) = reloaded.drainer_delay {
+                        config.drainer_delay = v;
+                    }
+                    if let Some(v) = reloaded.drainer_size {
+                        config.drainer_size = v;
+                    }
+                    if let Some(v) = reloaded.batch_size {
+                        config.batch_size = v;
+                    }
+                    if let Some(v) = reloaded.telemetry_sample_rate {
+                        config.telemetry_sample_rate = v;
+                    }
+                    info!(tag = "[Batch Config Reload]", "Updated batch config from Redis");
+                }
+            }
+        }
+    });
+}
+
+/// Public helper to restore drainer queue; called from main before spawning drainer.
+pub async fn restore_persisted_queue(
+    tx: &mpsc::Sender<(Dimensions, Latitude, Longitude, TimeStamp, DriverId)>,
+    redis: &RedisConnectionPool,
+) {
+    restore_drainer_queue(tx, redis).await;
 }

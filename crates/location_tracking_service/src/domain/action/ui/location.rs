@@ -173,6 +173,22 @@ pub async fn update_driver_location_by_token(
     group_id2: Option<String>,
     req_merchant_id: Option<MerchantId>,
 ) -> Result<HttpResponse, AppError> {
+    // Backpressure: reject if drainer queue is near capacity
+    if data.drainer_queue_capacity > 0 {
+        let depth = data
+            .drainer_queue_depth
+            .load(std::sync::atomic::Ordering::Relaxed);
+        let saturation = depth as f64 / data.drainer_queue_capacity as f64;
+        if saturation > 0.9 {
+            return Ok(HttpResponse::TooManyRequests()
+                .insert_header(("Retry-After", "5"))
+                .json(serde_json::json!({
+                    "error": "DRAINER_QUEUE_FULL",
+                    "message": "Server is under high load, please retry after some time"
+                })));
+        }
+    }
+
     let current_ts = Utc::now();
     let (driver_id, merchant_id, merchant_operating_city_id) = if var("DEV").is_ok() {
         (

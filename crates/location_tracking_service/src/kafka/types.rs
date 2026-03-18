@@ -43,4 +43,10 @@ pub struct LocationUpdate {
     pub location_type: LocationType,
     pub next_upcoming_stop_eta: Option<TimeStamp>,
     // pub travelled_distance: Meters,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub batch_trace_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_batched_at: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lts_received_at: Option<i64>,
 }

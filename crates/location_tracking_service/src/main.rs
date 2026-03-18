@@ -10,7 +10,7 @@ use actix_web::{web, App, HttpServer};
 use location_tracking_service::{
     common::{route::start_route_refresh_task, types::*, utils::read_dhall_config},
     domain::api,
-    drainer::run_drainer,
+    drainer::{restore_persisted_queue, run_drainer, spawn_batch_config_reloader},
     environment::AppState,
     middleware::*,
     outbound::external::get_special_locations_list,
@@ -66,6 +66,7 @@ async fn start_server() -> std::io::Result<()> {
         Receiver<(Dimensions, Latitude, Longitude, TimeStamp, DriverId)>,
     ) = mpsc::channel(app_config.drainer_size);
 
+    let sender_for_restore = sender.clone();
     let app_state = AppState::new(app_config, sender).await;
 
     let data = web::Data::new(app_state);
@@ -127,6 +128,19 @@ async fn start_server() -> std::io::Result<()> {
         .map(|_| data.special_location_cache.clone());
     let enable_special_location_bucketing = data.enable_special_location_bucketing;
     let queue_expiry_seconds = data.queue_expiry_seconds;
+    let drainer_queue_depth = data.drainer_queue_depth.clone();
+    let drainer_queue_capacity = data.drainer_queue_capacity;
+    let batch_config = data.batch_config.clone();
+    let producer_for_drainer = data.producer.clone();
+    let secondary_producer_for_drainer = data.secondary_producer.clone();
+    let batch_telemetry_topic = data.batch_telemetry_topic.clone();
+
+    // Restore any persisted drainer queue from previous shutdown
+    restore_persisted_queue(&sender_for_restore, &data.redis).await;
+
+    // Spawn batch config hot-reload background task
+    spawn_batch_config_reloader(data.redis.clone(), data.batch_config.clone());
+
     let channel_thread = tokio::spawn(async move {
         run_drainer(
             receiver,
@@ -139,6 +153,12 @@ async fn start_server() -> std::io::Result<()> {
             special_location_cache,
             enable_special_location_bucketing,
             queue_expiry_seconds,
+            drainer_queue_depth,
+            drainer_queue_capacity,
+            batch_config,
+            producer_for_drainer,
+            secondary_producer_for_drainer,
+            batch_telemetry_topic,
         )
         .await;
     });

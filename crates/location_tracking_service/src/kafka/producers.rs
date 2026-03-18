@@ -63,6 +63,8 @@ pub async fn kafka_stream_updates(
         (None, None, None)
     };
 
+    let lts_received_at = chrono::Utc::now().timestamp_millis();
+
     for (loc, location_type) in locations {
         let message = LocationUpdate {
             r_id: ride_id.to_owned(),
@@ -91,6 +93,9 @@ pub async fn kafka_stream_updates(
             stop_lon,
             location_type,
             next_upcoming_stop_eta, // travelled_distance: travelled_distance.to_owned(),
+            batch_trace_id: loc.batch_trace_id,
+            client_batched_at: loc.client_batched_at,
+            lts_received_at: Some(lts_received_at),
         };
         if let Err(err) =
             push_to_kafka(producer, secondary_producer, topic, key.as_str(), message).await
