@@ -734,7 +734,7 @@ pub async fn run_drainer(
                             )
                             .await;
 
-                            drainer_queue_depth.fetch_sub(drainer_size.min(drainer_queue_depth.load(Ordering::Relaxed)), Ordering::Relaxed);
+                            drainer_queue_depth.fetch_sub(drainer_size, Ordering::Relaxed);
 
                             cleanup_drainer(
                                 &mut drainer_size,
@@ -784,7 +784,7 @@ pub async fn run_drainer(
                     )
                     .await;
 
-                    drainer_queue_depth.fetch_sub(drainer_size.min(drainer_queue_depth.load(Ordering::Relaxed)), Ordering::Relaxed);
+                    drainer_queue_depth.fetch_sub(drainer_size, Ordering::Relaxed);
 
                     cleanup_drainer(
                         &mut drainer_size,

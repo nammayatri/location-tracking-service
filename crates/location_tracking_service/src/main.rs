@@ -64,7 +64,7 @@ async fn start_server() -> std::io::Result<()> {
     let (sender, receiver): (
         Sender<(Dimensions, Latitude, Longitude, TimeStamp, DriverId)>,
         Receiver<(Dimensions, Latitude, Longitude, TimeStamp, DriverId)>,
-    ) = mpsc::channel(app_config.drainer_size);
+    ) = mpsc::channel(app_config.drainer_queue_capacity);
 
     let sender_for_restore = sender.clone();
     let app_state = AppState::new(app_config, sender).await;
