@@ -251,7 +251,7 @@ fn find_best_vehicle_eta(
                 .inner()
                 .signed_duration_since(now)
                 .num_seconds();
-            let delay_seconds = eta_seconds - scheduled_eta_seconds.max(0);
+            let delay_seconds = eta_seconds - scheduled_eta_seconds;
 
             let last_updated = info.timestamp.unwrap_or(TimeStamp(now));
             let is_live = info.timestamp.is_some();
