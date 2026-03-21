@@ -33,7 +33,7 @@ use std::{f64::consts::PI, time::Duration};
 pub fn get_city(
     lat: &Latitude,
     lon: &Longitude,
-    polygon: &Vec<MultiPolygonBody>,
+    polygon: &[MultiPolygonBody],
 ) -> Result<CityName, AppError> {
     let mut city = String::new();
     let mut intersection = false;
@@ -73,7 +73,7 @@ pub fn get_city(
 ///
 /// Returns `true` if the location intersects
 /// with any of the provided multi-polygon bodies. Otherwise, returns `false`.
-pub fn is_within_polygon(lat: &Latitude, lon: &Longitude, polygon: &Vec<MultiPolygonBody>) -> bool {
+pub fn is_within_polygon(lat: &Latitude, lon: &Longitude, polygon: &[MultiPolygonBody]) -> bool {
     let mut intersection = false;
 
     let Latitude(lat) = *lat;
@@ -108,7 +108,9 @@ pub fn is_within_polygon(lat: &Latitude, lon: &Longitude, polygon: &Vec<MultiPol
 ///
 /// # Examples
 ///
-/// ```
+/// ```no_run
+/// # use location_tracking_service::common::types::TimeStamp;
+/// # use location_tracking_service::common::utils::get_bucket_from_timestamp;
 /// let expiry_duration = 3600; // 1 hour
 /// let sample_timestamp = TimeStamp(chrono::Utc::now());
 ///
@@ -148,6 +150,8 @@ pub fn get_bucket_weightage_from_timestamp(
 /// # Examples
 ///
 /// ```
+/// # use location_tracking_service::common::types::{Point, Latitude, Longitude};
+/// # use location_tracking_service::common::utils::distance_between_in_meters;
 /// let point1 = Point { lat: Latitude(34.0522), lon: Longitude(-118.2437) }; // Los Angeles
 /// let point2 = Point { lat: Latitude(40.7128), lon: Longitude(-74.0060) };  // New York
 ///
@@ -191,6 +195,7 @@ pub fn distance_between_in_meters(latlong1: &Point, latlong2: &Point) -> f64 {
 /// # Examples
 ///
 /// ```
+/// # use location_tracking_service::common::utils::cat_maybes;
 /// let options = vec![Some(1), None, Some(2), Some(3), None];
 /// let unwrapped = cat_maybes(options);
 /// assert_eq!(unwrapped, vec![1, 2, 3]);
@@ -262,14 +267,8 @@ pub fn get_upcoming_stops_by_route_code(
     route: &Route,
     point: &Point,
 ) -> Result<Vec<Stop>, AppError> {
-    if let Some(projection) = find_closest_point_on_route(
-        point,
-        route
-            .waypoints
-            .iter()
-            .map(|w| w.coordinate.to_owned())
-            .collect(),
-    ) {
+    let coords: Vec<Point> = route.waypoints.iter().map(|w| w.coordinate).collect();
+    if let Some(projection) = find_closest_point_on_route(point, &coords) {
         let (
             Stop {
                 name,
@@ -436,7 +435,7 @@ pub fn calculate_projection_point(point: &Point, line_start: &Point, line_end: &
 
 pub fn find_closest_point_on_route(
     point: &Point,
-    coordinates: Vec<Point>,
+    coordinates: &[Point],
 ) -> Option<ProjectionPoint> {
     let mut closest_segment = ProjectionPoint {
         segment_index: -1,
@@ -583,7 +582,8 @@ pub fn estimated_upcoming_stops_eta(
 ///
 /// # Example
 ///
-/// ```rust
+/// ```no_run
+/// # use location_tracking_service::common::utils::read_dhall_config;
 /// let config_path = "/path/to/config.dhall";
 /// match read_dhall_config(config_path) {
 ///     Ok(config) => println!("Successfully read config: {:?}", config),

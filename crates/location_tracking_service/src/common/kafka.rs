@@ -8,19 +8,31 @@
 use std::time::Duration;
 
 use crate::tools::error::AppError;
-use log::{error, info};
+use crate::tools::prometheus::KAFKA_ERRORS_TOTAL;
 use rdkafka::{
     producer::{FutureProducer, FutureRecord},
     util::Timeout,
 };
 use serde::Serialize;
+use std::sync::atomic::{AtomicU8, Ordering};
+use tracing::{error, info};
 
-/// Checks if secondary Kafka producer is enabled via environment variable.
-/// Returns true if PRODUCE_SECONDARY_KAFKA is set to "true" (case-insensitive).
+/// Cached env var check - avoids syscall on every Kafka push.
+/// States: 0 = uninitialized, 1 = false, 2 = true
+static PRODUCE_SECONDARY_STATE: AtomicU8 = AtomicU8::new(0);
+
 fn should_produce_secondary() -> bool {
-    std::env::var("PRODUCE_SECONDARY_KAFKA")
-        .map(|val| val.to_lowercase() == "true")
-        .unwrap_or(false)
+    match PRODUCE_SECONDARY_STATE.load(Ordering::Relaxed) {
+        0 => {
+            let val = std::env::var("PRODUCE_SECONDARY_KAFKA")
+                .map(|val| val.eq_ignore_ascii_case("true"))
+                .unwrap_or(false);
+            PRODUCE_SECONDARY_STATE.store(if val { 2 } else { 1 }, Ordering::Relaxed);
+            val
+        }
+        2 => true,
+        _ => false,
+    }
 }
 
 /// Pushes a serialized message to primary and optionally secondary Kafka topic.
@@ -70,6 +82,7 @@ where
                     info!("[Kafka Primary] Pushed - topic: {}, key: {}", topic, key);
                 }
                 Err(err) => {
+                    KAFKA_ERRORS_TOTAL.with_label_values(&["primary"]).inc();
                     error!(
                         "[Kafka Primary] Failed to push - topic: {}, key: {}, error: {}",
                         topic, key, err.0
@@ -100,6 +113,81 @@ where
                         info!("[Kafka Secondary] Pushed - topic: {}, key: {}", topic, key);
                     }
                     Err(err) => {
+                        KAFKA_ERRORS_TOTAL.with_label_values(&["secondary"]).inc();
+                        error!(
+                            "[Kafka Secondary] Failed to push - topic: {}, key: {}, error: {}",
+                            topic, key, err.0
+                        );
+                    }
+                }
+            }
+            None => {
+                error!(
+                    "[Kafka Secondary] Producer is None - topic: {}, key: {}",
+                    topic, key
+                );
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Pushes a pre-serialized message string to primary and optionally secondary Kafka topic.
+/// Avoids redundant serde round-trips when the caller has already serialized the payload.
+pub async fn push_to_kafka_raw(
+    producer: &Option<FutureProducer>,
+    secondary_producer: &Option<FutureProducer>,
+    topic: &str,
+    key: &str,
+    message_str: &str,
+) -> Result<(), AppError> {
+    // Push to primary producer
+    match producer {
+        Some(producer) => {
+            match producer
+                .send(
+                    FutureRecord::to(topic).key(key).payload(message_str),
+                    Timeout::After(Duration::from_secs(1)),
+                )
+                .await
+            {
+                Ok(_) => {
+                    info!("[Kafka Primary] Pushed - topic: {}, key: {}", topic, key);
+                }
+                Err(err) => {
+                    KAFKA_ERRORS_TOTAL.with_label_values(&["primary"]).inc();
+                    error!(
+                        "[Kafka Primary] Failed to push - topic: {}, key: {}, error: {}",
+                        topic, key, err.0
+                    );
+                }
+            }
+        }
+        None => {
+            error!(
+                "[Kafka Primary] Producer is None - topic: {}, key: {}",
+                topic, key
+            );
+        }
+    }
+
+    // Push to secondary producer if enabled
+    if should_produce_secondary() {
+        match secondary_producer {
+            Some(secondary_producer) => {
+                match secondary_producer
+                    .send(
+                        FutureRecord::to(topic).key(key).payload(message_str),
+                        Timeout::After(Duration::from_secs(1)),
+                    )
+                    .await
+                {
+                    Ok(_) => {
+                        info!("[Kafka Secondary] Pushed - topic: {}, key: {}", topic, key);
+                    }
+                    Err(err) => {
+                        KAFKA_ERRORS_TOTAL.with_label_values(&["secondary"]).inc();
                         error!(
                             "[Kafka Secondary] Failed to push - topic: {}, key: {}, error: {}",
                             topic, key, err.0

@@ -39,25 +39,26 @@ pub async fn sliding_window_limiter(
         .unwrap_or(Vec::new());
 
     let curr_frame = curr_time / frame_len as i64;
+    let prev_frame = curr_frame - 1;
 
-    let prev_and_curr_frame_hits = hits_frame
-        .into_iter()
-        .filter(|hits_frame| *hits_frame == curr_frame - 1 || *hits_frame == curr_frame)
-        .collect::<Vec<_>>();
+    // Single pass: filter to relevant frames and count curr/prev simultaneously
+    let mut curr_frame_hits: i32 = 0;
+    let mut prev_frame_hits: i32 = 0;
+    let mut prev_and_curr_frame_hits = Vec::new();
 
-    let curr_frame_hits_len: i32 = prev_and_curr_frame_hits
-        .iter()
-        .filter(|hits_frame| **hits_frame == curr_frame)
-        .count() as i32;
+    for hit in hits_frame {
+        if hit == curr_frame {
+            curr_frame_hits += 1;
+            prev_and_curr_frame_hits.push(hit);
+        } else if hit == prev_frame {
+            prev_frame_hits += 1;
+            prev_and_curr_frame_hits.push(hit);
+        }
+    }
 
-    let prev_frame_hits_len = prev_and_curr_frame_hits
-        .iter()
-        .filter(|hits_frame| **hits_frame == curr_frame - 1)
-        .count();
     let prev_frame_weight = 1.0 - (curr_time as f64 % frame_len as f64) / frame_len as f64;
 
-    if (prev_frame_hits_len as f64 * prev_frame_weight) as i32 + curr_frame_hits_len
-        < frame_hits_lim as i32
+    if (prev_frame_hits as f64 * prev_frame_weight) as i32 + curr_frame_hits < frame_hits_lim as i32
     {
         let mut new_hits = Vec::with_capacity(prev_and_curr_frame_hits.len() + 1);
         new_hits.push(curr_frame);

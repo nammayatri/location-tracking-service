@@ -13,6 +13,8 @@ use actix_web::{
 use serde::{Deserialize, Serialize};
 use shared::tools::callapi::CallAPIError;
 
+use crate::tools::prometheus::APP_ERRORS_TOTAL;
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ErrorBody {
@@ -149,9 +151,34 @@ impl AppError {
 
 impl ResponseError for AppError {
     fn error_response(&self) -> HttpResponse {
-        HttpResponse::build(self.status_code())
+        let status = self.status_code();
+        let body = self.error_message();
+
+        // Log server errors at error level, client errors at warn level
+        if status.is_server_error() {
+            tracing::error!(
+                error_code = %body.error_code,
+                status = %status.as_u16(),
+                "{}",
+                body.error_message
+            );
+        } else if status.is_client_error() {
+            tracing::warn!(
+                error_code = %body.error_code,
+                status = %status.as_u16(),
+                "{}",
+                body.error_message
+            );
+        }
+
+        // Increment error rate metric
+        APP_ERRORS_TOTAL
+            .with_label_values(&[&body.error_code, status.as_str()])
+            .inc();
+
+        HttpResponse::build(status)
             .insert_header(ContentType::json())
-            .json(self.error_message())
+            .json(body)
     }
 
     fn status_code(&self) -> StatusCode {

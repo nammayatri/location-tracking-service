@@ -14,8 +14,12 @@ use location_tracking_service::{
     environment::AppState,
     middleware::*,
     outbound::external::get_special_locations_list,
+    redis::health::spawn_health_monitor,
     special_location::build_special_location_cache,
-    tools::{error::AppError, prometheus::prometheus_metrics},
+    tools::{
+        error::AppError,
+        prometheus::{prometheus_metrics, ACTIX_HTTP_WORKERS_GAUGE, TOKIO_WORKER_THREADS_GAUGE},
+    },
 };
 use shared::{middleware::incoming_request::IncomingRequestMetrics, tools::logger::setup_tracing};
 use shared::{termination, tools::prometheus::TERMINATION};
@@ -33,14 +37,18 @@ use tokio::{
 use tracing::error;
 use tracing_actix_web::TracingLogger;
 
-#[actix_web::main]
-async fn start_server() -> std::io::Result<()> {
+async fn start_server(tokio_worker_threads: usize) -> std::io::Result<()> {
     let dhall_config_path = var("DHALL_CONFIG")
         .unwrap_or_else(|_| "./dhall-configs/dev/location_tracking_service.dhall".to_string());
-    let app_config = read_dhall_config(&dhall_config_path).unwrap_or_else(|err| {
-        println!("Dhall Config Reading Error : {}", err);
-        std::process::exit(1);
-    });
+    // Run blocking Dhall file parse off the async runtime
+    let app_config = tokio::task::spawn_blocking(move || {
+        read_dhall_config(&dhall_config_path).unwrap_or_else(|err| {
+            println!("Dhall Config Reading Error : {}", err);
+            std::process::exit(1);
+        })
+    })
+    .await
+    .expect("Failed to join blocking task for dhall config read");
 
     let _guard = setup_tracing(app_config.logger_cfg);
 
@@ -64,7 +72,7 @@ async fn start_server() -> std::io::Result<()> {
     let (sender, receiver): (
         Sender<(Dimensions, Latitude, Longitude, TimeStamp, DriverId)>,
         Receiver<(Dimensions, Latitude, Longitude, TimeStamp, DriverId)>,
-    ) = mpsc::channel(app_config.drainer_size);
+    ) = mpsc::channel(app_config.drainer_size * 2);
 
     let app_state = AppState::new(app_config, sender).await;
 
@@ -75,15 +83,27 @@ async fn start_server() -> std::io::Result<()> {
     let graceful_termination_requested_sigint = graceful_termination_requested.to_owned();
     // Listen for SIGTERM signal.
     tokio::spawn(async move {
-        let mut sigterm = signal(SignalKind::terminate()).unwrap();
-        sigterm.recv().await;
-        graceful_termination_requested_sigterm.store(true, Ordering::Relaxed);
+        match signal(SignalKind::terminate()) {
+            Ok(mut sigterm) => {
+                sigterm.recv().await;
+                graceful_termination_requested_sigterm.store(true, Ordering::Relaxed);
+            }
+            Err(err) => {
+                error!("Failed to register SIGTERM handler: {}", err);
+            }
+        }
     });
     // Listen for SIGINT (Ctrl+C) signal.
     tokio::spawn(async move {
-        let mut ctrl_c = signal(SignalKind::interrupt()).unwrap();
-        ctrl_c.recv().await;
-        graceful_termination_requested_sigint.store(true, Ordering::Relaxed);
+        match signal(SignalKind::interrupt()) {
+            Ok(mut ctrl_c) => {
+                ctrl_c.recv().await;
+                graceful_termination_requested_sigint.store(true, Ordering::Relaxed);
+            }
+            Err(err) => {
+                error!("Failed to register SIGINT handler: {}", err);
+            }
+        }
     });
 
     let (
@@ -113,6 +133,9 @@ async fn start_server() -> std::io::Result<()> {
         )
         .await;
     });
+
+    // Start Redis pool health monitor (checks every 10s, logs state changes)
+    spawn_health_monitor(data.redis.clone(), Duration::from_secs(10));
 
     let (drainer_size, drainer_delay, bucket_size, nearby_bucket_threshold, redis) = (
         data.drainer_size,
@@ -165,6 +188,8 @@ async fn start_server() -> std::io::Result<()> {
     }
 
     let prometheus = prometheus_metrics();
+    TOKIO_WORKER_THREADS_GAUGE.set(tokio_worker_threads as i64);
+    ACTIX_HTTP_WORKERS_GAUGE.set(workers as i64);
 
     HttpServer::new(move || {
         App::new()
@@ -181,6 +206,7 @@ async fn start_server() -> std::io::Result<()> {
             .wrap(IncomingRequestMetrics)
             .wrap(TracingLogger::<DomainRootSpanBuilder>::new())
             .wrap(prometheus.clone())
+            .wrap(ObservabilityMetrics)
             .configure(api::handler)
     })
     .workers(workers)
@@ -188,15 +214,37 @@ async fn start_server() -> std::io::Result<()> {
     .run()
     .await?;
 
-    tokio::select! {
-        res = channel_thread => {
-            error!("[CHANNEL_THREAD_ENDED] : {:?}", res);
-        }
+    if let Err(err) = channel_thread.await {
+        error!("[CHANNEL_THREAD_ENDED] : {:?}", err);
     }
 
     Err(std::io::Error::other("[MAIN_THREAD_ENDED]"))
 }
 
 fn main() {
-    start_server().expect("Failed to start the server");
+    let worker_threads = std::env::var("TOKIO_WORKER_THREADS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or_else(|| {
+            std::thread::available_parallelism()
+                .map(|n| n.get())
+                .unwrap_or(4)
+        });
+
+    let max_blocking_threads = std::env::var("TOKIO_MAX_BLOCKING_THREADS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(64);
+
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(worker_threads)
+        .max_blocking_threads(max_blocking_threads)
+        .thread_name("lts-tokio")
+        .enable_all()
+        .build()
+        .expect("Failed to build Tokio runtime");
+
+    runtime
+        .block_on(start_server(worker_threads))
+        .expect("Failed to start the server");
 }

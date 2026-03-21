@@ -59,18 +59,18 @@ pub fn handle_stop_or_safety_check(
         ViolationDetectionState::StopDetection(StopDetectionState {
             avg_speed,
             mut total_datapoints,
-            avg_coord_mean,
+            mut avg_coord_mean,
         })
         | ViolationDetectionState::SafetyCheck(SafetyCheckState {
             avg_speed,
             mut total_datapoints,
-            avg_coord_mean,
+            mut avg_coord_mean,
         }),
     ) = state
     {
         if let Some(prev_tuple) = avg_coord_mean.back() {
             let max_batch_size = sample_size.div_ceil(batch_count);
-            let prev_avg_point = prev_tuple.0.clone();
+            let prev_avg_point = prev_tuple.0;
             let prev_batch_datapoints = prev_tuple.1;
             if total_datapoints < sample_size as u64 {
                 if prev_batch_datapoints < max_batch_size {
@@ -86,37 +86,42 @@ pub fn handle_stop_or_safety_check(
                                 / (prev_batch_datapoints as f64 + 1.0),
                         ),
                     };
-                    let mut copy_list = avg_coord_mean.clone();
-                    copy_list.pop_back();
-                    copy_list.push_back((current_avg_point, prev_batch_datapoints + 1));
+                    avg_coord_mean.pop_back();
+                    avg_coord_mean.push_back((current_avg_point, prev_batch_datapoints + 1));
                     total_datapoints += 1;
                     if total_datapoints == sample_size as u64 {
-                        if let Some(true) = check_stopped(&copy_list, max_eligible_distance) {
+                        if let Some(true) = check_stopped(&avg_coord_mean, max_eligible_distance) {
                             return Some((
-                                create_state(total_datapoints, avg_speed, copy_list),
+                                create_state(total_datapoints, avg_speed, avg_coord_mean),
                                 Some(!is_anti_violation),
                             ));
-                        } else if let Some(false) = check_stopped(&copy_list, max_eligible_distance)
+                        } else if let Some(false) =
+                            check_stopped(&avg_coord_mean, max_eligible_distance)
                         {
                             return Some((
-                                create_state(total_datapoints, avg_speed, copy_list),
+                                create_state(total_datapoints, avg_speed, avg_coord_mean),
                                 Some(is_anti_violation),
                             ));
                         }
                     }
-                    return Some((create_state(total_datapoints, avg_speed, copy_list), None));
+                    return Some((
+                        create_state(total_datapoints, avg_speed, avg_coord_mean),
+                        None,
+                    ));
                 } else {
-                    let mut copy_list = avg_coord_mean.clone();
-                    copy_list.push_back((context.location.clone(), 1));
+                    avg_coord_mean.push_back((context.location, 1));
                     total_datapoints += 1;
-                    return Some((create_state(total_datapoints, avg_speed, copy_list), None));
+                    return Some((
+                        create_state(total_datapoints, avg_speed, avg_coord_mean),
+                        None,
+                    ));
                 }
             } else {
-                let mut copy_list = avg_coord_mean.clone();
                 total_datapoints -= max_batch_size as u64;
-                copy_list.pop_front();
-                if let Some(prev_tuple) = copy_list.back() {
-                    let prev_average_point = prev_tuple.0.clone();
+                let mut without_front = avg_coord_mean.clone();
+                without_front.pop_front();
+                if let Some(prev_tuple) = without_front.back() {
+                    let prev_average_point = prev_tuple.0;
                     let prev_batch_size = prev_tuple.1;
                     if prev_batch_size < max_batch_size {
                         let current_avg_point = Point {
@@ -131,39 +136,46 @@ pub fn handle_stop_or_safety_check(
                                     / (prev_batch_size as f64 + 1.0),
                             ),
                         };
-                        let mut copy_list = avg_coord_mean.clone();
-                        copy_list.pop_back();
-                        copy_list.push_back((current_avg_point, prev_batch_size + 1));
+                        avg_coord_mean.pop_back();
+                        avg_coord_mean.push_back((current_avg_point, prev_batch_size + 1));
                         total_datapoints += 1;
                         if total_datapoints == sample_size as u64 {
-                            if let Some(true) = check_stopped(&copy_list, max_eligible_distance) {
+                            if let Some(true) =
+                                check_stopped(&avg_coord_mean, max_eligible_distance)
+                            {
                                 return Some((
-                                    create_state(total_datapoints, avg_speed, copy_list),
+                                    create_state(total_datapoints, avg_speed, avg_coord_mean),
                                     Some(!is_anti_violation),
                                 ));
                             } else if let Some(false) =
-                                check_stopped(&copy_list, max_eligible_distance)
+                                check_stopped(&avg_coord_mean, max_eligible_distance)
                             {
                                 return Some((
-                                    create_state(total_datapoints, avg_speed, copy_list),
+                                    create_state(total_datapoints, avg_speed, avg_coord_mean),
                                     Some(is_anti_violation),
                                 ));
                             }
                         }
-                        return Some((create_state(total_datapoints, avg_speed, copy_list), None));
+                        return Some((
+                            create_state(total_datapoints, avg_speed, avg_coord_mean),
+                            None,
+                        ));
                     } else {
-                        copy_list.push_back((context.location.clone(), 1));
+                        without_front.push_back((context.location, 1));
                         total_datapoints += 1;
-                        return Some((create_state(total_datapoints, avg_speed, copy_list), None));
+                        return Some((
+                            create_state(total_datapoints, avg_speed, without_front),
+                            None,
+                        ));
                     }
                 } else {
-                    // Handle case when copy_list.back() returns None after pop_front()
+                    // Handle case when without_front.back() returns None after pop_front()
                     total_datapoints = 1;
                     return Some((
                         create_state(
                             total_datapoints,
                             avg_speed,
-                            VecDeque::from([(context.location.clone(), 1)]),
+                            VecDeque::from([(context.location, 1)]),
                         ),
                         None,
                     ));
@@ -176,14 +188,14 @@ pub fn handle_stop_or_safety_check(
                 create_state(
                     total_datapoints,
                     avg_speed,
-                    VecDeque::from([(context.location.clone(), 1)]),
+                    VecDeque::from([(context.location, 1)]),
                 ),
                 None,
             ));
         }
     }
     Some((
-        create_state(1, None, VecDeque::from([(context.location.clone(), 1)])),
+        create_state(1, None, VecDeque::from([(context.location, 1)])),
         None,
     ))
 }

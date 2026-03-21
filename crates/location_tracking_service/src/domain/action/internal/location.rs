@@ -54,8 +54,15 @@ async fn search_nearby_drivers_with_vehicle(
 
     let driver_ids: Vec<DriverId> = nearby_drivers
         .iter()
-        .map(|driver| driver.driver_id.to_owned())
+        .map(|driver| driver.driver_id.clone())
         .collect();
+
+    // Helper to extract last-known-location metadata (all Copy fields)
+    let extract_location_meta = |loc: &Option<DriverLastKnownLocation>| -> (TimeStamp, Option<Direction>, Option<VehicleType>) {
+        loc.as_ref()
+            .map(|l| (l.timestamp, l.bear, l.vehicle_type))
+            .unwrap_or((TimeStamp(Utc::now()), None, None))
+    };
 
     let driver_last_known_location = get_all_driver_last_locations(redis, &driver_ids).await?;
 
@@ -67,100 +74,52 @@ async fn search_nearby_drivers_with_vehicle(
             get_all_driver_ride_details(redis, &driver_ids, merchant_id).await?;
 
         let resp = nearby_drivers
-            .iter()
-            .zip(driver_last_known_location.iter())
-            .zip(driver_ride_details.iter())
+            .into_iter()
+            .zip(driver_last_known_location.into_iter())
+            .zip(driver_ride_details.into_iter())
             .filter_map(
                 |((driver, driver_last_known_location), driver_ride_detail)| {
                     if let (
                         Some(RideInfo::Bus {
-                            group_id: Some(group_id),
+                            group_id: Some(ref grp_id),
                             ..
                         }),
                         Some(req_group_id),
                     ) = (
                         driver_ride_detail
                             .as_ref()
-                            .map(|driver_ride_detail| driver_ride_detail.ride_info.to_owned())
-                            .flatten(),
+                            .and_then(|d| d.ride_info.as_ref()),
                         group_id.as_ref(),
                     ) {
-                        if group_id == *req_group_id {
-                            let (last_location_update_ts, bear, vehicle_type) =
-                                driver_last_known_location
-                                    .as_ref()
-                                    .map(|driver_last_known_location| {
-                                        (
-                                            driver_last_known_location.timestamp,
-                                            driver_last_known_location.bear,
-                                            driver_last_known_location.vehicle_type,
-                                        )
-                                    })
-                                    .unwrap_or((TimeStamp(Utc::now()), None, None));
-                            Some(DriverLocationDetail {
-                                driver_id: driver.driver_id.to_owned(),
-                                lat: driver.location.lat,
-                                lon: driver.location.lon,
-                                coordinates_calculated_at: last_location_update_ts,
-                                created_at: last_location_update_ts,
-                                updated_at: last_location_update_ts,
-                                merchant_id: merchant_id.to_owned(),
-                                group_id: driver_last_known_location
-                                    .as_ref()
-                                    .and_then(|loc| loc.group_id.clone()),
-                                group_id2: driver_last_known_location
-                                    .as_ref()
-                                    .and_then(|loc| loc.group_id2.clone()),
-                                ride_details: driver_ride_detail.to_owned().map(|ride_detail| {
-                                    RideDetailsApiEntity {
-                                        ride_id: ride_detail.ride_id,
-                                        ride_status: ride_detail.ride_status,
-                                        ride_info: ride_detail.ride_info,
-                                    }
-                                }),
-                                bear,
-                                vehicle_type,
-                            })
-                        } else {
-                            None
+                        if grp_id != req_group_id {
+                            return None;
                         }
-                    } else {
-                        let (last_location_update_ts, bear, vehicle_type) =
-                            driver_last_known_location
-                                .as_ref()
-                                .map(|driver_last_known_location| {
-                                    (
-                                        driver_last_known_location.timestamp,
-                                        driver_last_known_location.bear,
-                                        driver_last_known_location.vehicle_type,
-                                    )
-                                })
-                                .unwrap_or((TimeStamp(Utc::now()), None, None));
-                        Some(DriverLocationDetail {
-                            driver_id: driver.driver_id.to_owned(),
-                            lat: driver.location.lat,
-                            lon: driver.location.lon,
-                            coordinates_calculated_at: last_location_update_ts,
-                            created_at: last_location_update_ts,
-                            updated_at: last_location_update_ts,
-                            merchant_id: merchant_id.to_owned(),
-                            group_id: driver_last_known_location
-                                .as_ref()
-                                .and_then(|loc| loc.group_id.clone()),
-                            group_id2: driver_last_known_location
-                                .as_ref()
-                                .and_then(|loc| loc.group_id2.clone()),
-                            ride_details: driver_ride_detail.to_owned().map(|ride_detail| {
-                                RideDetailsApiEntity {
-                                    ride_id: ride_detail.ride_id,
-                                    ride_status: ride_detail.ride_status,
-                                    ride_info: ride_detail.ride_info,
-                                }
-                            }),
-                            bear,
-                            vehicle_type,
-                        })
                     }
+
+                    let (last_location_update_ts, bear, vehicle_type) =
+                        extract_location_meta(&driver_last_known_location);
+                    Some(DriverLocationDetail {
+                        driver_id: driver.driver_id,
+                        lat: driver.location.lat,
+                        lon: driver.location.lon,
+                        coordinates_calculated_at: last_location_update_ts,
+                        created_at: last_location_update_ts,
+                        updated_at: last_location_update_ts,
+                        merchant_id: merchant_id.clone(),
+                        group_id: driver_last_known_location
+                            .as_ref()
+                            .and_then(|loc| loc.group_id.clone()),
+                        group_id2: driver_last_known_location
+                            .as_ref()
+                            .and_then(|loc| loc.group_id2.clone()),
+                        ride_details: driver_ride_detail.map(|rd| RideDetailsApiEntity {
+                            ride_id: rd.ride_id,
+                            ride_status: rd.ride_status,
+                            ride_info: rd.ride_info,
+                        }),
+                        bear,
+                        vehicle_type,
+                    })
                 },
             )
             .collect::<Vec<DriverLocationDetail>>();
@@ -173,126 +132,70 @@ async fn search_nearby_drivers_with_vehicle(
             get_all_driver_ride_details(redis, &driver_ids, merchant_id).await?;
 
         let resp = nearby_drivers
-            .iter()
-            .zip(driver_last_known_location.iter())
-            .zip(driver_ride_details.iter())
+            .into_iter()
+            .zip(driver_last_known_location.into_iter())
+            .zip(driver_ride_details.into_iter())
             .filter_map(
                 |((driver, driver_last_known_location), driver_ride_detail)| {
                     if let (
                         Some(RideInfo::Pilot {
-                            group_id: Some(group_id),
+                            group_id: Some(ref grp_id),
                             ..
                         }),
                         Some(req_group_id),
                     ) = (
                         driver_ride_detail
                             .as_ref()
-                            .map(|driver_ride_detail| driver_ride_detail.ride_info.to_owned())
-                            .flatten(),
+                            .and_then(|d| d.ride_info.as_ref()),
                         group_id.as_ref(),
                     ) {
-                        if group_id == *req_group_id {
-                            let (last_location_update_ts, bear, vehicle_type) =
-                                driver_last_known_location
-                                    .as_ref()
-                                    .map(|driver_last_known_location| {
-                                        (
-                                            driver_last_known_location.timestamp,
-                                            driver_last_known_location.bear,
-                                            driver_last_known_location.vehicle_type,
-                                        )
-                                    })
-                                    .unwrap_or((TimeStamp(Utc::now()), None, None));
-                            Some(DriverLocationDetail {
-                                driver_id: driver.driver_id.to_owned(),
-                                lat: driver.location.lat,
-                                lon: driver.location.lon,
-                                coordinates_calculated_at: last_location_update_ts,
-                                created_at: last_location_update_ts,
-                                updated_at: last_location_update_ts,
-                                merchant_id: merchant_id.to_owned(),
-                                group_id: driver_last_known_location
-                                    .as_ref()
-                                    .and_then(|loc| loc.group_id.clone()),
-                                group_id2: driver_last_known_location
-                                    .as_ref()
-                                    .and_then(|loc| loc.group_id2.clone()),
-                                ride_details: driver_ride_detail.to_owned().map(|ride_detail| {
-                                    RideDetailsApiEntity {
-                                        ride_id: ride_detail.ride_id,
-                                        ride_status: ride_detail.ride_status,
-                                        ride_info: ride_detail.ride_info,
-                                    }
-                                }),
-                                bear,
-                                vehicle_type,
-                            })
-                        } else {
-                            None
+                        if grp_id != req_group_id {
+                            return None;
                         }
-                    } else {
-                        let (last_location_update_ts, bear, vehicle_type) =
-                            driver_last_known_location
-                                .as_ref()
-                                .map(|driver_last_known_location| {
-                                    (
-                                        driver_last_known_location.timestamp,
-                                        driver_last_known_location.bear,
-                                        driver_last_known_location.vehicle_type,
-                                    )
-                                })
-                                .unwrap_or((TimeStamp(Utc::now()), None, None));
-                        Some(DriverLocationDetail {
-                            driver_id: driver.driver_id.to_owned(),
-                            lat: driver.location.lat,
-                            lon: driver.location.lon,
-                            coordinates_calculated_at: last_location_update_ts,
-                            created_at: last_location_update_ts,
-                            updated_at: last_location_update_ts,
-                            merchant_id: merchant_id.to_owned(),
-                            group_id: driver_last_known_location
-                                .as_ref()
-                                .and_then(|loc| loc.group_id.clone()),
-                            group_id2: driver_last_known_location
-                                .as_ref()
-                                .and_then(|loc| loc.group_id2.clone()),
-                            ride_details: driver_ride_detail.to_owned().map(|ride_detail| {
-                                RideDetailsApiEntity {
-                                    ride_id: ride_detail.ride_id,
-                                    ride_status: ride_detail.ride_status,
-                                    ride_info: ride_detail.ride_info,
-                                }
-                            }),
-                            bear,
-                            vehicle_type,
-                        })
                     }
+
+                    let (last_location_update_ts, bear, vehicle_type) =
+                        extract_location_meta(&driver_last_known_location);
+                    Some(DriverLocationDetail {
+                        driver_id: driver.driver_id,
+                        lat: driver.location.lat,
+                        lon: driver.location.lon,
+                        coordinates_calculated_at: last_location_update_ts,
+                        created_at: last_location_update_ts,
+                        updated_at: last_location_update_ts,
+                        merchant_id: merchant_id.clone(),
+                        group_id: driver_last_known_location
+                            .as_ref()
+                            .and_then(|loc| loc.group_id.clone()),
+                        group_id2: driver_last_known_location
+                            .as_ref()
+                            .and_then(|loc| loc.group_id2.clone()),
+                        ride_details: driver_ride_detail.map(|rd| RideDetailsApiEntity {
+                            ride_id: rd.ride_id,
+                            ride_status: rd.ride_status,
+                            ride_info: rd.ride_info,
+                        }),
+                        bear,
+                        vehicle_type,
+                    })
                 },
             )
             .collect::<Vec<DriverLocationDetail>>();
         resp
     } else {
         let make_detail =
-            |driver: &DriverLocationPoint,
-             driver_last_known_location: &Option<DriverLastKnownLocation>| {
-                let (last_location_update_ts, bear, vehicle_type) = driver_last_known_location
-                    .as_ref()
-                    .map(|driver_last_known_location| {
-                        (
-                            driver_last_known_location.timestamp,
-                            driver_last_known_location.bear,
-                            driver_last_known_location.vehicle_type,
-                        )
-                    })
-                    .unwrap_or((TimeStamp(Utc::now()), None, None));
+            |driver: DriverLocationPoint,
+             driver_last_known_location: Option<DriverLastKnownLocation>| {
+                let (last_location_update_ts, bear, vehicle_type) =
+                    extract_location_meta(&driver_last_known_location);
                 DriverLocationDetail {
-                    driver_id: driver.driver_id.to_owned(),
+                    driver_id: driver.driver_id,
                     lat: driver.location.lat,
                     lon: driver.location.lon,
                     coordinates_calculated_at: last_location_update_ts,
                     created_at: last_location_update_ts,
                     updated_at: last_location_update_ts,
-                    merchant_id: merchant_id.to_owned(),
+                    merchant_id: merchant_id.clone(),
                     group_id: driver_last_known_location
                         .as_ref()
                         .and_then(|loc| loc.group_id.clone()),
@@ -306,22 +209,22 @@ async fn search_nearby_drivers_with_vehicle(
             };
 
         let resp = nearby_drivers
-            .iter()
-            .zip(driver_last_known_location.iter())
+            .into_iter()
+            .zip(driver_last_known_location.into_iter())
             .filter_map(|(driver, driver_last_known_location)| {
                 let mb_last_known_group_id = driver_last_known_location
                     .as_ref()
-                    .and_then(|loc| loc.group_id.clone());
+                    .and_then(|loc| loc.group_id.as_deref());
 
                 let mb_last_known_group_id2 = driver_last_known_location
                     .as_ref()
-                    .and_then(|loc| loc.group_id2.clone());
+                    .and_then(|loc| loc.group_id2.as_deref());
 
                 match (
-                    mb_last_known_group_id.as_ref(),
-                    mb_last_known_group_id2.as_ref(),
-                    group_id.as_ref(),
-                    group_id2.as_ref(),
+                    mb_last_known_group_id,
+                    mb_last_known_group_id2,
+                    group_id.as_deref(),
+                    group_id2.as_deref(),
                 ) {
                     // no filters by group_id (default)
                     (_, _, None, None) => Some(make_detail(driver, driver_last_known_location)),
@@ -379,64 +282,43 @@ pub async fn get_nearby_drivers(
 
     let current_bucket = get_bucket_from_timestamp(&data.bucket_size, TimeStamp(Utc::now()));
 
-    match vehicle_type {
-        None => {
-            let mut resp: Vec<DriverLocationDetail> = Vec::new();
+    let vehicles: Vec<VehicleType> = match vehicle_type {
+        None => VehicleType::iter().collect(),
+        Some(vehicles) => vehicles,
+    };
 
-            for vehicle in VehicleType::iter() {
-                let nearby_drivers = search_nearby_drivers_with_vehicle(
-                    &data.redis,
-                    &data.nearby_bucket_threshold,
-                    &merchant_id,
-                    &city,
-                    &vehicle,
-                    &current_bucket,
-                    Point { lat, lon },
-                    &radius,
-                    &group_id,
-                    &group_id2,
-                )
-                .await;
-                match nearby_drivers {
-                    Ok(nearby_drivers) => {
-                        resp.extend(nearby_drivers);
-                    }
-                    Err(err) => {
-                        error!(tag="[Nearby Drivers For All Vehicle Types]", vehicle = %vehicle, "{:?}", err)
-                    }
-                }
-            }
+    // Query all vehicle types concurrently instead of sequentially
+    let futures: Vec<_> = vehicles
+        .iter()
+        .map(|vehicle| {
+            search_nearby_drivers_with_vehicle(
+                &data.redis,
+                &data.nearby_bucket_threshold,
+                &merchant_id,
+                &city,
+                vehicle,
+                &current_bucket,
+                Point { lat, lon },
+                &radius,
+                &group_id,
+                &group_id2,
+            )
+        })
+        .collect();
 
-            Ok(resp)
-        }
-        Some(vehicles) => {
-            let mut resp: Vec<DriverLocationDetail> = Vec::new();
-            for vehicle in vehicles {
-                let nearby_drivers = search_nearby_drivers_with_vehicle(
-                    &data.redis,
-                    &data.nearby_bucket_threshold,
-                    &merchant_id,
-                    &city,
-                    &vehicle,
-                    &current_bucket,
-                    Point { lat, lon },
-                    &radius,
-                    &group_id,
-                    &group_id2,
-                )
-                .await;
-                match nearby_drivers {
-                    Ok(nearby_drivers) => {
-                        resp.extend(nearby_drivers);
-                    }
-                    Err(err) => {
-                        error!(tag="[Nearby Drivers For Specific Vehicle Types]", vehicle = %vehicle, "{:?}", err)
-                    }
-                }
+    let results = futures::future::join_all(futures).await;
+
+    let mut resp: Vec<DriverLocationDetail> = Vec::new();
+    for (vehicle, result) in vehicles.iter().zip(results) {
+        match result {
+            Ok(nearby_drivers) => resp.extend(nearby_drivers),
+            Err(err) => {
+                error!(tag="[Nearby Drivers]", vehicle = %vehicle, "{:?}", err)
             }
-            Ok(resp)
         }
     }
+
+    Ok(resp)
 }
 
 #[macros::measure_duration]
@@ -449,25 +331,25 @@ pub async fn get_drivers_location(
     let driver_last_known_location =
         get_all_driver_last_locations(&data.redis, &driver_ids).await?;
 
-    for (driver_id, driver_last_known_location) in
-        driver_ids.iter().zip(driver_last_known_location.iter())
+    for (driver_id, driver_last_known_location) in driver_ids
+        .into_iter()
+        .zip(driver_last_known_location.into_iter())
     {
-        if let Some(driver_last_known_location) = driver_last_known_location {
-            let driver_location = DriverLocationDetail {
-                driver_id: driver_id.to_owned(),
-                lat: driver_last_known_location.location.lat,
-                lon: driver_last_known_location.location.lon,
-                coordinates_calculated_at: driver_last_known_location.timestamp,
-                created_at: driver_last_known_location.timestamp,
-                updated_at: driver_last_known_location.timestamp,
-                merchant_id: driver_last_known_location.merchant_id.to_owned(),
-                group_id: driver_last_known_location.group_id.clone(),
-                group_id2: driver_last_known_location.group_id2.clone(),
+        if let Some(loc) = driver_last_known_location {
+            driver_locations.push(DriverLocationDetail {
+                driver_id,
+                lat: loc.location.lat,
+                lon: loc.location.lon,
+                coordinates_calculated_at: loc.timestamp,
+                created_at: loc.timestamp,
+                updated_at: loc.timestamp,
+                merchant_id: loc.merchant_id,
+                group_id: loc.group_id,
+                group_id2: loc.group_id2,
                 ride_details: None,
-                bear: driver_last_known_location.bear,
-                vehicle_type: driver_last_known_location.vehicle_type.clone(),
-            };
-            driver_locations.push(driver_location);
+                bear: loc.bear,
+                vehicle_type: loc.vehicle_type,
+            });
         } else {
             warn!(
                 "Driver last known location not found for DriverId : {:?}",

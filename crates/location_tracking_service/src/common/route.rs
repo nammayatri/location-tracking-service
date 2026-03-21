@@ -25,7 +25,7 @@ use serde_json::from_str;
 use shared::redis::types::RedisConnectionPool;
 use shared::tools::cloud_storage::get_files_in_directory_from_str;
 use shared::{termination, tools::prometheus::TERMINATION};
-use std::{cmp::max, env::var, fs, fs::File, io::Read, sync::Arc, time::Duration};
+use std::{cmp::max, env::var, sync::Arc, time::Duration};
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::RwLock;
 use tokio::time::Instant;
@@ -42,21 +42,21 @@ pub async fn read_route_data(
     if var("DEV").is_ok() || var("BYPASS_LTS_S3_AND_GCP").is_ok() {
         let config_path =
             var("ROUTE_GEO_JSON_CONFIG").unwrap_or_else(|_| "./route_geo_json_config".to_string());
-        let geometries = fs::read_dir(&config_path).map_err(|err| {
+        let mut entries = tokio::fs::read_dir(&config_path).await.map_err(|err| {
             AppError::InternalError(format!("Failed to read config path: {}", err))
         })?;
         let mut routes: FxHashMap<String, Route> = FxHashMap::default();
 
-        for entry in geometries {
-            let entry = entry
-                .map_err(|err| AppError::InternalError(format!("Failed to read entry: {}", err)))?;
+        while let Some(entry) = entries
+            .next_entry()
+            .await
+            .map_err(|err| AppError::InternalError(format!("Failed to read entry: {}", err)))?
+        {
             let file_name = entry.file_name().to_string_lossy().to_string();
 
-            let file_path = config_path.to_owned() + "/" + &file_name;
-            let mut file = File::open(file_path)
-                .map_err(|err| AppError::InternalError(format!("Failed to open file: {}", err)))?;
-            let mut contents = String::new();
-            file.read_to_string(&mut contents)
+            let file_path = format!("{}/{}", config_path, file_name);
+            let contents = tokio::fs::read_to_string(&file_path)
+                .await
                 .map_err(|err| AppError::InternalError(format!("Failed to read file: {}", err)))?;
 
             let route = parse_route_geojson(
@@ -184,11 +184,8 @@ async fn parse_route_geojson(
 
     // Project stops onto route coordinates and put them in the waypoint vector
     for (i, (stop_name, stop_code, stop_point, stop_type)) in stops.iter().enumerate() {
-        let projection = find_closest_point_on_route(
-            stop_point,
-            waypoints.iter().map(|(pt, _)| pt.to_owned()).collect(),
-        )
-        .ok_or_else(|| {
+        let coords: Vec<Point> = waypoints.iter().map(|(pt, _)| *pt).collect();
+        let projection = find_closest_point_on_route(stop_point, &coords).ok_or_else(|| {
             AppError::InternalError("Failed to find closest point on route".to_string())
         })?;
 
@@ -658,7 +655,7 @@ pub async fn start_route_refresh_task(
                             sleep = get_sleep();
                             info!("[ROUTE_REFRESH_TASK_COMPLETED] : {:?}", routes_data);
                             for (route_code, route_data) in routes_data {
-                                routes.write().await.insert(route_code.to_owned(), route_data.to_owned());
+                                routes.write().await.insert(route_code, route_data);
                             }
                         },
                         Err(err) => {

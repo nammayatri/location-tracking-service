@@ -23,7 +23,13 @@ use tracing::Span;
 use tracing_actix_web::{DefaultRootSpanBuilder, RootSpanBuilder};
 use uuid::Uuid;
 
-use crate::{environment::AppState, tools::error::AppError};
+use crate::{
+    environment::AppState,
+    tools::error::AppError,
+    tools::prometheus::{
+        ACTIVE_CONNECTIONS, ERROR_TOTAL, REQUEST_DURATION_SECONDS, REQUEST_THROUGHPUT_TOTAL,
+    },
+};
 
 /// Processes a service request, applying a timeout if specified in the application data.
 ///
@@ -285,6 +291,85 @@ where
                     limit,
                 )))
             }
+        })
+    }
+}
+
+/// Middleware that tracks active connections, request throughput, latency, and error rates.
+pub struct ObservabilityMetrics;
+
+impl<S, B> Transform<S, ServiceRequest> for ObservabilityMetrics
+where
+    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
+    S::Future: 'static,
+    B: 'static,
+{
+    type Response = ServiceResponse<B>;
+    type Error = Error;
+    type InitError = ();
+    type Transform = ObservabilityMetricsMiddleware<S>;
+    type Future = Ready<Result<Self::Transform, Self::InitError>>;
+
+    fn new_transform(&self, service: S) -> Self::Future {
+        ready(Ok(ObservabilityMetricsMiddleware { service }))
+    }
+}
+
+pub struct ObservabilityMetricsMiddleware<S> {
+    service: S,
+}
+
+impl<S, B> Service<ServiceRequest> for ObservabilityMetricsMiddleware<S>
+where
+    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
+    S::Future: 'static,
+    B: 'static,
+{
+    type Response = ServiceResponse<B>;
+    type Error = Error;
+    type Future = LocalBoxFuture<'static, Result<Self::Response, Self::Error>>;
+
+    forward_ready!(service);
+
+    fn call(&self, req: ServiceRequest) -> Self::Future {
+        let endpoint = req
+            .match_pattern()
+            .unwrap_or_else(|| req.path().to_string());
+        let method = req.method().to_string();
+
+        ACTIVE_CONNECTIONS.inc();
+        REQUEST_THROUGHPUT_TOTAL
+            .with_label_values(&[&endpoint, &method])
+            .inc();
+
+        let timer = REQUEST_DURATION_SECONDS
+            .with_label_values(&[&endpoint, &method])
+            .start_timer();
+
+        let fut = self.service.call(req);
+        Box::pin(async move {
+            let result = fut.await;
+            timer.observe_duration();
+            ACTIVE_CONNECTIONS.dec();
+
+            match &result {
+                Ok(response) => {
+                    let status = response.status().as_u16();
+                    if status >= 400 {
+                        let error_type = if status >= 500 { "5xx" } else { "4xx" };
+                        ERROR_TOTAL
+                            .with_label_values(&[&endpoint, error_type])
+                            .inc();
+                    }
+                }
+                Err(_) => {
+                    ERROR_TOTAL
+                        .with_label_values(&[&endpoint, "internal"])
+                        .inc();
+                }
+            }
+
+            result
         })
     }
 }

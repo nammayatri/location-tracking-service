@@ -489,9 +489,7 @@ async fn process_driver_locations(
         Vec<(Url, ViolationDetectionReq)>,
     ) = {
         if let (Some(ride_status), Some(ride_id)) = (
-            driver_location_details
-                .as_ref()
-                .and_then(|d| d.ride_status.clone()),
+            driver_location_details.as_ref().and_then(|d| d.ride_status),
             driver_ride_id.as_ref(),
         ) {
             DetectionType::iter().fold(
@@ -529,8 +527,8 @@ async fn process_driver_locations(
                     let context = DetectionContext {
                         ride_id: ride_id.clone(),
                         driver_id: driver_id.clone(),
-                        location: latest_driver_location.pt.clone(),
-                        timestamp: latest_driver_location_ts.clone(),
+                        location: latest_driver_location.pt,
+                        timestamp: latest_driver_location_ts,
                         speed: latest_driver_location
                             .v
                             .map(|v| SpeedInMeterPerSecond(v.inner())),
@@ -584,11 +582,11 @@ async fn process_driver_locations(
                                 .flatten(),
                         ) {
                             detection_violation_state_map
-                                .insert(detection_type.clone(), detection_violation_state);
+                                .insert(detection_type, detection_violation_state);
                             detection_anti_violation_state_map
-                                .insert(detection_type.clone(), detection_anti_violation_state);
+                                .insert(detection_type, detection_anti_violation_state);
                             violation_trigger_flag_map
-                                .insert(detection_type.clone(), violation_trigger_flag);
+                                .insert(detection_type, violation_trigger_flag);
 
                             if detection_violation_config.enabled
                                 && detection_anti_violation_config.enabled
@@ -854,7 +852,7 @@ async fn process_driver_locations(
                     &Some(violation_trigger_flag),
                     &driver_pickup_distance,
                     &None,
-                    &Some(vehicle_type.clone()),
+                    &Some(vehicle_type),
                     &group_id,
                     &group_id2,
                 )
@@ -1010,7 +1008,7 @@ async fn process_driver_locations(
                     &Some(violation_trigger_flag),
                     &driver_pickup_distance,
                     &latest_driver_location.bear,
-                    &Some(vehicle_type.clone()),
+                    &Some(vehicle_type),
                     &group_id,
                     &group_id2,
                 )
@@ -1035,12 +1033,9 @@ async fn process_driver_locations(
                         })
                         .collect::<Vec<LocationUpdate>>();
 
-                    let on_ride_driver_locations_count = get_on_ride_driver_locations_count(
-                        &data.redis,
-                        &driver_id.clone(),
-                        &merchant_id,
-                    )
-                    .await?;
+                    let on_ride_driver_locations_count =
+                        get_on_ride_driver_locations_count(&data.redis, &driver_id, &merchant_id)
+                            .await?;
 
                     if on_ride_driver_locations_count + geo_entries.len() as i64 > data.batch_size {
                         let mut on_ride_driver_locations = get_on_ride_driver_locations_and_delete(
@@ -1455,9 +1450,9 @@ async fn process_person_locations(
     };
     let person_detail = PersonAllDetails {
         last_known_location: PersonLastKnownLocation {
-            location: last.pt.clone(),
+            location: last.pt,
             timestamp: last.ts,
-            merchant_id: merchant_id.clone(),
+            merchant_id,
             bear: last.bear,
             accuracy: last.acc,
         },
