@@ -101,3 +101,19 @@ pub struct DriverQueuePositionResponse {
 pub struct ManualQueueAddRequest {
     pub queue_position: u64, // 1-indexed desired position
 }
+
+/// A single driver entry in the queue
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueDriverEntry {
+    pub driver_id: DriverId,
+    pub queue_position: u64, // 1-indexed
+}
+
+/// Response for GET /internal/special-locations/{special_location_id}/queue/{vehicle_type}/drivers
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueDriversResponse {
+    pub drivers: Vec<QueueDriverEntry>,
+    pub queue_size: u64,
+}
