@@ -20,12 +20,20 @@ pub struct AuthResponseData {
     pub merchant_operating_city_id: MerchantOperatingCityId,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct LocationUpdate {
+    pub lat: Latitude,
+    pub lon: Longitude,
+    pub ts: Option<i64>,
+}
+
 // Bulk location update during the ride
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct BulkDataReq {
     pub ride_id: RideId,
-    pub loc: Vec<Point>,
+    pub loc: Vec<LocationUpdate>,
     pub driver_id: DriverId,
 }
 
