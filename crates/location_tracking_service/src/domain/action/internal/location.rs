@@ -676,6 +676,32 @@ pub async fn manual_queue_add(
     Ok(APISuccess::default())
 }
 
+pub async fn get_queue_drivers(
+    data: Data<AppState>,
+    special_location_id: String,
+    vehicle_type: String,
+) -> Result<QueueDriversResponse, AppError> {
+    let scores =
+        get_queue_scores_at_range(&data.redis, &special_location_id, &vehicle_type, 0, -1).await?;
+    let drivers = scores
+        .into_iter()
+        .enumerate()
+        .filter_map(|(idx, (member, _score))| {
+            serde_json::from_str::<String>(&member)
+                .ok()
+                .map(|id| QueueDriverEntry {
+                    driver_id: DriverId(id),
+                    queue_position: (idx as u64) + 1,
+                })
+        })
+        .collect::<Vec<_>>();
+    let queue_size = drivers.len() as u64;
+    Ok(QueueDriversResponse {
+        drivers,
+        queue_size,
+    })
+}
+
 pub async fn get_special_location_drivers(
     data: Data<AppState>,
     special_location_id: String,

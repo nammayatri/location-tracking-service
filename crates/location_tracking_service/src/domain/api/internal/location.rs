@@ -96,6 +96,17 @@ async fn get_driver_queue_position(
     ))
 }
 
+#[get("/internal/special-locations/{special_location_id}/queue/{vehicle_type}/drivers")]
+async fn get_queue_drivers(
+    data: Data<AppState>,
+    path: Path<(String, String)>,
+) -> Result<Json<QueueDriversResponse>, AppError> {
+    let (special_location_id, vehicle_type) = path.into_inner();
+    Ok(Json(
+        location::get_queue_drivers(data, special_location_id, vehicle_type).await?,
+    ))
+}
+
 #[delete("/internal/special-locations/{special_location_id}/queue/{vehicle_type}/drivers/{merchant_id}/{driver_id}")]
 async fn manual_queue_remove(
     data: Data<AppState>,
