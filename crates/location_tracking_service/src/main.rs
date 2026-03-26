@@ -181,7 +181,9 @@ async fn start_server() -> std::io::Result<()> {
                 Err(e) => {
                     error!(
                         tag = "[Special Location Cache]",
-                        "Failed to fetch special locations: {}", e
+                        "Failed to fetch special locations: {} - {}",
+                        e,
+                        e.message()
                     );
                 }
             }
@@ -209,7 +211,9 @@ async fn start_server() -> std::io::Result<()> {
                     Err(e) => {
                         error!(
                             tag = "[Special Location Cache Refresh]",
-                            "Failed to refresh: {}", e
+                            "Failed to refresh: {} - {}",
+                            e,
+                            e.message()
                         );
                     }
                 }
