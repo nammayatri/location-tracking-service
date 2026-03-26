@@ -118,8 +118,10 @@ async fn drain_queue_actions(
                 timestamp,
             } => {
                 if *is_on_ride {
+                    info!(tag = "[Queue Skip On Ride]", driver_id = %driver_id, special_location_id = %special_location_id, "Driver is on ride, skipping queue entry");
                     continue;
                 }
+                info!(tag = "[Queue Enter Processing]", driver_id = %driver_id, special_location_id = %special_location_id, vehicle_type = %vehicle_type, "Processing queue enter, old_tracking={:?}", old_tracking);
                 let new_tracking = DriverQueueTracking {
                     special_location_id: special_location_id.clone(),
                     vehicle_type: vehicle_type.clone(),
@@ -168,6 +170,7 @@ async fn drain_queue_actions(
                 merchant_id,
                 driver_id,
             } => {
+                info!(tag = "[Queue Exit Processing]", driver_id = %driver_id, has_tracking = %old_tracking.is_some(), "Processing possible exit");
                 if let Some(ref tracking) = old_tracking {
                     // ZREM from queue
                     let queue_key = special_location_queue_key(
@@ -363,12 +366,15 @@ pub async fn run_drainer(
 
                         let skip_normal_drain = if let Some(ref cache) = special_location_cache {
                             let guard = cache.read().await;
+                            let city_entry_count = guard.get(&merchant_operating_city_id).map(|v| v.len()).unwrap_or(0);
+                            info!(tag = "[Special Location Lookup]", driver_id = %driver_id, city_id = %merchant_operating_city_id.0, lat = %latitude, lon = %longitude, "Cache has {} locations for this city", city_entry_count);
                             if let Some(entry) = lookup_special_location(
                                 &guard,
                                 &merchant_operating_city_id,
                                 &Latitude(latitude),
                                 &Longitude(longitude),
                             ) {
+                                info!(tag = "[Special Location Match]", driver_id = %driver_id, special_location_id = %entry.id.0, queue_enabled = %entry.is_queue_enabled, open_market = %entry.is_open_market_enabled);
                                 if enable_special_location_bucketing {
                                     special_location_zset_entries
                                         .entry(entry.id.0.clone())
@@ -381,6 +387,7 @@ pub async fn run_drainer(
                                 }
                                 // Queue entry: if this special location is queue-enabled, enqueue driver
                                 if entry.is_queue_enabled {
+                                    info!(tag = "[Queue Action]", driver_id = %driver_id, special_location_id = %entry.id.0, vehicle_type = %vehicle_type, "Pushing Enter action");
                                     queue_actions.push(QueueAction::Enter {
                                         merchant_id: merchant_id.0.clone(),
                                         driver_id: driver_id.clone(),
@@ -392,6 +399,7 @@ pub async fn run_drainer(
                                 !entry.is_open_market_enabled
                             } else {
                                 // No special location match → possible exit from queue
+                                info!(tag = "[Special Location No Match]", driver_id = %driver_id, city_id = %merchant_operating_city_id.0, lat = %latitude, lon = %longitude, "No geofence match, pushing PossibleExit");
                                 queue_actions.push(QueueAction::PossibleExit {
                                     merchant_id: merchant_id.0.clone(),
                                     driver_id: driver_id.clone(),
@@ -399,6 +407,7 @@ pub async fn run_drainer(
                                 false
                             }
                         } else {
+                            info!(tag = "[Special Location Cache]", driver_id = %driver_id, "Cache is None (special_location_list_base_url not set)");
                             false
                         };
 
