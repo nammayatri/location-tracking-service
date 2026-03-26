@@ -18,6 +18,7 @@ pub struct SpecialLocationFull {
     pub id: SpecialLocationId,
     pub merchant_operating_city_id: Option<String>,
     pub geo_json: Option<String>,
+    #[serde(default)]
     pub is_open_market_enabled: bool,
     #[serde(default)]
     pub is_queue_enabled: bool,

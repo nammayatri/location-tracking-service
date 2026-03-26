@@ -78,6 +78,32 @@ pub struct TrackVehicleResponse {
     pub vehicle_info: VehicleTrackingInfo,
 }
 
+/// A single cached special location entry (debug).
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CachedSpecialLocationEntry {
+    pub id: String,
+    pub is_queue_enabled: bool,
+    pub is_open_market_enabled: bool,
+}
+
+/// Group of cached special locations per city (debug).
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CachedSpecialLocationCityGroup {
+    pub merchant_operating_city_id: String,
+    pub count: usize,
+    pub special_locations: Vec<CachedSpecialLocationEntry>,
+}
+
+/// Response for GET /internal/special-locations/cached
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CachedSpecialLocationsResponse {
+    pub total_count: usize,
+    pub cities: Vec<CachedSpecialLocationCityGroup>,
+}
+
 /// Response for GET /internal/special-locations/{special_location_id}/drivers
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
