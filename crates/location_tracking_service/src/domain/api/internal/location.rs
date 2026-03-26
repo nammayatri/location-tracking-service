@@ -74,6 +74,36 @@ async fn post_track_vehicles(
     Ok(Json(location::track_vehicles(data, request_body).await?))
 }
 
+#[get("/internal/special-locations/cached")]
+async fn get_cached_special_locations(
+    data: Data<AppState>,
+) -> Result<Json<CachedSpecialLocationsResponse>, AppError> {
+    let guard = data.special_location_cache.read().await;
+    let mut total_count = 0usize;
+    let cities = guard
+        .iter()
+        .map(|(city_id, entries)| {
+            total_count += entries.len();
+            CachedSpecialLocationCityGroup {
+                merchant_operating_city_id: city_id.0.clone(),
+                count: entries.len(),
+                special_locations: entries
+                    .iter()
+                    .map(|e| CachedSpecialLocationEntry {
+                        id: e.id.0.clone(),
+                        is_queue_enabled: e.is_queue_enabled,
+                        is_open_market_enabled: e.is_open_market_enabled,
+                    })
+                    .collect(),
+            }
+        })
+        .collect();
+    Ok(Json(CachedSpecialLocationsResponse {
+        total_count,
+        cities,
+    }))
+}
+
 #[get("/internal/special-locations/{special_location_id}/drivers")]
 async fn get_special_location_drivers(
     data: Data<AppState>,

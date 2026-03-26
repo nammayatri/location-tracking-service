@@ -25,6 +25,7 @@ pub fn handler(config: &mut ServiceConfig) {
         .service(internal::location::driver_block_till)
         .service(internal::location::track_vehicles)
         .service(internal::location::post_track_vehicles)
+        .service(internal::location::get_cached_special_locations)
         .service(internal::location::get_special_location_drivers)
         .service(internal::location::get_driver_queue_position)
         .service(internal::location::get_queue_drivers)
