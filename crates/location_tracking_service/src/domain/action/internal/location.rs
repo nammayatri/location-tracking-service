@@ -370,12 +370,18 @@ pub async fn get_nearby_drivers(
         lon,
         vehicle_type,
         radius,
-        merchant_id,
+        merchant_id: merchant_id_req,
         group_id,
         group_id2,
     }: NearbyDriversRequest,
 ) -> Result<NearbyDriverResponse, AppError> {
     let city = get_city(&lat, &lon, &data.polygon)?;
+
+    let merchant_id = if var("DEV").is_ok() {
+        &MerchantId("dev".to_string())
+    } else {
+        &merchant_id_req
+    };
 
     let current_bucket = get_bucket_from_timestamp(&data.bucket_size, TimeStamp(Utc::now()));
 
