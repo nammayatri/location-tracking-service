@@ -72,6 +72,17 @@ pub struct BulkDataReq {
     pub driver_id: DriverId,
 }
 
+// Live activity update request (driver location for iOS LiveActivity)
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct LiveActivityReq {
+    pub ride_id: RideId,
+    pub driver_id: DriverId,
+    pub driver_lat: f64,
+    pub driver_lon: f64,
+    pub ride_notification_status: Option<RideNotificationStatus>, // None = INPROGRESS
+}
+
 // Trigger FCM to start location pings if not sent for a while
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]

@@ -159,6 +159,32 @@ pub async fn bulk_location_update_dobpp(
     .map_err(|e| e.into())
 }
 
+pub async fn live_activity_update_dobpp(
+    live_activity_callback_url: &Url,
+    ride_id: RideId,
+    driver_id: DriverId,
+    driver_lat: f64,
+    driver_lon: f64,
+    ride_notification_status: Option<RideNotificationStatus>,
+) -> Result<APISuccess, AppError> {
+    call_api::<APISuccess, LiveActivityReq>(
+        Protocol::Http1,
+        Method::POST,
+        live_activity_callback_url,
+        vec![("content-type", "application/json")],
+        Some(LiveActivityReq {
+            ride_id,
+            driver_id,
+            driver_lat,
+            driver_lon,
+            ride_notification_status,
+        }),
+        None,
+    )
+    .await
+    .map_err(|e| e.into())
+}
+
 pub async fn trigger_fcm_dobpp(
     trigger_fcm_callback_url: &Url,
     ride_id: RideId,

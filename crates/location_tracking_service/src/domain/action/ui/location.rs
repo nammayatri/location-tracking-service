@@ -25,7 +25,7 @@ use crate::outbound::external::get_distance_matrix;
 use crate::outbound::external::trigger_detection_alert;
 use crate::outbound::external::{
     authenticate_bap, authenticate_dobpp, bulk_location_update_dobpp, driver_reached_destination,
-    trigger_fcm_bap, trigger_fcm_dobpp, trigger_stop_detection_event,
+    live_activity_update_dobpp, trigger_fcm_bap, trigger_fcm_dobpp, trigger_stop_detection_event,
 };
 use crate::outbound::types::{LocationUpdate, ViolationDetectionReq};
 use crate::redis::{commands::*, keys::*};
@@ -378,6 +378,58 @@ pub async fn update_driver_location(
     )
     .await?;
     Ok(HttpResponse::Ok().finish())
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+struct LaThreshold {
+    lat: f64,
+    lon: f64,
+    ts: i64,
+}
+
+async fn check_and_update_la_threshold(
+    redis: &shared::redis::types::RedisConnectionPool,
+    ride_id: &RideId,
+    status: &RideStatus,
+    lat: f64,
+    lon: f64,
+) -> bool {
+    let key = format!("liveActivityThreshold:{:?}:{}", status, ride_id.inner());
+    let now_ts = Utc::now().timestamp();
+    let new_val = LaThreshold {
+        lat,
+        lon,
+        ts: now_ts,
+    };
+
+    match redis.get_key::<LaThreshold>(&key).await {
+        Ok(None) => {
+            let _ = redis.set_key(&key, new_val, 3600).await;
+            true
+        }
+        Ok(Some(last)) => {
+            let dist = distance_between_in_meters(
+                &Point {
+                    lat: Latitude(last.lat),
+                    lon: Longitude(last.lon),
+                },
+                &Point {
+                    lat: Latitude(lat),
+                    lon: Longitude(lon),
+                },
+            );
+            let diff = now_ts - last.ts;
+            let moved_enough = dist >= 70.0 && diff >= 30;
+            let time_fallback = diff >= 50;
+            if moved_enough || time_fallback {
+                let _ = redis.set_key(&key, new_val, 3600).await;
+                true
+            } else {
+                false
+            }
+        }
+        Err(_) => false,
+    }
 }
 
 #[macros::measure_duration]
@@ -1087,6 +1139,36 @@ async fn process_driver_locations(
                         };
                         all_tasks.push(Box::pin(push_on_ride_driver_locations));
                     }
+
+                    // LiveActivity update for INPROGRESS rides (throttled in LTS via Redis)
+                    let la_lat = latest_driver_location.pt.lat.inner();
+                    let la_lon = latest_driver_location.pt.lon.inner();
+                    let la_ride_id = ride_id.to_owned();
+                    let la_driver_id = driver_id.clone();
+                    let la_data = data.clone();
+                    let live_activity_inprogress = async move {
+                        if check_and_update_la_threshold(
+                            &la_data.redis,
+                            &la_ride_id,
+                            &RideStatus::INPROGRESS,
+                            la_lat,
+                            la_lon,
+                        )
+                        .await
+                        {
+                            let _ = live_activity_update_dobpp(
+                                &la_data.live_activity_callback_url,
+                                la_ride_id,
+                                la_driver_id,
+                                la_lat,
+                                la_lon,
+                                None, // INPROGRESS
+                            )
+                            .await;
+                        }
+                        Ok(())
+                    };
+                    all_tasks.push(Box::pin(live_activity_inprogress));
                 }
             }
 
@@ -1210,6 +1292,37 @@ async fn process_driver_locations(
                         )
                         .await
                         .map_err(|err| AppError::DriverSendingFCMFailed(err.message()));
+                    }
+                }
+
+                // LiveActivity update for NEW rides (DriverOnTheWay / DriverPickupInstruction only)
+                if matches!(
+                    driver_ride_notification_status,
+                    Some(RideNotificationStatus::DriverOnTheWay)
+                        | Some(RideNotificationStatus::DriverPickupInstruction)
+                ) {
+                    if let Some(ride_id) = driver_ride_id.clone() {
+                        let la_lat = latest_driver_location.pt.lat.inner();
+                        let la_lon = latest_driver_location.pt.lon.inner();
+                        if check_and_update_la_threshold(
+                            &data.redis,
+                            &ride_id,
+                            &RideStatus::NEW,
+                            la_lat,
+                            la_lon,
+                        )
+                        .await
+                        {
+                            let _ = live_activity_update_dobpp(
+                                &data.live_activity_callback_url,
+                                ride_id,
+                                driver_id.clone(),
+                                la_lat,
+                                la_lon,
+                                driver_ride_notification_status,
+                            )
+                            .await;
+                        }
                     }
                 }
 
