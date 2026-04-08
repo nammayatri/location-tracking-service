@@ -9,9 +9,11 @@ use crate::common::types::*;
 use crate::outbound::types::LocationUpdate;
 use crate::redis::keys::*;
 use crate::tools::error::AppError;
-use fred::types::{GeoPosition, GeoUnit, SortOrder};
+use fred::prelude::SortedSetsInterface;
+use fred::types::{GeoPosition, GeoUnit, SetOptions, SortOrder};
 use futures::Future;
 use rustc_hash::FxHashSet;
+use serde::{Deserialize, Serialize};
 use shared::redis::types::{RedisConnectionPool, Ttl};
 use std::collections::HashMap;
 use tracing::{error, info};
@@ -782,4 +784,284 @@ pub async fn get_google_stop_duration(
         .get_key::<Seconds>(&route_config_key)
         .await
         .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
+/// Add a driver to the special-location ZSET for the given bucket (when enable_special_location_bucketing).
+/// Score = timestamp; member = driver_id (JSON string). Sets key expiry.
+pub async fn add_driver_to_special_location_zset(
+    redis: &RedisConnectionPool,
+    special_location_id: &str,
+    bucket: u64,
+    driver_id: &DriverId,
+    timestamp: &TimeStamp,
+    bucket_expiry: i64,
+) -> Result<(), AppError> {
+    let key = special_location_drivers_key(special_location_id, &bucket);
+    let score = timestamp.inner().timestamp() as f64;
+    let member =
+        serde_json::to_string(&driver_id.0).map_err(|e| AppError::InternalError(e.to_string()))?;
+    redis
+        .zadd(
+            &key,
+            None,
+            None,
+            false,
+            false,
+            vec![(score, member.as_str())],
+        )
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))?;
+    redis
+        .set_expiry(&key, bucket_expiry)
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
+// --- Queue operations (airport/special zone FIFO queue, per vehicle type) ---
+
+/// Tracking value stored in the driver queue tracking key.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct DriverQueueTracking {
+    pub special_location_id: String,
+    pub vehicle_type: String,
+}
+
+/// Add a driver to the queue ZSET using ZADD NX (only if not already present).
+/// This preserves original entry timestamp/position on subsequent pings.
+pub async fn add_driver_to_queue(
+    redis: &RedisConnectionPool,
+    special_location_id: &str,
+    vehicle_type: &str,
+    driver_id: &str,
+    timestamp: f64,
+    queue_expiry: i64,
+) -> Result<(), AppError> {
+    let key = special_location_queue_key(special_location_id, vehicle_type);
+    let member =
+        serde_json::to_string(driver_id).map_err(|e| AppError::InternalError(e.to_string()))?;
+    redis
+        .zadd(
+            &key,
+            Some(SetOptions::NX),
+            None,
+            false,
+            false,
+            vec![(timestamp, member.as_str())],
+        )
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))?;
+    redis
+        .set_expiry(&key, queue_expiry)
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
+/// Remove a driver from the queue ZSET.
+pub async fn remove_driver_from_queue(
+    redis: &RedisConnectionPool,
+    special_location_id: &str,
+    vehicle_type: &str,
+    driver_id: &str,
+) -> Result<(), AppError> {
+    let key = special_location_queue_key(special_location_id, vehicle_type);
+    let member =
+        serde_json::to_string(driver_id).map_err(|e| AppError::InternalError(e.to_string()))?;
+    let _: u64 = redis
+        .writer_pool
+        .zrem(&key, member)
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))?;
+    Ok(())
+}
+
+/// Get a driver's 0-based rank in the queue ZSET.
+pub async fn get_driver_queue_position(
+    redis: &RedisConnectionPool,
+    special_location_id: &str,
+    vehicle_type: &str,
+    driver_id: &str,
+) -> Result<Option<u64>, AppError> {
+    let key = special_location_queue_key(special_location_id, vehicle_type);
+    let member =
+        serde_json::to_string(driver_id).map_err(|e| AppError::InternalError(e.to_string()))?;
+    let rank: Option<u64> = redis
+        .reader_pool
+        .zrank(&key, member)
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))?;
+    Ok(rank)
+}
+
+/// Get the total size of a queue ZSET.
+pub async fn get_queue_size(
+    redis: &RedisConnectionPool,
+    special_location_id: &str,
+    vehicle_type: &str,
+) -> Result<u64, AppError> {
+    let key = special_location_queue_key(special_location_id, vehicle_type);
+    redis
+        .zcard(&key)
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
+/// Set the tracking key for which queue a driver is currently in.
+/// No TTL — only deleted explicitly on queue exit so we never lose track of
+/// which queue a driver is in if location updates pause.
+pub async fn set_driver_queue_tracking(
+    redis: &RedisConnectionPool,
+    merchant_id: &str,
+    driver_id: &str,
+    tracking: &DriverQueueTracking,
+) -> Result<(), AppError> {
+    let key = driver_queue_tracking_key(merchant_id, driver_id);
+    let value =
+        serde_json::to_string(tracking).map_err(|e| AppError::InternalError(e.to_string()))?;
+    redis
+        .set_key_without_expiry(&key, value)
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
+/// Get the tracking info (special_location_id + vehicle_type) the driver is currently queued in.
+pub async fn get_driver_queue_tracking(
+    redis: &RedisConnectionPool,
+    merchant_id: &str,
+    driver_id: &str,
+) -> Result<Option<DriverQueueTracking>, AppError> {
+    let key = driver_queue_tracking_key(merchant_id, driver_id);
+    let raw: Option<String> = redis
+        .get_key::<String>(&key)
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))?;
+    match raw {
+        Some(s) => {
+            let tracking: DriverQueueTracking =
+                serde_json::from_str(&s).map_err(|e| AppError::InternalError(e.to_string()))?;
+            Ok(Some(tracking))
+        }
+        None => Ok(None),
+    }
+}
+
+/// Delete the driver queue tracking key.
+pub async fn delete_driver_queue_tracking(
+    redis: &RedisConnectionPool,
+    merchant_id: &str,
+    driver_id: &str,
+) -> Result<(), AppError> {
+    let key = driver_queue_tracking_key(merchant_id, driver_id);
+    redis
+        .delete_key(&key)
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
+/// Batch-fetch driver queue tracking for multiple (merchant_id, driver_id) pairs using MGET.
+pub async fn batch_get_driver_queue_trackings(
+    redis: &RedisConnectionPool,
+    pairs: &[(&str, &str)],
+) -> Result<Vec<Option<DriverQueueTracking>>, AppError> {
+    if pairs.is_empty() {
+        return Ok(vec![]);
+    }
+    let keys: Vec<String> = pairs
+        .iter()
+        .map(|(mid, did)| driver_queue_tracking_key(mid, did))
+        .collect();
+    redis
+        .mget_keys::<DriverQueueTracking>(keys)
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
+pub async fn batch_check_drivers_on_ride(
+    redis: &RedisConnectionPool,
+    pairs: &[(&str, &str)],
+) -> Result<Vec<bool>, AppError> {
+    if pairs.is_empty() {
+        return Ok(vec![]);
+    }
+    let keys: Vec<String> = pairs
+        .iter()
+        .map(|(mid, did)| {
+            on_ride_details_key(&MerchantId(mid.to_string()), &DriverId(did.to_string()))
+        })
+        .collect();
+    let results = redis
+        .mget_keys::<RideDetails>(keys)
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))?;
+    Ok(results.iter().map(|r| r.is_some()).collect())
+}
+
+/// Add a driver to the queue ZSET using ZADD (without NX — overwrites existing score).
+/// Used for manual queue insertion at a specific position.
+pub async fn add_driver_to_queue_force(
+    redis: &RedisConnectionPool,
+    special_location_id: &str,
+    vehicle_type: &str,
+    driver_id: &str,
+    score: f64,
+    queue_expiry: i64,
+) -> Result<(), AppError> {
+    let key = special_location_queue_key(special_location_id, vehicle_type);
+    let member =
+        serde_json::to_string(driver_id).map_err(|e| AppError::InternalError(e.to_string()))?;
+    redis
+        .zadd(
+            &key,
+            None, // no NX/XX option — always set
+            None,
+            false,
+            false,
+            vec![(score, member.as_str())],
+        )
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))?;
+    redis
+        .set_expiry(&key, queue_expiry)
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
+/// Get (member, score) pairs for a rank range in the queue ZSET (ZRANGE WITHSCORES).
+pub async fn get_queue_scores_at_range(
+    redis: &RedisConnectionPool,
+    special_location_id: &str,
+    vehicle_type: &str,
+    start: i64,
+    end: i64,
+) -> Result<Vec<(String, f64)>, AppError> {
+    let key = special_location_queue_key(special_location_id, vehicle_type);
+    let results: Vec<(String, f64)> = redis
+        .reader_pool
+        .zrange(&key, start, end, None, false, None, true)
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))?;
+    Ok(results)
+}
+
+/// Get all driver IDs in a special location by querying recent buckets.
+pub async fn get_drivers_in_special_location(
+    redis: &RedisConnectionPool,
+    special_location_id: &str,
+    current_bucket: &u64,
+    nearby_bucket_threshold: &u64,
+) -> Result<Vec<DriverId>, AppError> {
+    let mut driver_ids = FxHashSet::default();
+    for idx in 0..*nearby_bucket_threshold {
+        let bucket = current_bucket.saturating_sub(idx);
+        let key = special_location_drivers_key(special_location_id, &bucket);
+        let members: Vec<String> = redis
+            .zrange(&key, 0, -1, None, false, None, false)
+            .await
+            .map_err(|err| AppError::InternalError(err.to_string()))?;
+        for s in members {
+            if let Ok(id) = serde_json::from_str::<String>(&s) {
+                driver_ids.insert(DriverId(id));
+            }
+        }
+    }
+    Ok(driver_ids.into_iter().collect())
 }

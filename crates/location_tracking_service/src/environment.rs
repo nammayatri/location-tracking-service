@@ -20,6 +20,7 @@ use tokio::sync::{mpsc::Sender, RwLock};
 use tracing::info;
 
 use crate::common::{geo_polygon::read_geo_polygon, route::read_route_data, types::*};
+use crate::special_location::SpecialLocationCache;
 
 use shared::tools::logger::LoggerConfig;
 
@@ -77,6 +78,21 @@ pub struct AppConfig {
     #[serde(deserialize_with = "deserialize_url")]
     pub osrm_distance_matrix_base_url: Url,
     pub duration_cache_time_slots: Vec<NaiveTime>,
+    pub special_location_list_base_url: Option<String>,
+    #[serde(default)]
+    pub enable_special_location_bucketing: bool,
+    #[serde(default = "default_queue_expiry")]
+    pub queue_expiry_seconds: u64,
+    #[serde(default = "default_queue_position_range_offset")]
+    pub queue_position_range_offset: u64,
+}
+
+fn default_queue_expiry() -> u64 {
+    86400
+}
+
+fn default_queue_position_range_offset() -> u64 {
+    2
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -173,6 +189,11 @@ pub struct AppState {
     pub route_geo_json_config: S3Config,
     pub osrm_distance_matrix_base_url: Url,
     pub duration_cache_time_slots: Vec<NaiveTime>,
+    pub special_location_list_base_url: Option<Url>,
+    pub enable_special_location_bucketing: bool,
+    pub special_location_cache: SpecialLocationCache,
+    pub queue_expiry_seconds: u64,
+    pub queue_position_range_offset: u64,
 }
 
 impl AppState {
@@ -236,6 +257,7 @@ impl AppState {
         .await
         .expect("Failed to read route data");
 
+        // TODO: When the new special location API is released, remove this old blacklist loading and use the new implementation (see SPECIAL_LOCATION_DRIVERS_PLAN.md).
         let blacklist_geo_config_path =
             var("BLACKLIST_GEO_CONFIG").unwrap_or_else(|_| "./blacklist_geo_config".to_string());
         let blacklist_polygons = read_geo_polygon(&blacklist_geo_config_path)
@@ -333,6 +355,14 @@ impl AppState {
             route_geo_json_config: app_config.route_geo_json_config,
             osrm_distance_matrix_base_url: app_config.osrm_distance_matrix_base_url,
             duration_cache_time_slots: app_config.duration_cache_time_slots,
+            special_location_list_base_url: app_config
+                .special_location_list_base_url
+                .as_ref()
+                .and_then(|s| Url::parse(s).ok()),
+            enable_special_location_bucketing: app_config.enable_special_location_bucketing,
+            special_location_cache: Arc::new(RwLock::new(FxHashMap::default())),
+            queue_expiry_seconds: app_config.queue_expiry_seconds,
+            queue_position_range_offset: app_config.queue_position_range_offset,
         }
     }
 }

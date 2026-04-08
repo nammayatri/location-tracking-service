@@ -78,4 +78,68 @@ pub struct TrackVehicleResponse {
     pub vehicle_info: VehicleTrackingInfo,
 }
 
+/// A single cached special location entry (debug).
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CachedSpecialLocationEntry {
+    pub id: String,
+    pub is_queue_enabled: bool,
+    pub is_open_market_enabled: bool,
+}
+
+/// Group of cached special locations per city (debug).
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CachedSpecialLocationCityGroup {
+    pub merchant_operating_city_id: String,
+    pub count: usize,
+    pub special_locations: Vec<CachedSpecialLocationEntry>,
+}
+
+/// Response for GET /internal/special-locations/cached
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CachedSpecialLocationsResponse {
+    pub total_count: usize,
+    pub cities: Vec<CachedSpecialLocationCityGroup>,
+}
+
+/// Response for GET /internal/special-locations/{special_location_id}/drivers
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SpecialLocationDriversResponse {
+    pub driver_ids: Vec<DriverId>,
+}
+
 pub type TrackVehiclesResponse = Vec<TrackVehicleResponse>;
+
+/// Response for GET /internal/special-locations/{special_location_id}/queue/drivers/{driver_id}/position
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct DriverQueuePositionResponse {
+    pub queue_position_range: Option<(u64, u64)>,
+    pub queue_size: u64,
+}
+
+/// Request body for POST manual queue add
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ManualQueueAddRequest {
+    pub queue_position: u64, // 1-indexed desired position
+}
+
+/// A single driver entry in the queue
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueDriverEntry {
+    pub driver_id: DriverId,
+    pub queue_position: u64, // 1-indexed
+}
+
+/// Response for GET /internal/special-locations/{special_location_id}/queue/{vehicle_type}/drivers
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueDriversResponse {
+    pub drivers: Vec<QueueDriverEntry>,
+    pub queue_size: u64,
+}

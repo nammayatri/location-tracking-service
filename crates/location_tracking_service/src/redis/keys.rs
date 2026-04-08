@@ -188,3 +188,24 @@ pub fn google_stop_duration_key(source_stop_code: &str, destination_stop_code: &
 pub fn google_route_duration_cache_processing_key() -> String {
     "grd:processing".to_string()
 }
+
+/// Key for ZSET of driver_ids in a special location (per bucket).
+/// Used when enable_special_location_bucketing is true.
+pub fn special_location_drivers_key(special_location_id: &str, bucket: &u64) -> String {
+    format!("lts:special_loc:{}:{}", special_location_id, bucket)
+}
+
+/// Key for the FIFO queue ZSET of a special location per vehicle type.
+/// Score = entry timestamp, member = driver_id JSON string.
+pub fn special_location_queue_key(special_location_id: &str, vehicle_type: &str) -> String {
+    format!(
+        "lts:special_loc_queue:{}:{}",
+        special_location_id, vehicle_type
+    )
+}
+
+/// Tracking key to know which queue a driver is currently in.
+/// STRING storing JSON-encoded DriverQueueTracking value.
+pub fn driver_queue_tracking_key(merchant_id: &str, driver_id: &str) -> String {
+    format!("lts:driver_queue:{}:{}", merchant_id, driver_id)
+}

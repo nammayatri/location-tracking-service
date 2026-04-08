@@ -6,10 +6,35 @@
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::common::types::*;
 use std::collections::HashMap;
+
+/// Deserialize a bool that may be null or missing — treats both as false.
+fn bool_or_false<'de, D>(deserializer: D) -> Result<bool, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Ok(Option::<bool>::deserialize(deserializer)?.unwrap_or(false))
+}
+
+// Special location API response (only fields we use; API returns camelCase JSON)
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpecialLocationFull {
+    pub id: SpecialLocationId,
+    pub merchant_operating_city_id: Option<String>,
+    pub geo_json: Option<String>,
+    #[serde(default, deserialize_with = "bool_or_false")]
+    pub is_open_market_enabled: bool,
+    #[serde(default, deserialize_with = "bool_or_false")]
+    pub is_queue_enabled: bool,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Deserialize, Serialize)]
+#[serde(transparent)]
+pub struct SpecialLocationId(pub String);
 
 // BPP Authentication
 #[derive(Debug, Deserialize, Serialize)]

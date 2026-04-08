@@ -6,8 +6,8 @@
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 use actix_web::{
-    get, post,
-    web::{Data, Json},
+    delete, get, post,
+    web::{Data, Json, Path},
     HttpRequest,
 };
 
@@ -72,4 +72,106 @@ async fn post_track_vehicles(
     let request_body = param_obj.into_inner();
 
     Ok(Json(location::track_vehicles(data, request_body).await?))
+}
+
+#[get("/internal/special-locations/cached")]
+async fn get_cached_special_locations(
+    data: Data<AppState>,
+) -> Result<Json<CachedSpecialLocationsResponse>, AppError> {
+    let guard = data.special_location_cache.read().await;
+    let mut total_count = 0usize;
+    let cities = guard
+        .iter()
+        .map(|(city_id, entries)| {
+            total_count += entries.len();
+            CachedSpecialLocationCityGroup {
+                merchant_operating_city_id: city_id.0.clone(),
+                count: entries.len(),
+                special_locations: entries
+                    .iter()
+                    .map(|e| CachedSpecialLocationEntry {
+                        id: e.id.0.clone(),
+                        is_queue_enabled: e.is_queue_enabled,
+                        is_open_market_enabled: e.is_open_market_enabled,
+                    })
+                    .collect(),
+            }
+        })
+        .collect();
+    Ok(Json(CachedSpecialLocationsResponse {
+        total_count,
+        cities,
+    }))
+}
+
+#[get("/internal/special-locations/{special_location_id}/drivers")]
+async fn get_special_location_drivers(
+    data: Data<AppState>,
+    path: Path<(String,)>,
+) -> Result<Json<SpecialLocationDriversResponse>, AppError> {
+    let special_location_id = path.into_inner().0;
+    Ok(Json(
+        location::get_special_location_drivers(data, special_location_id).await?,
+    ))
+}
+
+#[get("/internal/special-locations/{special_location_id}/queue/{vehicle_type}/drivers/{driver_id}/position")]
+async fn get_driver_queue_position(
+    data: Data<AppState>,
+    path: Path<(String, String, String)>,
+) -> Result<Json<DriverQueuePositionResponse>, AppError> {
+    let (special_location_id, vehicle_type, driver_id) = path.into_inner();
+    Ok(Json(
+        location::driver_queue_position(data, special_location_id, vehicle_type, driver_id).await?,
+    ))
+}
+
+#[get("/internal/special-locations/{special_location_id}/queue/{vehicle_type}/drivers")]
+async fn get_queue_drivers(
+    data: Data<AppState>,
+    path: Path<(String, String)>,
+) -> Result<Json<QueueDriversResponse>, AppError> {
+    let (special_location_id, vehicle_type) = path.into_inner();
+    Ok(Json(
+        location::get_queue_drivers(data, special_location_id, vehicle_type).await?,
+    ))
+}
+
+#[delete("/internal/special-locations/{special_location_id}/queue/{vehicle_type}/drivers/{merchant_id}/{driver_id}")]
+async fn manual_queue_remove(
+    data: Data<AppState>,
+    path: Path<(String, String, String, String)>,
+) -> Result<Json<APISuccess>, AppError> {
+    let (special_location_id, vehicle_type, merchant_id, driver_id) = path.into_inner();
+    Ok(Json(
+        location::manual_queue_remove(
+            data,
+            special_location_id,
+            vehicle_type,
+            merchant_id,
+            driver_id,
+        )
+        .await?,
+    ))
+}
+
+#[post("/internal/special-locations/{special_location_id}/queue/{vehicle_type}/drivers/{merchant_id}/{driver_id}")]
+async fn manual_queue_add(
+    data: Data<AppState>,
+    path: Path<(String, String, String, String)>,
+    body: Json<ManualQueueAddRequest>,
+) -> Result<Json<APISuccess>, AppError> {
+    let (special_location_id, vehicle_type, merchant_id, driver_id) = path.into_inner();
+    let request_body = body.into_inner();
+    Ok(Json(
+        location::manual_queue_add(
+            data,
+            special_location_id,
+            vehicle_type,
+            merchant_id,
+            driver_id,
+            request_body.queue_position,
+        )
+        .await?,
+    ))
 }

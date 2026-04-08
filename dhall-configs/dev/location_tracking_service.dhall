@@ -490,5 +490,8 @@ in {
         prefix = ""
     },
     osrm_distance_matrix_base_url = "http://router.project-osrm.org",
-    duration_cache_time_slots = ["06:00:00", "12:00:00", "18:00:00", "19:55:00"]
+    duration_cache_time_slots = ["06:00:00", "12:00:00", "18:00:00", "19:55:00"],
+    special_location_list_base_url = Some "http://127.0.0.1:8016",
+    enable_special_location_bucketing = False,
+    queue_position_range_offset = 2
 }

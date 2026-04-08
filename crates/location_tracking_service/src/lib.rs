@@ -18,4 +18,5 @@ pub mod kafka;
 pub mod middleware;
 pub mod outbound;
 pub mod redis;
+pub mod special_location;
 pub mod tools;

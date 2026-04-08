@@ -13,6 +13,8 @@ use location_tracking_service::{
     drainer::run_drainer,
     environment::AppState,
     middleware::*,
+    outbound::external::get_special_locations_list,
+    special_location::build_special_location_cache,
     tools::{error::AppError, prometheus::prometheus_metrics},
 };
 use shared::{middleware::incoming_request::IncomingRequestMetrics, tools::logger::setup_tracing};
@@ -21,7 +23,7 @@ use std::{
     env::var,
     sync::atomic::{AtomicBool, Ordering},
 };
-use std::{net::Ipv4Addr, sync::Arc};
+use std::{net::Ipv4Addr, sync::Arc, time::Duration};
 use tokio::signal::unix::SignalKind;
 use tokio::time::Instant;
 use tokio::{
@@ -29,6 +31,7 @@ use tokio::{
     sync::mpsc::{self, Receiver, Sender},
 };
 use tracing::error;
+use tracing::info;
 use tracing_actix_web::TracingLogger;
 
 #[actix_web::main]
@@ -119,6 +122,12 @@ async fn start_server() -> std::io::Result<()> {
         data.nearby_bucket_threshold,
         data.redis.clone(),
     );
+    let special_location_cache = data
+        .special_location_list_base_url
+        .as_ref()
+        .map(|_| data.special_location_cache.clone());
+    let enable_special_location_bucketing = data.enable_special_location_bucketing;
+    let queue_expiry_seconds = data.queue_expiry_seconds;
     let channel_thread = tokio::spawn(async move {
         run_drainer(
             receiver,
@@ -127,10 +136,90 @@ async fn start_server() -> std::io::Result<()> {
             drainer_delay,
             bucket_size,
             nearby_bucket_threshold,
-            &redis,
+            redis,
+            special_location_cache,
+            enable_special_location_bucketing,
+            queue_expiry_seconds,
         )
         .await;
     });
+
+    if let Some(ref base_url) = data.special_location_list_base_url {
+        let cache = data.special_location_cache.clone();
+        let base_url = base_url.clone();
+        tokio::spawn(async move {
+            match get_special_locations_list(&base_url).await {
+                Ok(list) => {
+                    info!(
+                        tag = "[Special Location Cache]",
+                        "Fetched {} special locations from API",
+                        list.len()
+                    );
+                    let new_map = build_special_location_cache(list);
+                    let total_entries: usize = new_map.values().map(|v| v.len()).sum();
+                    info!(
+                        tag = "[Special Location Cache]",
+                        "Built cache with {} cities, {} locations (after filtering)",
+                        new_map.len(),
+                        total_entries
+                    );
+                    for (city_id, entries) in &new_map {
+                        for entry in entries {
+                            info!(
+                                tag = "[Special Location Cache]",
+                                "  city={} id={} queue_enabled={} open_market={}",
+                                city_id.0,
+                                entry.id.0,
+                                entry.is_queue_enabled,
+                                entry.is_open_market_enabled
+                            );
+                        }
+                    }
+                    let mut guard = cache.write().await;
+                    *guard = new_map;
+                }
+                Err(e) => {
+                    error!(
+                        tag = "[Special Location Cache]",
+                        "Failed to fetch special locations: {} - {}",
+                        e,
+                        e.message()
+                    );
+                }
+            }
+            let mut interval = tokio::time::interval(Duration::from_secs(300));
+            loop {
+                interval.tick().await;
+                match get_special_locations_list(&base_url).await {
+                    Ok(list) => {
+                        info!(
+                            tag = "[Special Location Cache Refresh]",
+                            "Fetched {} special locations",
+                            list.len()
+                        );
+                        let new_map = build_special_location_cache(list);
+                        let total_entries: usize = new_map.values().map(|v| v.len()).sum();
+                        info!(
+                            tag = "[Special Location Cache Refresh]",
+                            "Rebuilt cache with {} cities, {} locations",
+                            new_map.len(),
+                            total_entries
+                        );
+                        let mut guard = cache.write().await;
+                        *guard = new_map;
+                    }
+                    Err(e) => {
+                        error!(
+                            tag = "[Special Location Cache Refresh]",
+                            "Failed to refresh: {} - {}",
+                            e,
+                            e.message()
+                        );
+                    }
+                }
+            }
+        });
+    }
 
     let prometheus = prometheus_metrics();
 
@@ -162,10 +251,7 @@ async fn start_server() -> std::io::Result<()> {
         }
     }
 
-    Err(std::io::Error::new(
-        std::io::ErrorKind::Other,
-        "[MAIN_THREAD_ENDED]",
-    ))
+    Err(std::io::Error::other("[MAIN_THREAD_ENDED]"))
 }
 
 fn main() {

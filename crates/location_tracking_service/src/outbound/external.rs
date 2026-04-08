@@ -427,3 +427,45 @@ pub async fn get_distance_matrix(
     .await
     .map_err(|e| e.into())
 }
+
+/// Fetches special locations list from internal driver app.
+/// Uses getAllLocations=true so one call returns data for all cities (JSON response).
+/// Deserializes each entry individually so one bad entry doesn't break the entire list.
+pub async fn get_special_locations_list(
+    base_url: &Url,
+) -> Result<Vec<SpecialLocationFull>, AppError> {
+    let base_str = base_url.as_str().trim_end_matches('/');
+    let url = format!(
+        "{}/default/default/specialLocation/list?getAllLocations=true",
+        base_str
+    );
+    let url = Url::parse(&url).map_err(|e| AppError::InvalidRequest(e.to_string()))?;
+    let raw: Vec<serde_json::Value> = call_api::<Vec<serde_json::Value>, ()>(
+        Protocol::Http1,
+        Method::GET,
+        &url,
+        vec![("content-type", "application/json")],
+        None,
+        Some("special-location-list"),
+    )
+    .await
+    .map_err(|e| AppError::InternalError(e.to_string()))?;
+
+    let total = raw.len();
+    let mut results = Vec::with_capacity(total);
+    for (i, item) in raw.into_iter().enumerate() {
+        match serde_json::from_value::<SpecialLocationFull>(item) {
+            Ok(loc) => results.push(loc),
+            Err(e) => {
+                tracing::warn!(
+                    tag = "[Special Location Deserialize]",
+                    "Skipping entry {}/{}: {}",
+                    i,
+                    total,
+                    e
+                );
+            }
+        }
+    }
+    Ok(results)
+}
