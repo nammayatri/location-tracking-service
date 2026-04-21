@@ -57,10 +57,15 @@ enum QueueAction {
 /// Process queue actions (enter/exit) in the background using batched Redis operations.
 /// Uses MGET to fetch all tracking keys in one round trip, then a pipeline for all writes.
 /// Errors are logged but never block the caller.
+///
+/// `queue_exit_hysteresis_threshold` is the number of consecutive out-of-geofence
+/// pings required before a driver is actually removed from the queue. A value of
+/// 1 reproduces the legacy "remove on first exit ping" behavior.
 async fn drain_queue_actions(
     actions: Vec<QueueAction>,
     redis: &RedisConnectionPool,
     queue_expiry: u64,
+    queue_exit_hysteresis_threshold: u32,
 ) {
     let expiry_i64 = queue_expiry as i64;
 
@@ -125,11 +130,16 @@ async fn drain_queue_actions(
                 let new_tracking = DriverQueueTracking {
                     special_location_id: special_location_id.clone(),
                     vehicle_type: vehicle_type.clone(),
+                    // Reset the exit counter: an in-geofence ping cancels any
+                    // in-progress hysteresis countdown.
+                    consecutive_exit_pings: 0,
                 };
 
                 // If driver was in a different queue, remove from old one
                 if let Some(ref old) = old_tracking {
-                    if *old != new_tracking {
+                    let same_queue = old.special_location_id == new_tracking.special_location_id
+                        && old.vehicle_type == new_tracking.vehicle_type;
+                    if !same_queue {
                         let old_key =
                             special_location_queue_key(&old.special_location_id, &old.vehicle_type);
                         let old_member = serde_json::to_string(driver_id.as_str())
@@ -170,20 +180,64 @@ async fn drain_queue_actions(
                 merchant_id,
                 driver_id,
             } => {
-                info!(tag = "[Queue Exit Processing]", driver_id = %driver_id, has_tracking = %old_tracking.is_some(), "Processing possible exit");
                 if let Some(ref tracking) = old_tracking {
-                    // ZREM from queue
-                    let queue_key = special_location_queue_key(
-                        &tracking.special_location_id,
-                        &tracking.vehicle_type,
-                    );
-                    let member = serde_json::to_string(driver_id.as_str())
-                        .unwrap_or_else(|_| driver_id.clone());
-                    let _ = pipeline.zrem::<RedisValue, _, _>(&queue_key, member).await;
-
-                    // DEL tracking key
+                    // Hysteresis: require N consecutive exit pings before actually
+                    // removing the driver. A single noisy GPS reading can put a
+                    // driver outside the fence for one tick; if we ZREM on that
+                    // single ping, the next in-fence ping re-adds them with a
+                    // fresh timestamp and their rank jumps to the tail of the
+                    // queue. Threshold of 1 disables hysteresis (legacy).
+                    let threshold = queue_exit_hysteresis_threshold.max(1);
+                    let next_count = tracking.consecutive_exit_pings.saturating_add(1);
                     let tracking_key = driver_queue_tracking_key(merchant_id, driver_id);
-                    let _ = pipeline.del::<RedisValue, _>(&tracking_key).await;
+
+                    if next_count >= threshold {
+                        info!(
+                            tag = "[Queue Exit Evict]",
+                            driver_id = %driver_id,
+                            special_location_id = %tracking.special_location_id,
+                            vehicle_type = %tracking.vehicle_type,
+                            exit_pings = next_count,
+                            threshold = threshold,
+                            "Hysteresis threshold reached, removing driver from queue"
+                        );
+                        let queue_key = special_location_queue_key(
+                            &tracking.special_location_id,
+                            &tracking.vehicle_type,
+                        );
+                        let member = serde_json::to_string(driver_id.as_str())
+                            .unwrap_or_else(|_| driver_id.clone());
+                        let _ = pipeline.zrem::<RedisValue, _, _>(&queue_key, member).await;
+                        let _ = pipeline.del::<RedisValue, _>(&tracking_key).await;
+                    } else {
+                        // Haven't hit threshold yet — keep the driver in the
+                        // queue, just bump the counter in tracking. Preserves
+                        // original timestamp / rank.
+                        info!(
+                            tag = "[Queue Exit Hysteresis]",
+                            driver_id = %driver_id,
+                            special_location_id = %tracking.special_location_id,
+                            exit_pings = next_count,
+                            threshold = threshold,
+                            "Out-of-fence ping recorded; driver kept in queue"
+                        );
+                        let updated = DriverQueueTracking {
+                            special_location_id: tracking.special_location_id.clone(),
+                            vehicle_type: tracking.vehicle_type.clone(),
+                            consecutive_exit_pings: next_count,
+                        };
+                        if let Ok(value) = serde_json::to_string(&updated) {
+                            let _ = pipeline
+                                .set::<RedisValue, _, _>(&tracking_key, value, None, None, false)
+                                .await;
+                        }
+                    }
+                } else {
+                    info!(
+                        tag = "[Queue Exit No-Op]",
+                        driver_id = %driver_id,
+                        "PossibleExit received but driver has no tracking; skipping"
+                    );
                 }
             }
         }
@@ -226,6 +280,7 @@ async fn drain_driver_locations(
     queue_actions: Vec<QueueAction>,
     bucket_expiry: i64,
     queue_expiry: u64,
+    queue_exit_hysteresis_threshold: u32,
     redis: &Arc<RedisConnectionPool>,
 ) {
     info!(
@@ -261,7 +316,13 @@ async fn drain_driver_locations(
     if !queue_actions.is_empty() {
         let redis = Arc::clone(redis);
         tokio::spawn(async move {
-            drain_queue_actions(queue_actions, &redis, queue_expiry).await;
+            drain_queue_actions(
+                queue_actions,
+                &redis,
+                queue_expiry,
+                queue_exit_hysteresis_threshold,
+            )
+            .await;
         });
     }
 }
@@ -319,6 +380,8 @@ pub async fn run_drainer(
     special_location_cache: Option<SpecialLocationCache>,
     enable_special_location_bucketing: bool,
     queue_expiry_seconds: u64,
+    queue_exit_hysteresis_threshold: u32,
+    enable_queue_cache_empty_guard: bool,
 ) {
     let mut driver_locations: DriversLocationMap = FxHashMap::default();
     let mut special_location_zset_entries: FxHashMap<String, Vec<(DriverId, u64, f64)>> =
@@ -344,6 +407,7 @@ pub async fn run_drainer(
                     actions,
                     bucket_expiry,
                     queue_expiry_seconds,
+                    queue_exit_hysteresis_threshold,
                     &redis,
                 )
                 .await;
@@ -397,6 +461,13 @@ pub async fn run_drainer(
                                     });
                                 }
                                 !entry.is_open_market_enabled
+                            } else if enable_queue_cache_empty_guard && city_entry_count == 0 {
+                                // Cache has no polygons for this city (likely mid-reload or
+                                // missing data). Treat as "unknown" instead of "outside" so we
+                                // don't wipe the queue. Skip both PossibleExit and normal drain
+                                // suppression.
+                                info!(tag = "[Special Location Cache Empty Guard]", driver_id = %driver_id, city_id = %merchant_operating_city_id.0, "Skipping PossibleExit; cache has 0 entries for city");
+                                false
                             } else {
                                 // No special location match → possible exit from queue
                                 info!(tag = "[Special Location No Match]", driver_id = %driver_id, city_id = %merchant_operating_city_id.0, lat = %latitude, lon = %longitude, "No geofence match, pushing PossibleExit");
@@ -435,6 +506,7 @@ pub async fn run_drainer(
                                 actions,
                                 bucket_expiry,
                                 queue_expiry_seconds,
+                                queue_exit_hysteresis_threshold,
                                 &redis,
                             )
                             .await;
@@ -464,6 +536,7 @@ pub async fn run_drainer(
                         actions,
                         bucket_expiry,
                         queue_expiry_seconds,
+                        queue_exit_hysteresis_threshold,
                         &redis,
                     )
                     .await;

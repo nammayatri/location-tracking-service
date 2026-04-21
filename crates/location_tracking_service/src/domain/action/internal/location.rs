@@ -547,10 +547,13 @@ pub async fn driver_queue_position(
     vehicle_type: String,
     driver_id: String,
 ) -> Result<DriverQueuePositionResponse, AppError> {
-    let queue_size = get_queue_size(&data.redis, &special_location_id, &vehicle_type).await?;
-    let rank =
-        get_driver_queue_position(&data.redis, &special_location_id, &vehicle_type, &driver_id)
-            .await?;
+    let (rank, queue_size) = get_driver_queue_position_and_size(
+        &data.redis,
+        &special_location_id,
+        &vehicle_type,
+        &driver_id,
+    )
+    .await?;
     let offset = data.queue_position_range_offset;
     let queue_position_range = rank.map(|r| {
         let pos = r + 1; // 1-indexed
@@ -669,6 +672,7 @@ pub async fn manual_queue_add(
         &DriverQueueTracking {
             special_location_id,
             vehicle_type,
+            consecutive_exit_pings: 0,
         },
     )
     .await?;

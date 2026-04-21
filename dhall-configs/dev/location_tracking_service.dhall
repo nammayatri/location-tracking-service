@@ -509,5 +509,7 @@ in {
     rider_auth_token_expiry = 86400,
     special_location_list_base_url = Some "http://127.0.0.1:8016",
     enable_special_location_bucketing = False,
-    queue_position_range_offset = 2
+    queue_position_range_offset = 2,
+    queue_exit_hysteresis_threshold = 3,
+    enable_queue_cache_empty_guard = True
 }
