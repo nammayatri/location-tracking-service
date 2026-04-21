@@ -11,7 +11,7 @@ use crate::outbound::types::LocationUpdate;
 use crate::redis::keys::*;
 use crate::tools::error::AppError;
 use fred::prelude::SortedSetsInterface;
-use fred::types::{GeoPosition, GeoUnit, SetOptions, SortOrder};
+use fred::types::{GeoPosition, GeoUnit, RedisValue, SetOptions, SortOrder};
 use futures::Future;
 use rustc_hash::FxHashSet;
 use serde::{Deserialize, Serialize};
@@ -1110,6 +1110,12 @@ pub async fn add_driver_to_special_location_zset(
 pub struct DriverQueueTracking {
     pub special_location_id: String,
     pub vehicle_type: String,
+    /// Consecutive out-of-geofence pings observed for this driver. Used for
+    /// exit hysteresis: we only actually remove the driver from the queue
+    /// after this reaches a configured threshold, so a single noisy GPS ping
+    /// cannot evict a queued driver (who would otherwise re-enter at the tail).
+    #[serde(default)]
+    pub consecutive_exit_pings: u32,
 }
 
 /// Add a driver to the queue ZSET using ZADD NX (only if not already present).
@@ -1189,6 +1195,46 @@ pub async fn get_queue_size(
         .zcard(&key)
         .await
         .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
+/// Atomically fetch the driver's 0-based rank and the total queue size in a
+/// single Redis pipeline on one primary (writer) connection.
+///
+/// Two guarantees this gives us:
+/// 1. `ZRANK` and `ZCARD` execute on the same connection in one round trip, so
+///    the returned `(rank, size)` pair is mutually consistent.
+/// 2. We read from the primary (not a replica), so a driver who was just
+///    `ZADD`-ed on the primary will not appear missing due to replica lag —
+///    which would otherwise cause the queue-position API to return `null` for
+///    a driver who is actually in the queue.
+pub async fn get_driver_queue_position_and_size(
+    redis: &RedisConnectionPool,
+    special_location_id: &str,
+    vehicle_type: &str,
+    driver_id: &str,
+) -> Result<(Option<u64>, u64), AppError> {
+    let key = special_location_queue_key(special_location_id, vehicle_type);
+    let member =
+        serde_json::to_string(driver_id).map_err(|e| AppError::InternalError(e.to_string()))?;
+
+    let client = redis.writer_pool.next();
+    let pipeline = client.pipeline();
+    let _: RedisValue = pipeline
+        .zrank(&key, member.as_str())
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))?;
+    let _: RedisValue = pipeline
+        .zcard(&key)
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))?;
+    let results: Vec<RedisValue> = pipeline
+        .all()
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))?;
+
+    let rank = results.first().and_then(|v| v.as_u64());
+    let size = results.get(1).and_then(|v| v.as_u64()).unwrap_or(0);
+    Ok((rank, size))
 }
 
 /// Set the tracking key for which queue a driver is currently in.

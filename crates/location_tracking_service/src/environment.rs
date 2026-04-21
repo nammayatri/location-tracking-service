@@ -91,6 +91,17 @@ pub struct AppConfig {
     pub queue_expiry_seconds: u64,
     #[serde(default = "default_queue_position_range_offset")]
     pub queue_position_range_offset: u64,
+    /// Number of consecutive out-of-geofence pings required before we remove
+    /// a driver from the special-location queue. Prevents a single noisy GPS
+    /// ping from evicting the driver and forcing them to re-queue at the tail.
+    /// Set to 1 to disable hysteresis (legacy behavior).
+    #[serde(default = "default_queue_exit_hysteresis_threshold")]
+    pub queue_exit_hysteresis_threshold: u32,
+    /// When true, suppress `PossibleExit` actions while the special-location
+    /// cache reports zero polygons for the driver's city. Prevents mass
+    /// eviction during cache (re)loads or missing-city states.
+    #[serde(default = "default_true")]
+    pub enable_queue_cache_empty_guard: bool,
 }
 
 fn default_queue_expiry() -> u64 {
@@ -99,6 +110,14 @@ fn default_queue_expiry() -> u64 {
 
 fn default_queue_position_range_offset() -> u64 {
     2
+}
+
+fn default_queue_exit_hysteresis_threshold() -> u32 {
+    3
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -206,6 +225,8 @@ pub struct AppState {
     pub special_location_cache: SpecialLocationCache,
     pub queue_expiry_seconds: u64,
     pub queue_position_range_offset: u64,
+    pub queue_exit_hysteresis_threshold: u32,
+    pub enable_queue_cache_empty_guard: bool,
 }
 
 impl AppState {
@@ -410,6 +431,8 @@ impl AppState {
             special_location_cache: Arc::new(RwLock::new(FxHashMap::default())),
             queue_expiry_seconds: app_config.queue_expiry_seconds,
             queue_position_range_offset: app_config.queue_position_range_offset,
+            queue_exit_hysteresis_threshold: app_config.queue_exit_hysteresis_threshold,
+            enable_queue_cache_empty_guard: app_config.enable_queue_cache_empty_guard,
         }
     }
 }

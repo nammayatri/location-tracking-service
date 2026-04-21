@@ -128,6 +128,8 @@ async fn start_server() -> std::io::Result<()> {
         .map(|_| data.special_location_cache.clone());
     let enable_special_location_bucketing = data.enable_special_location_bucketing;
     let queue_expiry_seconds = data.queue_expiry_seconds;
+    let queue_exit_hysteresis_threshold = data.queue_exit_hysteresis_threshold;
+    let enable_queue_cache_empty_guard = data.enable_queue_cache_empty_guard;
     let channel_thread = tokio::spawn(async move {
         run_drainer(
             receiver,
@@ -140,6 +142,8 @@ async fn start_server() -> std::io::Result<()> {
             special_location_cache,
             enable_special_location_bucketing,
             queue_expiry_seconds,
+            queue_exit_hysteresis_threshold,
+            enable_queue_cache_empty_guard,
         )
         .await;
     });
