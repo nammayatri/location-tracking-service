@@ -370,6 +370,7 @@ pub async fn set_driver_last_location_update(
     vehicle_type: &Option<VehicleType>,
     group_id: &Option<String>,
     group_id2: &Option<String>,
+    driver_mode: &Option<DriverMode>,
 ) -> Result<DriverLastKnownLocation, AppError> {
     let last_known_location = DriverLastKnownLocation {
         location: Point {
@@ -382,6 +383,7 @@ pub async fn set_driver_last_location_update(
         vehicle_type: *vehicle_type,
         group_id: group_id.clone(),
         group_id2: group_id2.clone(),
+        driver_mode: driver_mode.clone(),
     };
 
     let value = DriverAllDetails {

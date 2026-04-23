@@ -120,6 +120,9 @@ async fn search_nearby_drivers_with_vehicle(
                                 }),
                                 bear,
                                 vehicle_type,
+                                driver_mode: driver_last_known_location
+                                    .as_ref()
+                                    .and_then(|loc| loc.driver_mode.clone()),
                             })
                         } else {
                             None
@@ -159,6 +162,9 @@ async fn search_nearby_drivers_with_vehicle(
                             }),
                             bear,
                             vehicle_type,
+                            driver_mode: driver_last_known_location
+                                .as_ref()
+                                .and_then(|loc| loc.driver_mode.clone()),
                         })
                     }
                 },
@@ -226,6 +232,9 @@ async fn search_nearby_drivers_with_vehicle(
                                 }),
                                 bear,
                                 vehicle_type,
+                                driver_mode: driver_last_known_location
+                                    .as_ref()
+                                    .and_then(|loc| loc.driver_mode.clone()),
                             })
                         } else {
                             None
@@ -265,6 +274,9 @@ async fn search_nearby_drivers_with_vehicle(
                             }),
                             bear,
                             vehicle_type,
+                            driver_mode: driver_last_known_location
+                                .as_ref()
+                                .and_then(|loc| loc.driver_mode.clone()),
                         })
                     }
                 },
@@ -302,6 +314,9 @@ async fn search_nearby_drivers_with_vehicle(
                     ride_details: None,
                     bear,
                     vehicle_type,
+                    driver_mode: driver_last_known_location
+                        .as_ref()
+                        .and_then(|loc| loc.driver_mode.clone()),
                 }
             };
 
@@ -466,6 +481,7 @@ pub async fn get_drivers_location(
                 ride_details: None,
                 bear: driver_last_known_location.bear,
                 vehicle_type: driver_last_known_location.vehicle_type.clone(),
+                driver_mode: driver_last_known_location.driver_mode.clone(),
             };
             driver_locations.push(driver_location);
         } else {
@@ -505,6 +521,7 @@ pub async fn driver_block_till(
             &details.driver_last_known_location.vehicle_type,
             &details.driver_last_known_location.group_id,
             &details.driver_last_known_location.group_id2,
+            &details.driver_last_known_location.driver_mode,
         )
         .await?;
     };
