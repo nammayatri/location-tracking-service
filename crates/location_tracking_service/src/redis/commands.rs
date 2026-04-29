@@ -10,7 +10,7 @@ use crate::domain::types::ui::location::PersonType;
 use crate::outbound::types::LocationUpdate;
 use crate::redis::keys::*;
 use crate::tools::error::AppError;
-use fred::prelude::SortedSetsInterface;
+use fred::prelude::{KeysInterface, SortedSetsInterface};
 use fred::types::{GeoPosition, GeoUnit, RedisValue, SetOptions, SortOrder};
 use futures::Future;
 use rustc_hash::FxHashSet;
@@ -1089,7 +1089,7 @@ pub async fn add_driver_to_special_location_zset(
     redis
         .zadd(
             &key,
-            None,
+            Some(SetOptions::NX),
             None,
             false,
             false,
@@ -1101,6 +1101,72 @@ pub async fn add_driver_to_special_location_zset(
         .set_expiry(&key, bucket_expiry)
         .await
         .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
+/// Get the last stored server timestamp for a driver in a special location.
+/// Returns `None` if no timestamp has been stored yet.
+pub async fn get_driver_special_location_last_ts(
+    redis: &RedisConnectionPool,
+    special_location_id: &str,
+    driver_id: &DriverId,
+) -> Result<Option<f64>, AppError> {
+    redis
+        .get_key::<f64>(&driver_special_location_last_ts_key(
+            special_location_id,
+            &driver_id.0,
+        ))
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
+/// Set the last stored server timestamp for a driver in a special location.
+pub async fn set_driver_special_location_last_ts(
+    redis: &RedisConnectionPool,
+    special_location_id: &str,
+    driver_id: &DriverId,
+    timestamp: f64,
+    expiry: u32,
+) -> Result<(), AppError> {
+    redis
+        .set_key(
+            &driver_special_location_last_ts_key(special_location_id, &driver_id.0),
+            &timestamp,
+            expiry,
+        )
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
+/// Remove a driver from the special-location ZSET for the given bucket,
+/// then re-add with the given timestamp. Used when the stored timestamp
+/// is newer than the current ping to correct the score.
+///
+/// Uses a pipeline so ZREM + ZADD + EXPIRE execute atomically on a single
+/// connection, preventing another pod from slipping a ZADD NX in between.
+pub async fn replace_driver_in_special_location_zset(
+    redis: &RedisConnectionPool,
+    special_location_id: &str,
+    bucket: u64,
+    driver_id: &DriverId,
+    timestamp: &TimeStamp,
+    bucket_expiry: i64,
+) -> Result<(), AppError> {
+    let key = special_location_drivers_key(special_location_id, &bucket);
+    let member =
+        serde_json::to_string(&driver_id.0).map_err(|e| AppError::InternalError(e.to_string()))?;
+    let score = timestamp.inner().timestamp() as f64;
+
+    let pipeline = redis.writer_pool.next().pipeline();
+    let _ = pipeline.zrem::<RedisValue, _, _>(&key, &member).await;
+    let _ = pipeline
+        .zadd::<RedisValue, _, _>(&key, None, None, false, false, (score, member.as_str()))
+        .await;
+    let _ = pipeline.expire::<(), _>(&key, bucket_expiry).await;
+    let _: Vec<RedisValue> = pipeline
+        .all()
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))?;
+    Ok(())
 }
 
 // --- Queue operations (airport/special zone FIFO queue, per vehicle type) ---

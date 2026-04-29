@@ -102,6 +102,12 @@ pub struct AppConfig {
     /// eviction during cache (re)loads or missing-city states.
     #[serde(default = "default_true")]
     pub enable_queue_cache_empty_guard: bool,
+    /// TTL (in seconds) for the per-driver special-location entry timestamp.
+    /// While this key is alive, a driver who exits and re-enters the geofence
+    /// will keep their original queue position instead of being placed at the
+    /// tail. Defaults to 900 (15 minutes).
+    #[serde(default = "default_special_location_entry_ts_ttl")]
+    pub special_location_entry_ts_ttl_sec: u64,
 }
 
 fn default_queue_expiry() -> u64 {
@@ -118,6 +124,10 @@ fn default_queue_exit_hysteresis_threshold() -> u32 {
 
 fn default_true() -> bool {
     true
+}
+
+fn default_special_location_entry_ts_ttl() -> u64 {
+    300 // 5 minutes
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -167,7 +177,14 @@ where
 #[derive(Clone)]
 pub struct AppState {
     pub redis: Arc<RedisConnectionPool>,
-    pub sender: Sender<(Dimensions, Latitude, Longitude, TimeStamp, DriverId)>,
+    pub sender: Sender<(
+        Dimensions,
+        Latitude,
+        Longitude,
+        TimeStamp,
+        TimeStamp,
+        DriverId,
+    )>,
     pub drainer_delay: u64,
     pub drainer_size: usize,
     pub polygon: Vec<MultiPolygonBody>,
@@ -227,12 +244,20 @@ pub struct AppState {
     pub queue_position_range_offset: u64,
     pub queue_exit_hysteresis_threshold: u32,
     pub enable_queue_cache_empty_guard: bool,
+    pub special_location_entry_ts_ttl_sec: u64,
 }
 
 impl AppState {
     pub async fn new(
         app_config: AppConfig,
-        sender: Sender<(Dimensions, Latitude, Longitude, TimeStamp, DriverId)>,
+        sender: Sender<(
+            Dimensions,
+            Latitude,
+            Longitude,
+            TimeStamp,
+            TimeStamp,
+            DriverId,
+        )>,
     ) -> AppState {
         let pod_zone = var("POD_ZONE").ok();
         let new_replica_host = pod_zone
@@ -436,6 +461,7 @@ impl AppState {
             queue_position_range_offset: app_config.queue_position_range_offset,
             queue_exit_hysteresis_threshold: app_config.queue_exit_hysteresis_threshold,
             enable_queue_cache_empty_guard: app_config.enable_queue_cache_empty_guard,
+            special_location_entry_ts_ttl_sec: app_config.special_location_entry_ts_ttl_sec,
         }
     }
 }

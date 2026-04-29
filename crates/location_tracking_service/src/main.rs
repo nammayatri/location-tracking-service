@@ -63,8 +63,22 @@ async fn start_server() -> std::io::Result<()> {
 
     #[allow(clippy::type_complexity)]
     let (sender, receiver): (
-        Sender<(Dimensions, Latitude, Longitude, TimeStamp, DriverId)>,
-        Receiver<(Dimensions, Latitude, Longitude, TimeStamp, DriverId)>,
+        Sender<(
+            Dimensions,
+            Latitude,
+            Longitude,
+            TimeStamp,
+            TimeStamp,
+            DriverId,
+        )>,
+        Receiver<(
+            Dimensions,
+            Latitude,
+            Longitude,
+            TimeStamp,
+            TimeStamp,
+            DriverId,
+        )>,
     ) = mpsc::channel(app_config.drainer_size);
 
     let app_state = AppState::new(app_config, sender).await;
@@ -130,6 +144,7 @@ async fn start_server() -> std::io::Result<()> {
     let queue_expiry_seconds = data.queue_expiry_seconds;
     let queue_exit_hysteresis_threshold = data.queue_exit_hysteresis_threshold;
     let enable_queue_cache_empty_guard = data.enable_queue_cache_empty_guard;
+    let special_location_entry_ts_ttl_sec = data.special_location_entry_ts_ttl_sec;
     let channel_thread = tokio::spawn(async move {
         run_drainer(
             receiver,
@@ -144,6 +159,7 @@ async fn start_server() -> std::io::Result<()> {
             queue_expiry_seconds,
             queue_exit_hysteresis_threshold,
             enable_queue_cache_empty_guard,
+            special_location_entry_ts_ttl_sec,
         )
         .await;
     });

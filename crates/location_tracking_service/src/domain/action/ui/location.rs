@@ -876,6 +876,7 @@ async fn process_driver_locations(
                         },
                         latest_driver_location.pt.lat,
                         latest_driver_location.pt.lon,
+                        current_ts,
                         latest_driver_location_ts.to_owned(),
                         driver_id.to_owned(),
                     ))
@@ -924,6 +925,7 @@ async fn process_driver_locations(
                             },
                             latest_driver_location.pt.lat,
                             latest_driver_location.pt.lon,
+                            current_ts,
                             latest_driver_location_ts.to_owned(),
                             driver_id.to_owned(),
                         ))

@@ -16,7 +16,9 @@ use crate::{
     redis::{
         commands::{
             add_driver_to_special_location_zset, batch_check_drivers_on_ride,
-            batch_get_driver_queue_trackings, push_drainer_driver_location, DriverQueueTracking,
+            batch_get_driver_queue_trackings, get_driver_special_location_last_ts,
+            push_drainer_driver_location, replace_driver_in_special_location_zset,
+            set_driver_special_location_last_ts, DriverQueueTracking,
         },
         keys::{driver_loc_bucket_key, driver_queue_tracking_key, special_location_queue_key},
     },
@@ -274,6 +276,7 @@ async fn drain_queue_actions(
 ///     ...
 /// }
 /// ```
+#[allow(clippy::too_many_arguments)]
 async fn drain_driver_locations(
     driver_locations: &DriversLocationMap,
     special_location_entries: &FxHashMap<String, Vec<(DriverId, u64, f64)>>,
@@ -281,6 +284,7 @@ async fn drain_driver_locations(
     bucket_expiry: i64,
     queue_expiry: u64,
     queue_exit_hysteresis_threshold: u32,
+    entry_ts_ttl: u32,
     redis: &Arc<RedisConnectionPool>,
 ) {
     info!(
@@ -294,20 +298,88 @@ async fn drain_driver_locations(
 
     for (key, entries) in special_location_entries {
         for (driver_id, bucket, score) in entries {
-            let ts = chrono::TimeZone::timestamp_opt(&Utc, *score as i64, 0)
-                .single()
-                .unwrap_or_else(Utc::now);
-            if let Err(err) = add_driver_to_special_location_zset(
-                redis,
-                key,
-                *bucket,
-                driver_id,
-                &TimeStamp(ts),
-                bucket_expiry,
-            )
-            .await
-            {
-                error!(tag = "[Error Adding To Special Location ZSET]", key = %key, error = %err);
+            let stored_ts = get_driver_special_location_last_ts(redis, key, driver_id).await;
+
+            match stored_ts {
+                Ok(Some(stored)) if *score < stored => {
+                    // Current ping is older (earlier entry). This is the earliest
+                    // known arrival — update stored ts and replace ZSET score.
+                    if let Err(err) = set_driver_special_location_last_ts(
+                        redis,
+                        key,
+                        driver_id,
+                        *score,
+                        entry_ts_ttl,
+                    )
+                    .await
+                    {
+                        error!(tag = "[Error Setting Special Location Last TS]", key = %key, error = %err);
+                    }
+                    let ts = chrono::TimeZone::timestamp_opt(&Utc, *score as i64, 0)
+                        .single()
+                        .unwrap_or_else(Utc::now);
+                    if let Err(err) = replace_driver_in_special_location_zset(
+                        redis,
+                        key,
+                        *bucket,
+                        driver_id,
+                        &TimeStamp(ts),
+                        bucket_expiry,
+                    )
+                    .await
+                    {
+                        error!(tag = "[Error Replacing In Special Location ZSET]", key = %key, error = %err);
+                    }
+                }
+                Ok(Some(stored)) => {
+                    // Stored is older or equal — use stored (earliest) as the score.
+                    // ZADD NX: no-op if already in this bucket, adds with stored ts
+                    // if entering a new bucket. Preserves original entry position.
+                    let ts = chrono::TimeZone::timestamp_opt(&Utc, stored as i64, 0)
+                        .single()
+                        .unwrap_or_else(Utc::now);
+                    if let Err(err) = add_driver_to_special_location_zset(
+                        redis,
+                        key,
+                        *bucket,
+                        driver_id,
+                        &TimeStamp(ts),
+                        bucket_expiry,
+                    )
+                    .await
+                    {
+                        error!(tag = "[Error Adding To Special Location ZSET]", key = %key, error = %err);
+                    }
+                }
+                _ => {
+                    // Not found (first time or TTL expired) — store ts and add normally.
+                    if let Err(err) = set_driver_special_location_last_ts(
+                        redis,
+                        key,
+                        driver_id,
+                        *score,
+                        entry_ts_ttl,
+                    )
+                    .await
+                    {
+                        error!(tag = "[Error Setting Special Location Last TS]", key = %key, error = %err);
+                    }
+                    let ts = chrono::TimeZone::timestamp_opt(&Utc, *score as i64, 0)
+                        .single()
+                        .unwrap_or_else(Utc::now);
+                    if let Err(err) = add_driver_to_special_location_zset(
+                        redis,
+                        key,
+                        *bucket,
+                        driver_id,
+                        &TimeStamp(ts),
+                        bucket_expiry,
+                    )
+                    .await
+                    {
+                        error!(tag = "[Error Adding To Special Location ZSET]", key = %key, error = %err);
+                    }
+                }
             }
         }
     }
@@ -370,7 +442,14 @@ fn cleanup_drainer(
 ///
 #[allow(clippy::too_many_arguments)]
 pub async fn run_drainer(
-    mut rx: mpsc::Receiver<(Dimensions, Latitude, Longitude, TimeStamp, DriverId)>,
+    mut rx: mpsc::Receiver<(
+        Dimensions,
+        Latitude,
+        Longitude,
+        TimeStamp,
+        TimeStamp,
+        DriverId,
+    )>,
     graceful_termination_requested: Arc<AtomicBool>,
     drainer_capacity: usize,
     drainer_delay: u64,
@@ -382,6 +461,7 @@ pub async fn run_drainer(
     queue_expiry_seconds: u64,
     queue_exit_hysteresis_threshold: u32,
     enable_queue_cache_empty_guard: bool,
+    special_location_entry_ts_ttl_sec: u64,
 ) {
     let mut driver_locations: DriversLocationMap = FxHashMap::default();
     let mut special_location_zset_entries: FxHashMap<String, Vec<(DriverId, u64, f64)>> =
@@ -408,6 +488,7 @@ pub async fn run_drainer(
                     bucket_expiry,
                     queue_expiry_seconds,
                     queue_exit_hysteresis_threshold,
+                    special_location_entry_ts_ttl_sec as u32,
                     &redis,
                 )
                 .await;
@@ -425,7 +506,7 @@ pub async fn run_drainer(
             item = rx.recv() => {
                 info!(tag = "[Recieved Entries For Queuing]");
                 match item {
-                    Some((Dimensions { merchant_id, city, vehicle_type, created_at, merchant_operating_city_id }, Latitude(latitude), Longitude(longitude), TimeStamp(timestamp), DriverId(driver_id))) => {
+                    Some((Dimensions { merchant_id, city, vehicle_type, created_at, merchant_operating_city_id }, Latitude(latitude), Longitude(longitude), TimeStamp(server_timestamp), TimeStamp(timestamp), DriverId(driver_id))) => {
                         let bucket = get_bucket_from_timestamp(&bucket_size, TimeStamp(timestamp));
 
                         let skip_normal_drain = if let Some(ref cache) = special_location_cache {
@@ -457,7 +538,7 @@ pub async fn run_drainer(
                                         driver_id: driver_id.clone(),
                                         special_location_id: entry.id.0.clone(),
                                         vehicle_type: vehicle_type.to_string(),
-                                        timestamp: timestamp.timestamp() as f64,
+                                        timestamp: server_timestamp.timestamp() as f64,
                                     });
                                 }
                                 !entry.is_open_market_enabled
@@ -507,6 +588,7 @@ pub async fn run_drainer(
                                 bucket_expiry,
                                 queue_expiry_seconds,
                                 queue_exit_hysteresis_threshold,
+                                special_location_entry_ts_ttl_sec as u32,
                                 &redis,
                             )
                             .await;
@@ -537,6 +619,7 @@ pub async fn run_drainer(
                         bucket_expiry,
                         queue_expiry_seconds,
                         queue_exit_hysteresis_threshold,
+                        special_location_entry_ts_ttl_sec as u32,
                         &redis,
                     )
                     .await;
