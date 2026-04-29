@@ -275,6 +275,15 @@ pub fn special_location_queue_key(special_location_id: &str, vehicle_type: &str)
     )
 }
 
+/// Stores the latest server timestamp seen for a driver in a special location.
+/// Used to prevent stale updates from other pods overwriting newer entries.
+pub fn driver_special_location_last_ts_key(special_location_id: &str, driver_id: &str) -> String {
+    format!(
+        "lts:special_loc_last_ts:{}:{}",
+        special_location_id, driver_id
+    )
+}
+
 /// Tracking key to know which queue a driver is currently in.
 /// STRING storing JSON-encoded DriverQueueTracking value.
 pub fn driver_queue_tracking_key(merchant_id: &str, driver_id: &str) -> String {

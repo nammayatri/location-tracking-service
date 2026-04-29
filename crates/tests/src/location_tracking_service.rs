@@ -363,8 +363,22 @@ pub async fn test_read_route_data() {
 
     #[allow(clippy::type_complexity)]
     let (sender, _): (
-        Sender<(Dimensions, Latitude, Longitude, TimeStamp, DriverId)>,
-        Receiver<(Dimensions, Latitude, Longitude, TimeStamp, DriverId)>,
+        Sender<(
+            Dimensions,
+            Latitude,
+            Longitude,
+            TimeStamp,
+            TimeStamp,
+            DriverId,
+        )>,
+        Receiver<(
+            Dimensions,
+            Latitude,
+            Longitude,
+            TimeStamp,
+            TimeStamp,
+            DriverId,
+        )>,
     ) = mpsc::channel(app_config.drainer_size);
 
     let app_state = AppState::new(app_config.to_owned(), sender).await;
