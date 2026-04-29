@@ -17,7 +17,7 @@ use serde::Deserialize;
 use shared::redis::types::{RedisConnectionPool, RedisSettings};
 use std::collections::HashMap;
 use tokio::sync::{mpsc::Sender, RwLock};
-use tracing::info;
+use tracing::{error, info};
 
 use crate::common::{geo_polygon::read_geo_polygon, route::read_route_data, types::*};
 use crate::special_location::SpecialLocationCache;
@@ -288,7 +288,10 @@ impl AppState {
             false,
         )
         .await
-        .expect("Failed to read route data");
+        .unwrap_or_else(|err| {
+            error!("[ROUTE_DATA_LOAD_FAILED] : {:?}", err);
+            FxHashMap::default()
+        });
 
         // TODO: When the new special location API is released, remove this old blacklist loading and use the new implementation (see SPECIAL_LOCATION_DRIVERS_PLAN.md).
         let blacklist_geo_config_path =
