@@ -275,12 +275,18 @@ pub fn special_location_queue_key(special_location_id: &str, vehicle_type: &str)
     )
 }
 
-/// Stores the latest server timestamp seen for a driver in a special location.
-/// Used to prevent stale updates from other pods overwriting newer entries.
-pub fn driver_special_location_last_ts_key(special_location_id: &str, driver_id: &str) -> String {
+/// Stores the earliest server timestamp seen for a driver in a special-location
+/// queue (per vehicle type). Used to keep the queue ZSET score stable across
+/// pods and brief out-of-fence pings: a re-entry within TTL re-uses the
+/// stored timestamp, so the driver retains their original rank.
+pub fn driver_queue_last_ts_key(
+    special_location_id: &str,
+    vehicle_type: &str,
+    driver_id: &str,
+) -> String {
     format!(
-        "lts:special_loc_last_ts:{}:{}",
-        special_location_id, driver_id
+        "lts:queue_last_ts:{}:{}:{}",
+        special_location_id, vehicle_type, driver_id
     )
 }
 

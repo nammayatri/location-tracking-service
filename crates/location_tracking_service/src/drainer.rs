@@ -7,7 +7,7 @@
 */
 use crate::queue_drainer_latency;
 use crate::special_location::{lookup_special_location, SpecialLocationCache};
-use crate::tools::prometheus::{QUEUE_DRAINER_LATENCY, TOTAL_LOCATION_UPDATES};
+use crate::tools::prometheus::{QUEUE_DRAINER_LATENCY, QUEUE_EVICTIONS, TOTAL_LOCATION_UPDATES};
 use crate::{
     common::{
         types::*,
@@ -16,16 +16,18 @@ use crate::{
     redis::{
         commands::{
             add_driver_to_special_location_zset, batch_check_drivers_on_ride,
-            batch_get_driver_queue_trackings, get_driver_special_location_last_ts,
-            push_drainer_driver_location, replace_driver_in_special_location_zset,
-            set_driver_special_location_last_ts, DriverQueueTracking,
+            batch_get_driver_queue_last_ts, batch_get_driver_queue_trackings,
+            push_drainer_driver_location, DriverQueueTracking,
         },
-        keys::{driver_loc_bucket_key, driver_queue_tracking_key, special_location_queue_key},
+        keys::{
+            driver_loc_bucket_key, driver_queue_last_ts_key, driver_queue_tracking_key,
+            special_location_queue_key,
+        },
     },
 };
 use chrono::{DateTime, Utc};
 use fred::prelude::{KeysInterface, SortedSetsInterface};
-use fred::types::{GeoPosition, GeoValue, RedisValue, SetOptions};
+use fred::types::{Expiration, GeoPosition, GeoValue, RedisValue, SetOptions};
 use rustc_hash::FxHashMap;
 use shared::redis::types::RedisConnectionPool;
 use shared::termination;
@@ -63,15 +65,25 @@ enum QueueAction {
 /// `queue_exit_hysteresis_threshold` is the number of consecutive out-of-geofence
 /// pings required before a driver is actually removed from the queue. A value of
 /// 1 reproduces the legacy "remove on first exit ping" behavior.
+///
+/// `queue_last_ts_ttl` is the **post-evict recovery window** (seconds) applied
+/// to the last_ts key when a driver is hysteresis-evicted. While the driver is
+/// actively pinging in-fence, last_ts is refreshed on every Enter at the full
+/// `queue_expiry` so it never decays out from under a stationary driver. The
+/// short TTL only kicks in at the moment of eviction: re-entry within this
+/// window resumes the driver's original rank; longer absences (real exits)
+/// let last_ts expire so the next Enter starts fresh.
 async fn drain_queue_actions(
     actions: Vec<QueueAction>,
     redis: &RedisConnectionPool,
     queue_expiry: u64,
     queue_exit_hysteresis_threshold: u32,
+    queue_last_ts_ttl: u32,
 ) {
     let expiry_i64 = queue_expiry as i64;
+    let last_ts_ttl_i64 = queue_last_ts_ttl as i64;
 
-    // Step 1: Collect all (merchant_id, driver_id) pairs to fetch tracking info via MGET
+    // Step 1: Collect (merchant_id, driver_id) pairs for tracking + on_ride MGETs
     let pairs: Vec<(&str, &str)> = actions
         .iter()
         .map(|a| match a {
@@ -87,9 +99,32 @@ async fn drain_queue_actions(
         })
         .collect();
 
-    let (trackings, on_ride_flags) = tokio::join!(
+    // Last-ts triples — the per-(queue, driver) earliest server timestamp we
+    // use to stabilise rank against single-ping churn and cross-pod ordering.
+    // PossibleExit/evict deletes happen via the pipeline in step 3 below;
+    // those slots stay None so the helper skips them in the MGET while still
+    // returning an actions-aligned vector for zipping.
+    let last_ts_triples: Vec<Option<(&str, &str, &str)>> = actions
+        .iter()
+        .map(|a| match a {
+            QueueAction::Enter {
+                special_location_id,
+                vehicle_type,
+                driver_id,
+                ..
+            } => Some((
+                special_location_id.as_str(),
+                vehicle_type.as_str(),
+                driver_id.as_str(),
+            )),
+            QueueAction::PossibleExit { .. } => None,
+        })
+        .collect();
+
+    let (trackings, on_ride_flags, last_ts_results) = tokio::join!(
         batch_get_driver_queue_trackings(redis, &pairs),
-        batch_check_drivers_on_ride(redis, &pairs)
+        batch_check_drivers_on_ride(redis, &pairs),
+        batch_get_driver_queue_last_ts(redis, &last_ts_triples)
     );
 
     let trackings = match trackings {
@@ -108,13 +143,22 @@ async fn drain_queue_actions(
         }
     };
 
+    let last_ts_results = match last_ts_results {
+        Ok(v) => v,
+        Err(e) => {
+            error!(tag = "[Queue Batch Last TS MGET]", error = %e);
+            vec![None; actions.len()]
+        }
+    };
+
     // Step 2: Build all write commands into a single pipeline
     let pipeline = redis.writer_pool.next().pipeline();
 
-    for ((action, old_tracking), is_on_ride) in actions
+    for (((action, old_tracking), is_on_ride), stored_last_ts) in actions
         .iter()
         .zip(trackings.iter())
         .zip(on_ride_flags.iter())
+        .zip(last_ts_results.iter())
     {
         match action {
             QueueAction::Enter {
@@ -128,7 +172,7 @@ async fn drain_queue_actions(
                     info!(tag = "[Queue Skip On Ride]", driver_id = %driver_id, special_location_id = %special_location_id, "Driver is on ride, skipping queue entry");
                     continue;
                 }
-                info!(tag = "[Queue Enter Processing]", driver_id = %driver_id, special_location_id = %special_location_id, vehicle_type = %vehicle_type, "Processing queue enter, old_tracking={:?}", old_tracking);
+                info!(tag = "[Queue Enter Processing]", driver_id = %driver_id, special_location_id = %special_location_id, vehicle_type = %vehicle_type, "Processing queue enter, old_tracking={:?}, stored_last_ts={:?}", old_tracking, stored_last_ts);
                 let new_tracking = DriverQueueTracking {
                     special_location_id: special_location_id.clone(),
                     vehicle_type: vehicle_type.clone(),
@@ -137,11 +181,26 @@ async fn drain_queue_actions(
                     consecutive_exit_pings: 0,
                 };
 
-                // If driver was in a different queue, remove from old one
+                // If driver was in a different queue, evict from the old one:
+                // both the queue ZSET and the per-queue last_ts of the old
+                // (special_location_id, vehicle_type) become stale.
                 if let Some(ref old) = old_tracking {
                     let same_queue = old.special_location_id == new_tracking.special_location_id
                         && old.vehicle_type == new_tracking.vehicle_type;
                     if !same_queue {
+                        info!(
+                            tag = "[Queue Switch Evict]",
+                            driver_id = %driver_id,
+                            merchant_id = %merchant_id,
+                            old_special_location_id = %old.special_location_id,
+                            old_vehicle_type = %old.vehicle_type,
+                            old_consecutive_exit_pings = old.consecutive_exit_pings,
+                            new_special_location_id = %special_location_id,
+                            new_vehicle_type = %vehicle_type,
+                            current_server_ts = *timestamp,
+                            stored_last_ts = ?stored_last_ts,
+                            "Driver entering different queue; evicting from old (ZREM old queue, DEL old last_ts)"
+                        );
                         let old_key =
                             special_location_queue_key(&old.special_location_id, &old.vehicle_type);
                         let old_member = serde_json::to_string(driver_id.as_str())
@@ -149,24 +208,98 @@ async fn drain_queue_actions(
                         let _ = pipeline
                             .zrem::<RedisValue, _, _>(&old_key, old_member)
                             .await;
+                        let old_last_ts_key = driver_queue_last_ts_key(
+                            &old.special_location_id,
+                            &old.vehicle_type,
+                            driver_id,
+                        );
+                        let _ = pipeline.del::<RedisValue, _>(&old_last_ts_key).await;
+                        QUEUE_EVICTIONS
+                            .with_label_values(&["switch", &old.special_location_id])
+                            .inc();
                     }
                 }
 
-                // ZADD NX to new queue
                 let queue_key = special_location_queue_key(special_location_id, vehicle_type);
+                let last_ts_key =
+                    driver_queue_last_ts_key(special_location_id, vehicle_type, driver_id);
                 let member =
                     serde_json::to_string(driver_id.as_str()).unwrap_or_else(|_| driver_id.clone());
-                let _ = pipeline
-                    .zadd::<RedisValue, _, _>(
-                        &queue_key,
-                        Some(SetOptions::NX),
-                        None,
-                        false,
-                        false,
-                        (*timestamp, member.as_str()),
-                    )
-                    .await;
+
+                // Decide the score to use:
+                //  - Some(stored) and current is earlier: lower the score so
+                //    rank reflects the earliest-known arrival across pods.
+                //  - Some(stored) otherwise: keep stored — covers same-driver
+                //    repeat pings (NX no-op) and brief out-and-back-in within
+                //    the TTL window (rank preserved).
+                //  - None: first entry (or TTL elapsed since last ping) — use
+                //    the current server_ts.
+                let effective_score = match *stored_last_ts {
+                    Some(stored) if *timestamp < stored => {
+                        // ZREM + ZADD (no NX) so the lower score sticks.
+                        let _ = pipeline
+                            .zrem::<RedisValue, _, _>(&queue_key, member.as_str())
+                            .await;
+                        let _ = pipeline
+                            .zadd::<RedisValue, _, _>(
+                                &queue_key,
+                                None,
+                                None,
+                                false,
+                                false,
+                                (*timestamp, member.as_str()),
+                            )
+                            .await;
+                        *timestamp
+                    }
+                    Some(stored) => {
+                        // ZADD NX: no-op if member is already present (the
+                        // common case for a repeat ping); if the member was
+                        // evicted (e.g. queue TTL refreshed differently from
+                        // last_ts TTL), re-add at the original score.
+                        let _ = pipeline
+                            .zadd::<RedisValue, _, _>(
+                                &queue_key,
+                                Some(SetOptions::NX),
+                                None,
+                                false,
+                                false,
+                                (stored, member.as_str()),
+                            )
+                            .await;
+                        stored
+                    }
+                    None => {
+                        let _ = pipeline
+                            .zadd::<RedisValue, _, _>(
+                                &queue_key,
+                                Some(SetOptions::NX),
+                                None,
+                                false,
+                                false,
+                                (*timestamp, member.as_str()),
+                            )
+                            .await;
+                        *timestamp
+                    }
+                };
                 let _ = pipeline.expire::<(), _>(&queue_key, expiry_i64).await;
+
+                // Refresh last_ts on every Enter at the full queue_expiry, so
+                // a driver who keeps pinging in-fence never has their rank
+                // memory decay. The post-evict short window is applied at the
+                // hysteresis evict site below via EXPIRE.
+                if let Ok(value) = serde_json::to_string(&effective_score) {
+                    let _ = pipeline
+                        .set::<RedisValue, _, _>(
+                            &last_ts_key,
+                            value,
+                            Some(Expiration::EX(expiry_i64)),
+                            None,
+                            false,
+                        )
+                        .await;
+                }
 
                 // SET tracking key without expiry — only deleted on explicit queue exit.
                 // This ensures we always know which queue a driver is in, even if
@@ -197,11 +330,14 @@ async fn drain_queue_actions(
                         info!(
                             tag = "[Queue Exit Evict]",
                             driver_id = %driver_id,
+                            merchant_id = %merchant_id,
                             special_location_id = %tracking.special_location_id,
                             vehicle_type = %tracking.vehicle_type,
-                            exit_pings = next_count,
+                            previous_exit_pings = tracking.consecutive_exit_pings,
+                            next_exit_pings = next_count,
                             threshold = threshold,
-                            "Hysteresis threshold reached, removing driver from queue"
+                            queue_last_ts_ttl_sec = queue_last_ts_ttl,
+                            "Hysteresis threshold reached: this PossibleExit ping bumped consecutive_exit_pings from previous to next, hitting threshold. ZREM driver from queue + DEL tracking. last_ts is intentionally NOT deleted — it lives until its TTL so a quick re-entry can still resume original rank, while a real exit (>> TTL) lets it expire naturally."
                         );
                         let queue_key = special_location_queue_key(
                             &tracking.special_location_id,
@@ -211,6 +347,28 @@ async fn drain_queue_actions(
                             .unwrap_or_else(|_| driver_id.clone());
                         let _ = pipeline.zrem::<RedisValue, _, _>(&queue_key, member).await;
                         let _ = pipeline.del::<RedisValue, _>(&tracking_key).await;
+                        QUEUE_EVICTIONS
+                            .with_label_values(&["hysteresis", &tracking.special_location_id])
+                            .inc();
+                        // Trim last_ts to the short recovery window. While
+                        // the driver was in-fence, Enter refreshed last_ts at
+                        // queue_expiry so it never decayed; here we cap the
+                        // remaining lifetime so the TTL doubles as a
+                        // false-evict-vs-real-exit discriminator:
+                        //   - re-entry within `queue_last_ts_ttl` (e.g. GPS
+                        //     noise, drainer race) → last_ts still alive →
+                        //     ZADD NX with stored ts → original rank
+                        //     restored.
+                        //   - longer absence (real exit) → last_ts expires →
+                        //     next Enter starts fresh at the tail.
+                        let last_ts_key = driver_queue_last_ts_key(
+                            &tracking.special_location_id,
+                            &tracking.vehicle_type,
+                            driver_id,
+                        );
+                        let _ = pipeline
+                            .expire::<(), _>(&last_ts_key, last_ts_ttl_i64)
+                            .await;
                     } else {
                         // Haven't hit threshold yet — keep the driver in the
                         // queue, just bump the counter in tracking. Preserves
@@ -296,90 +454,25 @@ async fn drain_driver_locations(
         error!(tag = "[Error Pushing To Redis]", error = %err);
     }
 
+    // Bucketed presence ZSET: only membership is consumed (by
+    // `get_drivers_in_special_location`). Score has no semantic role beyond
+    // ordering within a bucket, so a plain ZADD per ping is sufficient.
     for (key, entries) in special_location_entries {
         for (driver_id, bucket, score) in entries {
-            let stored_ts = get_driver_special_location_last_ts(redis, key, driver_id).await;
-
-            match stored_ts {
-                Ok(Some(stored)) if *score < stored => {
-                    // Current ping is older (earlier entry). This is the earliest
-                    // known arrival — update stored ts and replace ZSET score.
-                    if let Err(err) = set_driver_special_location_last_ts(
-                        redis,
-                        key,
-                        driver_id,
-                        *score,
-                        entry_ts_ttl,
-                    )
-                    .await
-                    {
-                        error!(tag = "[Error Setting Special Location Last TS]", key = %key, error = %err);
-                    }
-                    let ts = chrono::TimeZone::timestamp_opt(&Utc, *score as i64, 0)
-                        .single()
-                        .unwrap_or_else(Utc::now);
-                    if let Err(err) = replace_driver_in_special_location_zset(
-                        redis,
-                        key,
-                        *bucket,
-                        driver_id,
-                        &TimeStamp(ts),
-                        bucket_expiry,
-                    )
-                    .await
-                    {
-                        error!(tag = "[Error Replacing In Special Location ZSET]", key = %key, error = %err);
-                    }
-                }
-                Ok(Some(stored)) => {
-                    // Stored is older or equal — use stored (earliest) as the score.
-                    // ZADD NX: no-op if already in this bucket, adds with stored ts
-                    // if entering a new bucket. Preserves original entry position.
-                    let ts = chrono::TimeZone::timestamp_opt(&Utc, stored as i64, 0)
-                        .single()
-                        .unwrap_or_else(Utc::now);
-                    if let Err(err) = add_driver_to_special_location_zset(
-                        redis,
-                        key,
-                        *bucket,
-                        driver_id,
-                        &TimeStamp(ts),
-                        bucket_expiry,
-                    )
-                    .await
-                    {
-                        error!(tag = "[Error Adding To Special Location ZSET]", key = %key, error = %err);
-                    }
-                }
-                _ => {
-                    // Not found (first time or TTL expired) — store ts and add normally.
-                    if let Err(err) = set_driver_special_location_last_ts(
-                        redis,
-                        key,
-                        driver_id,
-                        *score,
-                        entry_ts_ttl,
-                    )
-                    .await
-                    {
-                        error!(tag = "[Error Setting Special Location Last TS]", key = %key, error = %err);
-                    }
-                    let ts = chrono::TimeZone::timestamp_opt(&Utc, *score as i64, 0)
-                        .single()
-                        .unwrap_or_else(Utc::now);
-                    if let Err(err) = add_driver_to_special_location_zset(
-                        redis,
-                        key,
-                        *bucket,
-                        driver_id,
-                        &TimeStamp(ts),
-                        bucket_expiry,
-                    )
-                    .await
-                    {
-                        error!(tag = "[Error Adding To Special Location ZSET]", key = %key, error = %err);
-                    }
-                }
+            let ts = chrono::TimeZone::timestamp_opt(&Utc, *score as i64, 0)
+                .single()
+                .unwrap_or_else(Utc::now);
+            if let Err(err) = add_driver_to_special_location_zset(
+                redis,
+                key,
+                *bucket,
+                driver_id,
+                &TimeStamp(ts),
+                bucket_expiry,
+            )
+            .await
+            {
+                error!(tag = "[Error Adding To Special Location ZSET]", key = %key, error = %err);
             }
         }
     }
@@ -393,6 +486,7 @@ async fn drain_driver_locations(
                 &redis,
                 queue_expiry,
                 queue_exit_hysteresis_threshold,
+                entry_ts_ttl,
             )
             .await;
         });
@@ -527,7 +621,7 @@ pub async fn run_drainer(
                                         .push((
                                             DriverId(driver_id.clone()),
                                             bucket,
-                                            timestamp.timestamp() as f64,
+                                            server_timestamp.timestamp() as f64,
                                         ));
                                 }
                                 // Queue entry: if this special location is queue-enabled, enqueue driver
