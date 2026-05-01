@@ -117,6 +117,7 @@ pub async fn track_person_entity_location(
 }
 
 /// Generic: update person location (batch). Path: person_type. Body: Vec<UpdatePersonLocationRequest>.
+/// Optional headers for fleet operator: gtfsId, vehicleNumber
 #[post("/ui/location/{person_type}")]
 pub async fn update_person_location(
     data: Data<AppState>,
@@ -136,5 +137,27 @@ pub async fn update_person_location(
         .ok_or(AppError::InvalidRequest(
             "token (Header) not found".to_string(),
         ))?;
-    location::update_person_location(person_type, Token(token), data, request_body).await
+
+    // Extract optional fleet operator headers
+    let gtfs_id = req
+        .headers()
+        .get("gtfsId")
+        .and_then(|h| h.to_str().ok())
+        .map(String::from);
+
+    let vehicle_number = req
+        .headers()
+        .get("vehicleNumber")
+        .and_then(|h| h.to_str().ok())
+        .map(String::from);
+
+    location::update_person_location(
+        person_type,
+        Token(token),
+        data,
+        request_body,
+        gtfs_id,
+        vehicle_number,
+    )
+    .await
 }

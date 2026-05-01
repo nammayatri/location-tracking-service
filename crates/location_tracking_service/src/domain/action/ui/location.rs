@@ -277,6 +277,97 @@ pub async fn update_driver_location_by_token(
     Ok(HttpResponse::Ok().finish())
 }
 
+/// Handle fleet operator location updates by forwarding to gtfs-specific Kafka topic
+async fn handle_fleet_operator_location(
+    data: Data<AppState>,
+    locations: Vec<UpdatePersonLocationRequest>,
+    gtfs_id: String,
+    vehicle_number: String,
+    token: Token,
+) -> Result<HttpResponse, AppError> {
+    // Look up the Kafka topic for this gtfs_id
+    let kafka_topic = data
+        .fleet_operator_kafka_topics
+        .get(&gtfs_id)
+        .cloned()
+        .ok_or_else(|| {
+            AppError::InvalidRequest(format!(
+                "No Kafka topic configured for gtfs_id: {}",
+                gtfs_id
+            ))
+        })?;
+
+    // Authenticate the token using rider auth (fleet operators use riderOtpAuth)
+    let (person_id, _merchant_id, _merchant_operating_city_id) = get_rider_id_from_authentication(
+        &data.redis,
+        &data.rider_auth_url,
+        &data.rider_auth_api_key,
+        &data.rider_auth_token_expiry,
+        &token,
+    )
+    .await?;
+
+    info!(
+        "Processing fleet operator location for person_id: {:?}, vehicle: {}, gtfs_id: {}, topic: {}",
+        person_id, vehicle_number, gtfs_id, kafka_topic
+    );
+
+    // Produce each location to the Kafka topic
+    if let Some(ref producer) = data.producer {
+        for location in locations {
+            let message = serde_json::json!({
+                "lat": location.pt.lat.inner(),
+                "long": location.pt.lon.inner(),
+                "timestamp": location.ts.inner().timestamp(),
+                "accuracy": location.acc.map(|a| a.inner()),
+                "speed": location.v.map(|s| s.inner()),
+                "bearing": location.bear.map(|b| b.inner()),
+                "vehicleNumber": vehicle_number,
+                "gtfsId": gtfs_id,
+                "operatorType": "fleetOperator",
+                "deviceId": format!("fleet_{}", vehicle_number),
+                "pushedToKafkaAt": Utc::now().timestamp(),
+                "serverTime": Utc::now().timestamp(),
+                "provider": "fleet-operator",
+            });
+
+            let payload = match serde_json::to_string(&message) {
+                Ok(json) => json,
+                Err(e) => {
+                    warn!("Failed to serialize fleet operator location: {}", e);
+                    continue;
+                }
+            };
+
+            let record = rdkafka::producer::FutureRecord::to(&kafka_topic)
+                .payload(&payload)
+                .key(&vehicle_number);
+
+            match producer
+                .send(record, std::time::Duration::from_secs(5))
+                .await
+            {
+                Ok((partition, offset)) => {
+                    debug!(
+                        "Sent fleet operator location to {} partition {} offset {}",
+                        kafka_topic, partition, offset
+                    );
+                }
+                Err((e, _)) => {
+                    warn!(
+                        "Failed to send fleet operator location to Kafka topic {}: {}",
+                        kafka_topic, e
+                    );
+                }
+            }
+        }
+    } else {
+        warn!("Kafka producer not available for fleet operator location");
+    }
+
+    Ok(HttpResponse::Ok().finish())
+}
+
 /// Simplified version for external GPS providers that already have driver_id
 /// No token authentication needed
 #[macros::measure_duration]
@@ -1353,17 +1444,31 @@ pub async fn track_person_entity_location(
     })
 }
 
-/// Generic: update person location (batch). Rider-only for now; uses generic keys and entity_loc vector.
+/// Generic: update person location (batch). Supports Rider, Driver (delegated), and FleetOperator.
+/// For FleetOperator, gtfs_id and vehicle_number must be provided.
 pub async fn update_person_location(
     person_type: PersonType,
     token: Token,
     data: Data<AppState>,
     locations: Vec<UpdatePersonLocationRequest>,
+    gtfs_id: Option<String>,
+    vehicle_number: Option<String>,
 ) -> Result<HttpResponse, AppError> {
     if locations.is_empty() {
         return Ok(HttpResponse::Ok().finish());
     }
     match person_type {
+        PersonType::FleetOperator => {
+            // Fleet operator: forward to Kafka topic
+            if let (Some(gtfs_id), Some(vehicle_number)) = (gtfs_id, vehicle_number) {
+                handle_fleet_operator_location(data, locations, gtfs_id, vehicle_number, token)
+                    .await
+            } else {
+                Err(AppError::InvalidRequest(
+                    "Fleet operator requires gtfs_id and vehicle_number headers".to_string(),
+                ))
+            }
+        }
         PersonType::Rider => {
             let (person_id, merchant_id, _merchant_operating_city_id) =
                 get_rider_id_from_authentication(
