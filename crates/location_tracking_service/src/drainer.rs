@@ -20,13 +20,13 @@ use crate::{
             push_drainer_driver_location, DriverQueueTracking,
         },
         keys::{
-            driver_loc_bucket_key, driver_queue_last_ts_key, driver_queue_tracking_key,
-            special_location_queue_key,
+            driver_loc_bucket_key, driver_queue_last_ts_key, driver_queue_rank_history_key,
+            driver_queue_tracking_key, special_location_queue_key,
         },
     },
 };
 use chrono::{DateTime, Utc};
-use fred::prelude::{KeysInterface, SortedSetsInterface};
+use fred::prelude::{HashesInterface, KeysInterface, SortedSetsInterface};
 use fred::types::{Expiration, GeoPosition, GeoValue, RedisValue, SetOptions};
 use rustc_hash::FxHashMap;
 use shared::redis::types::RedisConnectionPool;
@@ -73,6 +73,21 @@ enum QueueAction {
 /// short TTL only kicks in at the moment of eviction: re-entry within this
 /// window resumes the driver's original rank; longer absences (real exits)
 /// let last_ts expire so the next Enter starts fresh.
+/// TTL on the per-driver rank-history hash. 2h is a balance between letting
+/// operators inspect rank churn over the recent past and keeping per-key
+/// memory bounded for large fleets.
+const RANK_HISTORY_TTL_SECS: i64 = 2 * 60 * 60;
+
+/// Side data captured for each successful Enter so we can post-pipeline
+/// ZRANK and HSET into the per-driver rank-history hash.
+struct EnteredForRankHistory {
+    merchant_id: String,
+    driver_id: String,
+    special_location_id: String,
+    vehicle_type: String,
+    timestamp: f64,
+}
+
 async fn drain_queue_actions(
     actions: Vec<QueueAction>,
     redis: &RedisConnectionPool,
@@ -82,6 +97,11 @@ async fn drain_queue_actions(
 ) {
     let expiry_i64 = queue_expiry as i64;
     let last_ts_ttl_i64 = queue_last_ts_ttl as i64;
+
+    // Per-batch side list of successful Enter events, used to record the
+    // driver's resulting rank into a per-driver history hash after the main
+    // pipeline executes. Order matches our follow-up ZRANK pipeline 1-to-1.
+    let mut entered: Vec<EnteredForRankHistory> = Vec::new();
 
     // Step 1: Collect (merchant_id, driver_id) pairs for tracking + on_ride MGETs
     let pairs: Vec<(&str, &str)> = actions
@@ -310,6 +330,14 @@ async fn drain_queue_actions(
                         .set::<RedisValue, _, _>(&tracking_key, value, None, None, false)
                         .await;
                 }
+
+                entered.push(EnteredForRankHistory {
+                    merchant_id: merchant_id.clone(),
+                    driver_id: driver_id.clone(),
+                    special_location_id: special_location_id.clone(),
+                    vehicle_type: vehicle_type.clone(),
+                    timestamp: *timestamp,
+                });
             }
             QueueAction::PossibleExit {
                 merchant_id,
@@ -407,6 +435,70 @@ async fn drain_queue_actions(
     let result: Result<Vec<RedisValue>, _> = pipeline.all().await;
     if let Err(e) = result {
         error!(tag = "[Queue Pipeline Execute]", error = %e);
+    }
+
+    // Step 4: For every successful Enter, append (rank → timestamp) to that
+    // driver's rank-history hash. Done after the main pipeline so ZRANK
+    // observes the just-applied ZADD/score updates. This is observability,
+    // not load-bearing state — failures are logged and swallowed.
+    if !entered.is_empty() {
+        record_rank_history(redis, &entered).await;
+    }
+}
+
+/// Run two follow-up pipelines after the main drain:
+///   1. Batched ZRANK for each Enter to discover the post-write rank.
+///   2. Batched HSET (rank → timestamp) + EXPIRE on the per-driver hash.
+async fn record_rank_history(redis: &RedisConnectionPool, entered: &[EnteredForRankHistory]) {
+    let zrank_pipeline = redis.writer_pool.next().pipeline();
+    for e in entered {
+        let queue_key = special_location_queue_key(&e.special_location_id, &e.vehicle_type);
+        let member =
+            serde_json::to_string(e.driver_id.as_str()).unwrap_or_else(|_| e.driver_id.clone());
+        let _ = zrank_pipeline
+            .zrank::<RedisValue, _, _>(&queue_key, member)
+            .await;
+    }
+    let ranks: Vec<RedisValue> = match zrank_pipeline.all().await {
+        Ok(v) => v,
+        Err(e) => {
+            error!(tag = "[Queue Rank History ZRANK]", error = %e);
+            return;
+        }
+    };
+
+    let hset_pipeline = redis.writer_pool.next().pipeline();
+    let mut queued = 0usize;
+    for (e, rank_val) in entered.iter().zip(ranks.iter()) {
+        // ZRANK returns nil if the member is not in the set (eviction raced
+        // in, drainer reordering, etc.). Skip those — there's nothing useful
+        // to record.
+        let rank: u64 = match rank_val.clone().convert::<Option<u64>>() {
+            Ok(Some(r)) => r,
+            Ok(None) => continue,
+            Err(err) => {
+                error!(
+                    tag = "[Queue Rank History Parse]",
+                    driver_id = %e.driver_id,
+                    error = %err,
+                );
+                continue;
+            }
+        };
+        let key = driver_queue_rank_history_key(&e.merchant_id, &e.driver_id);
+        let _ = hset_pipeline
+            .hset::<RedisValue, _, _>(&key, (rank.to_string(), e.timestamp.to_string()))
+            .await;
+        let _ = hset_pipeline
+            .expire::<(), _>(&key, RANK_HISTORY_TTL_SECS)
+            .await;
+        queued += 1;
+    }
+    if queued == 0 {
+        return;
+    }
+    if let Err(e) = hset_pipeline.all::<Vec<RedisValue>>().await {
+        error!(tag = "[Queue Rank History HSET]", error = %e);
     }
 }
 

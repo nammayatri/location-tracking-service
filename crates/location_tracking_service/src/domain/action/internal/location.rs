@@ -17,7 +17,7 @@ use crate::{
     domain::types::internal::location::*,
     environment::AppState,
     redis::commands::*,
-    tools::prometheus::MEASURE_DURATION,
+    tools::prometheus::{MEASURE_DURATION, QUEUE_EVICTIONS},
 };
 use actix_web::web::Data;
 use chrono::Utc;
@@ -576,6 +576,13 @@ pub async fn manual_queue_remove(
 ) -> Result<APISuccess, AppError> {
     remove_driver_from_queue(&data.redis, &special_location_id, &vehicle_type, &driver_id).await?;
     delete_driver_queue_tracking(&data.redis, &merchant_id, &driver_id).await?;
+    // Clear last_ts so the next in-fence ping cannot resurrect the driver at
+    // their original score via the drainer's ZADD-NX-with-stored-ts path.
+    delete_driver_queue_last_ts(&data.redis, &special_location_id, &vehicle_type, &driver_id)
+        .await?;
+    QUEUE_EVICTIONS
+        .with_label_values(&["manual", &special_location_id])
+        .inc();
     Ok(APISuccess::default())
 }
 
