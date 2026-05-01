@@ -1074,6 +1074,11 @@ pub async fn get_google_stop_duration(
 
 /// Add a driver to the special-location ZSET for the given bucket (when enable_special_location_bucketing).
 /// Score = timestamp; member = driver_id (JSON string). Sets key expiry.
+///
+/// Plain ZADD (no NX): each `(special_location_id, bucket)` pair is its own
+/// world and the score is never queried for ordering — only membership is
+/// consumed by `get_drivers_in_special_location`. Overwriting the score on
+/// repeat pings is harmless and keeps the implementation simple.
 pub async fn add_driver_to_special_location_zset(
     redis: &RedisConnectionPool,
     special_location_id: &str,
@@ -1089,7 +1094,7 @@ pub async fn add_driver_to_special_location_zset(
     redis
         .zadd(
             &key,
-            Some(SetOptions::NX),
+            None,
             None,
             false,
             false,
@@ -1103,33 +1108,40 @@ pub async fn add_driver_to_special_location_zset(
         .map_err(|err| AppError::InternalError(err.to_string()))
 }
 
-/// Get the last stored server timestamp for a driver in a special location.
-/// Returns `None` if no timestamp has been stored yet.
-pub async fn get_driver_special_location_last_ts(
+/// Get the earliest stored server timestamp for a driver in a queue.
+/// Returns `None` if no timestamp is currently stored (first entry, or
+/// the entry has expired since the last ping).
+pub async fn get_driver_queue_last_ts(
     redis: &RedisConnectionPool,
     special_location_id: &str,
-    driver_id: &DriverId,
+    vehicle_type: &str,
+    driver_id: &str,
 ) -> Result<Option<f64>, AppError> {
     redis
-        .get_key::<f64>(&driver_special_location_last_ts_key(
+        .get_key::<f64>(&driver_queue_last_ts_key(
             special_location_id,
-            &driver_id.0,
+            vehicle_type,
+            driver_id,
         ))
         .await
         .map_err(|err| AppError::InternalError(err.to_string()))
 }
 
-/// Set the last stored server timestamp for a driver in a special location.
-pub async fn set_driver_special_location_last_ts(
+/// Set / refresh the earliest stored server timestamp for a driver in a
+/// queue. The TTL is refreshed on every write so that drivers who keep
+/// pinging in-fence retain their entry; drivers who exit and don't return
+/// within the TTL window get a fresh entry on next arrival.
+pub async fn set_driver_queue_last_ts(
     redis: &RedisConnectionPool,
     special_location_id: &str,
-    driver_id: &DriverId,
+    vehicle_type: &str,
+    driver_id: &str,
     timestamp: f64,
     expiry: u32,
 ) -> Result<(), AppError> {
     redis
         .set_key(
-            &driver_special_location_last_ts_key(special_location_id, &driver_id.0),
+            &driver_queue_last_ts_key(special_location_id, vehicle_type, driver_id),
             &timestamp,
             expiry,
         )
@@ -1137,31 +1149,84 @@ pub async fn set_driver_special_location_last_ts(
         .map_err(|err| AppError::InternalError(err.to_string()))
 }
 
-/// Remove a driver from the special-location ZSET for the given bucket,
-/// then re-add with the given timestamp. Used when the stored timestamp
-/// is newer than the current ping to correct the score.
-///
-/// Uses a pipeline so ZREM + ZADD + EXPIRE execute atomically on a single
-/// connection, preventing another pod from slipping a ZADD NX in between.
-pub async fn replace_driver_in_special_location_zset(
+/// Batch-fetch queue last-ts for a sparse list of triples — `None` slots are
+/// skipped in the MGET and returned as `None`. Output length matches the input
+/// so callers can zip it against an actions vector without reshaping.
+pub async fn batch_get_driver_queue_last_ts(
+    redis: &RedisConnectionPool,
+    triples: &[Option<(&str, &str, &str)>],
+) -> Result<Vec<Option<f64>>, AppError> {
+    if triples.is_empty() {
+        return Ok(vec![]);
+    }
+    let mut keys: Vec<String> = Vec::with_capacity(triples.len());
+    let mut slots: Vec<usize> = Vec::with_capacity(triples.len());
+    for (idx, t) in triples.iter().enumerate() {
+        if let Some((sl, vt, drv)) = t {
+            keys.push(driver_queue_last_ts_key(sl, vt, drv));
+            slots.push(idx);
+        }
+    }
+    if keys.is_empty() {
+        return Ok(vec![None; triples.len()]);
+    }
+    let raw: Vec<Option<f64>> = redis
+        .mget_keys::<f64>(keys)
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))?;
+    let mut out: Vec<Option<f64>> = vec![None; triples.len()];
+    for (slot, val) in slots.into_iter().zip(raw.into_iter()) {
+        out[slot] = val;
+    }
+    Ok(out)
+}
+
+/// Delete the queue last-ts key. Called when a driver is actually evicted
+/// from a queue (after hysteresis) so the next entry restarts cleanly.
+pub async fn delete_driver_queue_last_ts(
     redis: &RedisConnectionPool,
     special_location_id: &str,
-    bucket: u64,
-    driver_id: &DriverId,
-    timestamp: &TimeStamp,
-    bucket_expiry: i64,
+    vehicle_type: &str,
+    driver_id: &str,
 ) -> Result<(), AppError> {
-    let key = special_location_drivers_key(special_location_id, &bucket);
+    redis
+        .delete_key(&driver_queue_last_ts_key(
+            special_location_id,
+            vehicle_type,
+            driver_id,
+        ))
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
+/// Remove a driver from the queue ZSET, then re-add with the given score.
+/// Used when an out-of-order earlier server-timestamp arrives for a driver
+/// who already has an entry — we lower the score so rank reflects the
+/// earliest-known arrival.
+///
+/// ZREM + ZADD + EXPIRE go through one pipeline on a single writer
+/// connection so the operations stay tightly grouped; another pod's
+/// ZADD NX with a later timestamp during this window would still be a
+/// no-op since the member is briefly absent for at most the inter-command
+/// gap.
+pub async fn replace_driver_in_queue_zset(
+    redis: &RedisConnectionPool,
+    special_location_id: &str,
+    vehicle_type: &str,
+    driver_id: &str,
+    score: f64,
+    queue_expiry: i64,
+) -> Result<(), AppError> {
+    let key = special_location_queue_key(special_location_id, vehicle_type);
     let member =
-        serde_json::to_string(&driver_id.0).map_err(|e| AppError::InternalError(e.to_string()))?;
-    let score = timestamp.inner().timestamp() as f64;
+        serde_json::to_string(driver_id).map_err(|e| AppError::InternalError(e.to_string()))?;
 
     let pipeline = redis.writer_pool.next().pipeline();
     let _ = pipeline.zrem::<RedisValue, _, _>(&key, &member).await;
     let _ = pipeline
         .zadd::<RedisValue, _, _>(&key, None, None, false, false, (score, member.as_str()))
         .await;
-    let _ = pipeline.expire::<(), _>(&key, bucket_expiry).await;
+    let _ = pipeline.expire::<(), _>(&key, queue_expiry).await;
     let _: Vec<RedisValue> = pipeline
         .all()
         .await

@@ -8,7 +8,10 @@
 #![allow(clippy::expect_used)]
 
 use actix_web_prom::PrometheusMetrics;
-use prometheus::{opts, register_histogram_vec, register_int_counter, HistogramVec, IntCounter};
+use prometheus::{
+    opts, register_histogram_vec, register_int_counter, register_int_counter_vec, HistogramVec,
+    IntCounter, IntCounterVec,
+};
 pub use shared::tools::prometheus::*;
 
 pub static QUEUE_DRAINER_LATENCY: once_cell::sync::Lazy<HistogramVec> =
@@ -34,6 +37,26 @@ pub static GPS_UPDATES_IGNORED_NO_ACTIVE_RIDE: once_cell::sync::Lazy<IntCounter>
         )
         .expect("Failed to register GPS ignored updates metrics")
     });
+
+/// Counter of drivers removed from a special-location FIFO queue, labeled by
+/// the eviction reason and the source special location.
+///
+/// Labels:
+/// * `reason`               — `hysteresis` (consecutive_exit_pings reached threshold)
+///                            or `switch`  (driver entered a different queue)
+/// * `special_location_id`  — the queue the driver was evicted from
+pub static QUEUE_EVICTIONS: once_cell::sync::Lazy<IntCounterVec> = once_cell::sync::Lazy::new(
+    || {
+        register_int_counter_vec!(
+            opts!(
+                "queue_evictions_total",
+                "Total drivers evicted from special-location FIFO queues, by reason and source location"
+            ),
+            &["reason", "special_location_id"]
+        )
+        .expect("Failed to register queue evictions metrics")
+    },
+);
 
 /// Macro that observes the latency of a queue drainer process.
 ///
@@ -95,6 +118,11 @@ pub fn prometheus_metrics() -> PrometheusMetrics {
         .registry
         .register(Box::new(GPS_UPDATES_IGNORED_NO_ACTIVE_RIDE.to_owned()))
         .expect("Failed to register GPS ignored updates metrics");
+
+    prometheus
+        .registry
+        .register(Box::new(QUEUE_EVICTIONS.to_owned()))
+        .expect("Failed to register queue evictions metrics");
 
     prometheus
 }
