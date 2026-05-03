@@ -42,8 +42,9 @@ pub static GPS_UPDATES_IGNORED_NO_ACTIVE_RIDE: once_cell::sync::Lazy<IntCounter>
 /// the eviction reason and the source special location.
 ///
 /// Labels:
-/// * `reason`               — `hysteresis` (consecutive_exit_pings reached threshold)
-///                            or `switch`  (driver entered a different queue)
+/// * `reason`               — `hysteresis` (consecutive_exit_pings reached threshold),
+///                            `switch`     (driver entered a different queue),
+///                            or `manual`  (admin-triggered removal via internal API)
 /// * `special_location_id`  — the queue the driver was evicted from
 pub static QUEUE_EVICTIONS: once_cell::sync::Lazy<IntCounterVec> = once_cell::sync::Lazy::new(
     || {

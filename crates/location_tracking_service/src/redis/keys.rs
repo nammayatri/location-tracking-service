@@ -295,3 +295,12 @@ pub fn driver_queue_last_ts_key(
 pub fn driver_queue_tracking_key(merchant_id: &str, driver_id: &str) -> String {
     format!("lts:driver_queue:{}:{}", merchant_id, driver_id)
 }
+
+/// Per-driver rolling hash of recent queue ranks, written on every successful
+/// queue Enter. HASH field = 0-indexed rank (stringified), value = the
+/// server-side ping timestamp at which that rank was observed. Bounded by a
+/// short TTL — this is observability for rank churn, not source-of-truth
+/// state, so the latest write at a given rank wins.
+pub fn driver_queue_rank_history_key(merchant_id: &str, driver_id: &str) -> String {
+    format!("lts:driver_queue_rank_hist:{}:{}", merchant_id, driver_id)
+}
