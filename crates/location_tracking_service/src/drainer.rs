@@ -448,7 +448,7 @@ async fn drain_queue_actions(
 
 /// Run two follow-up pipelines after the main drain:
 ///   1. Batched ZRANK for each Enter to discover the post-write rank.
-///   2. Batched HSET (rank → timestamp) + EXPIRE on the per-driver hash.
+///   2. Batched HSET (timestamp → rank) + EXPIRE on the per-driver hash.
 async fn record_rank_history(redis: &RedisConnectionPool, entered: &[EnteredForRankHistory]) {
     let zrank_pipeline = redis.writer_pool.next().pipeline();
     for e in entered {
@@ -487,7 +487,7 @@ async fn record_rank_history(redis: &RedisConnectionPool, entered: &[EnteredForR
         };
         let key = driver_queue_rank_history_key(&e.merchant_id, &e.driver_id);
         let _ = hset_pipeline
-            .hset::<RedisValue, _, _>(&key, (rank.to_string(), e.timestamp.to_string()))
+            .hset::<RedisValue, _, _>(&key, (e.timestamp.to_string(), rank.to_string()))
             .await;
         let _ = hset_pipeline
             .expire::<(), _>(&key, RANK_HISTORY_TTL_SECS)
