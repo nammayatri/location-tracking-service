@@ -296,12 +296,20 @@ pub fn driver_queue_tracking_key(merchant_id: &str, driver_id: &str) -> String {
     format!("lts:driver_queue:{}:{}", merchant_id, driver_id)
 }
 
-/// Per-driver rolling hash of recent queue ranks, written on every successful
-/// queue Enter. HASH field = server-side ping timestamp (stringified), value
-/// = 0-indexed rank observed at that timestamp. Keyed this way so that every
-/// distinct ping is preserved (no last-write-wins masking of rank churn at a
-/// repeated rank). Bounded by a short TTL — observability only, not
-/// source-of-truth state.
+/// Per-driver rolling hash of recent queue rank events. HASH field =
+/// server-side ping timestamp (stringified). Value is one of:
+///   - `enter:<rank>` — driver was present in the queue at that timestamp
+///     and the post-write ZRANK was `<rank>`. Only written when the rank
+///     actually changes from the previously recorded value, so a stationary
+///     driver pinging at rank N once produces a single entry, not one per
+///     ping.
+///   - `exit:hysteresis` — drainer evicted the driver after N consecutive
+///     out-of-geofence pings hit the hysteresis threshold.
+///   - `exit:switch` — drainer evicted the driver from this queue because
+///     they entered a different special location's queue on this ping.
+///   - `exit:manual` — driver was removed via the internal manual-remove
+///     API (operator action), not by drainer logic.
+///     Bounded by a short TTL — observability only, not source-of-truth state.
 pub fn driver_queue_rank_history_key(merchant_id: &str, driver_id: &str) -> String {
     format!("lts:driver_queue_rank_hist:{}:{}", merchant_id, driver_id)
 }

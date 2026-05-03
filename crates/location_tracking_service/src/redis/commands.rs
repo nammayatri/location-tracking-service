@@ -10,7 +10,7 @@ use crate::domain::types::ui::location::PersonType;
 use crate::outbound::types::LocationUpdate;
 use crate::redis::keys::*;
 use crate::tools::error::AppError;
-use fred::prelude::{KeysInterface, SortedSetsInterface};
+use fred::prelude::{HashesInterface, KeysInterface, SortedSetsInterface};
 use fred::types::{GeoPosition, GeoUnit, RedisValue, SetOptions, SortOrder};
 use futures::Future;
 use rustc_hash::FxHashSet;
@@ -1247,6 +1247,42 @@ pub struct DriverQueueTracking {
     /// cannot evict a queued driver (who would otherwise re-enter at the tail).
     #[serde(default)]
     pub consecutive_exit_pings: u32,
+    /// Last 0-indexed rank that was appended to the rank-history hash for
+    /// this driver. The drainer only writes a new `enter:<rank>` entry when
+    /// the post-write ZRANK differs from this — stationary drivers whose
+    /// rank doesn't change skip the HSET entirely.
+    #[serde(default)]
+    pub last_recorded_rank: Option<u64>,
+}
+
+/// TTL applied to the per-driver rank-history hash on every event write.
+/// 2h is a balance between letting operators inspect rank churn over the
+/// recent past and keeping per-key memory bounded for large fleets.
+pub const RANK_HISTORY_TTL_SECS: i64 = 2 * 60 * 60;
+
+/// Append one event (e.g. `enter:<rank>`, `exit:hysteresis`, `exit:switch`,
+/// `exit:manual`) to a driver's rank-history hash and refresh its TTL in
+/// the same round trip. Standalone (non-pipelined); the drainer's batched
+/// path inlines the same HSET+EXPIRE pair into its existing pipeline so it
+/// shares one round trip with the surrounding ZADD/SET writes.
+pub async fn append_rank_history_event(
+    redis: &RedisConnectionPool,
+    merchant_id: &str,
+    driver_id: &str,
+    timestamp: f64,
+    event: &str,
+) -> Result<(), AppError> {
+    let key = driver_queue_rank_history_key(merchant_id, driver_id);
+    let pipeline = redis.writer_pool.next().pipeline();
+    let _ = pipeline
+        .hset::<RedisValue, _, _>(&key, (timestamp.to_string(), event.to_string()))
+        .await;
+    let _ = pipeline.expire::<(), _>(&key, RANK_HISTORY_TTL_SECS).await;
+    pipeline
+        .all::<Vec<RedisValue>>()
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))?;
+    Ok(())
 }
 
 /// Add a driver to the queue ZSET using ZADD NX (only if not already present).

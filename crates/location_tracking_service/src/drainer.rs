@@ -17,6 +17,7 @@ use crate::{
         commands::{
             add_driver_to_special_location_zset, batch_get_driver_queue_last_ts,
             batch_get_driver_queue_trackings, push_drainer_driver_location, DriverQueueTracking,
+            RANK_HISTORY_TTL_SECS,
         },
         keys::{
             driver_loc_bucket_key, driver_queue_last_ts_key, driver_queue_rank_history_key,
@@ -54,6 +55,11 @@ enum QueueAction {
     PossibleExit {
         merchant_id: String,
         driver_id: String,
+        // Server timestamp of the ping that produced this PossibleExit.
+        // Used as the rank-history hash field if this exit ends up evicting
+        // the driver — same source as Enter timestamps so the two event
+        // types interleave on a single timeline.
+        timestamp: f64,
     },
 }
 
@@ -72,11 +78,6 @@ enum QueueAction {
 /// short TTL only kicks in at the moment of eviction: re-entry within this
 /// window resumes the driver's original rank; longer absences (real exits)
 /// let last_ts expire so the next Enter starts fresh.
-/// TTL on the per-driver rank-history hash. 2h is a balance between letting
-/// operators inspect rank churn over the recent past and keeping per-key
-/// memory bounded for large fleets.
-const RANK_HISTORY_TTL_SECS: i64 = 2 * 60 * 60;
-
 /// Side data captured for each successful Enter so we can post-pipeline
 /// ZRANK and HSET into the per-driver rank-history hash.
 struct EnteredForRankHistory {
@@ -85,6 +86,11 @@ struct EnteredForRankHistory {
     special_location_id: String,
     vehicle_type: String,
     timestamp: f64,
+    /// Last rank we recorded for this driver in the rank-history hash, as
+    /// of the start of this batch. Used to skip the HSET (and the tracking
+    /// refresh) when the post-write ZRANK is the same — stationary drivers
+    /// produce one entry per actual rank change, not one per ping.
+    prev_recorded_rank: Option<u64>,
 }
 
 async fn drain_queue_actions(
@@ -114,6 +120,7 @@ async fn drain_queue_actions(
             QueueAction::PossibleExit {
                 merchant_id,
                 driver_id,
+                ..
             } => (merchant_id.as_str(), driver_id.as_str()),
         })
         .collect();
@@ -177,20 +184,38 @@ async fn drain_queue_actions(
                 vehicle_type,
                 timestamp,
             } => {
+                // True only if prior tracking exists AND points at this same
+                // queue. Drives both (1) carry-forward of last_recorded_rank
+                // for HSET dedup and (2) the queue-switch eviction below.
+                let same_queue = old_tracking.as_ref().is_some_and(|old| {
+                    old.special_location_id == *special_location_id
+                        && old.vehicle_type == *vehicle_type
+                });
+
+                // On a queue switch the old rank is meaningless for the new
+                // queue, so reset to None and let the first ZRANK in this
+                // queue record fresh. record_rank_history() will issue a
+                // follow-up SET XX with the new rank only when the
+                // post-write ZRANK actually differs from this value.
+                let prev_recorded_rank: Option<u64> = if same_queue {
+                    old_tracking.as_ref().and_then(|old| old.last_recorded_rank)
+                } else {
+                    None
+                };
+
                 let new_tracking = DriverQueueTracking {
                     special_location_id: special_location_id.clone(),
                     vehicle_type: vehicle_type.clone(),
                     // Reset the exit counter: an in-geofence ping cancels any
                     // in-progress hysteresis countdown.
                     consecutive_exit_pings: 0,
+                    last_recorded_rank: prev_recorded_rank,
                 };
 
                 // If driver was in a different queue, evict from the old one:
                 // both the queue ZSET and the per-queue last_ts of the old
                 // (special_location_id, vehicle_type) become stale.
                 if let Some(ref old) = old_tracking {
-                    let same_queue = old.special_location_id == new_tracking.special_location_id
-                        && old.vehicle_type == new_tracking.vehicle_type;
                     if !same_queue {
                         info!(
                             tag = "[Queue Switch Evict]",
@@ -218,6 +243,19 @@ async fn drain_queue_actions(
                             driver_id,
                         );
                         let _ = pipeline.del::<RedisValue, _>(&old_last_ts_key).await;
+                        // Mark the switch on the rank-history hash, keyed by
+                        // the current ping ts (same source as Enter timestamps
+                        // so events interleave on a single timeline).
+                        let history_key = driver_queue_rank_history_key(merchant_id, driver_id);
+                        let _ = pipeline
+                            .hset::<RedisValue, _, _>(
+                                &history_key,
+                                (timestamp.to_string(), "exit:switch".to_string()),
+                            )
+                            .await;
+                        let _ = pipeline
+                            .expire::<(), _>(&history_key, RANK_HISTORY_TTL_SECS)
+                            .await;
                         QUEUE_EVICTIONS
                             .with_label_values(&["switch", &old.special_location_id])
                             .inc();
@@ -321,11 +359,13 @@ async fn drain_queue_actions(
                     special_location_id: special_location_id.clone(),
                     vehicle_type: vehicle_type.clone(),
                     timestamp: *timestamp,
+                    prev_recorded_rank,
                 });
             }
             QueueAction::PossibleExit {
                 merchant_id,
                 driver_id,
+                timestamp,
             } => {
                 if let Some(ref tracking) = old_tracking {
                     // Hysteresis: require N consecutive exit pings before actually
@@ -381,6 +421,23 @@ async fn drain_queue_actions(
                         let _ = pipeline
                             .expire::<(), _>(&last_ts_key, last_ts_ttl_i64)
                             .await;
+
+                        // Append "exit" to the rank-history hash at the
+                        // ping timestamp that triggered the eviction. Same
+                        // pipeline as the ZREM/DEL so the event is durable
+                        // alongside the state change. EXPIRE refreshes the
+                        // hash TTL so the exit doesn't get truncated by an
+                        // earlier enter's expiry.
+                        let history_key = driver_queue_rank_history_key(merchant_id, driver_id);
+                        let _ = pipeline
+                            .hset::<RedisValue, _, _>(
+                                &history_key,
+                                (timestamp.to_string(), "exit:hysteresis".to_string()),
+                            )
+                            .await;
+                        let _ = pipeline
+                            .expire::<(), _>(&history_key, RANK_HISTORY_TTL_SECS)
+                            .await;
                     } else {
                         // Haven't hit threshold yet — keep the driver in the
                         // queue, just bump the counter in tracking. Preserves
@@ -397,6 +454,9 @@ async fn drain_queue_actions(
                             special_location_id: tracking.special_location_id.clone(),
                             vehicle_type: tracking.vehicle_type.clone(),
                             consecutive_exit_pings: next_count,
+                            // Hysteresis-pending evict only bumps the counter;
+                            // rank tracking is unaffected.
+                            last_recorded_rank: tracking.last_recorded_rank,
                         };
                         if let Ok(value) = serde_json::to_string(&updated) {
                             let _ = pipeline
@@ -432,7 +492,11 @@ async fn drain_queue_actions(
 
 /// Run two follow-up pipelines after the main drain:
 ///   1. Batched ZRANK for each Enter to discover the post-write rank.
-///   2. Batched HSET (timestamp → rank) + EXPIRE on the per-driver hash.
+///   2. Batched HSET (`timestamp` → `enter:<rank>`) + EXPIRE on the per-driver
+///      hash, plus a refresh of the tracking key's `last_recorded_rank`.
+///      Both writes are skipped when the post-write rank equals the rank we
+///      previously recorded for this driver — stationary drivers produce one
+///      event per actual rank change, not one per ping.
 async fn record_rank_history(redis: &RedisConnectionPool, entered: &[EnteredForRankHistory]) {
     let zrank_pipeline = redis.writer_pool.next().pipeline();
     for e in entered {
@@ -469,13 +533,37 @@ async fn record_rank_history(redis: &RedisConnectionPool, entered: &[EnteredForR
                 continue;
             }
         };
+        // Dedup: if this driver's rank hasn't changed since we last recorded
+        // it, skip both the history HSET and the tracking refresh. This is
+        // the common case for stationary drivers and trims the bulk of
+        // rank-history writes.
+        if e.prev_recorded_rank == Some(rank) {
+            continue;
+        }
         let key = driver_queue_rank_history_key(&e.merchant_id, &e.driver_id);
         let _ = hset_pipeline
-            .hset::<RedisValue, _, _>(&key, (e.timestamp.to_string(), rank.to_string()))
+            .hset::<RedisValue, _, _>(&key, (e.timestamp.to_string(), format!("enter:{}", rank)))
             .await;
         let _ = hset_pipeline
             .expire::<(), _>(&key, RANK_HISTORY_TTL_SECS)
             .await;
+        // Refresh the tracking key so the next batch's MGET sees the new
+        // last_recorded_rank and can dedup against it. SET XX gates against
+        // the case where tracking was DEL'd between the main pipeline and
+        // here (e.g. a parallel hysteresis evict on the same driver) — we
+        // don't want to resurrect a deliberately-removed tracking entry.
+        let tracking_key = driver_queue_tracking_key(&e.merchant_id, &e.driver_id);
+        let updated_tracking = DriverQueueTracking {
+            special_location_id: e.special_location_id.clone(),
+            vehicle_type: e.vehicle_type.clone(),
+            consecutive_exit_pings: 0,
+            last_recorded_rank: Some(rank),
+        };
+        if let Ok(value) = serde_json::to_string(&updated_tracking) {
+            let _ = hset_pipeline
+                .set::<RedisValue, _, _>(&tracking_key, value, None, Some(SetOptions::XX), false)
+                .await;
+        }
         queued += 1;
     }
     if queued == 0 {
@@ -725,6 +813,7 @@ pub async fn run_drainer(
                                 queue_actions.push(QueueAction::PossibleExit {
                                     merchant_id: merchant_id.0.clone(),
                                     driver_id: driver_id.clone(),
+                                    timestamp: server_timestamp.timestamp() as f64,
                                 });
                                 false
                             }
