@@ -580,6 +580,21 @@ pub async fn manual_queue_remove(
     // their original score via the drainer's ZADD-NX-with-stored-ts path.
     delete_driver_queue_last_ts(&data.redis, &special_location_id, &vehicle_type, &driver_id)
         .await?;
+    // Append the manual eviction to the rank-history hash so the timeline
+    // shows why the driver disappeared. Best-effort: rank history is
+    // observability, not source-of-truth, so a failure here shouldn't fail
+    // the API call.
+    if let Err(err) = append_rank_history_event(
+        &data.redis,
+        &merchant_id,
+        &driver_id,
+        Utc::now().timestamp() as f64,
+        "exit:manual",
+    )
+    .await
+    {
+        error!(tag = "[Manual Queue Remove Rank History]", error = %err);
+    }
     QUEUE_EVICTIONS
         .with_label_values(&["manual", &special_location_id])
         .inc();
@@ -680,6 +695,9 @@ pub async fn manual_queue_add(
             special_location_id,
             vehicle_type,
             consecutive_exit_pings: 0,
+            // Manual insert doesn't know the post-insert ZRANK; let the
+            // next drainer Enter for this driver record it fresh.
+            last_recorded_rank: None,
         },
     )
     .await?;

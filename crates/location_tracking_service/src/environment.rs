@@ -105,7 +105,7 @@ pub struct AppConfig {
     /// TTL (in seconds) for the per-driver special-location entry timestamp.
     /// While this key is alive, a driver who exits and re-enters the geofence
     /// will keep their original queue position instead of being placed at the
-    /// tail. Defaults to 900 (15 minutes).
+    /// tail. Defaults to 1800 (30 minutes).
     #[serde(default = "default_special_location_entry_ts_ttl")]
     pub special_location_entry_ts_ttl_sec: u64,
 }
@@ -127,7 +127,7 @@ fn default_true() -> bool {
 }
 
 fn default_special_location_entry_ts_ttl() -> u64 {
-    300 // 5 minutes
+    1800 // 30 minutes
 }
 
 #[derive(Debug, Deserialize, Clone)]
