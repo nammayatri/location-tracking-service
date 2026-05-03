@@ -492,11 +492,7 @@ async fn drain_queue_actions(
 
 /// Run two follow-up pipelines after the main drain:
 ///   1. Batched ZRANK for each Enter to discover the post-write rank.
-///   2. Batched HSET (`timestamp` → `enter:<rank>`) + EXPIRE on the per-driver
-///      hash, plus a refresh of the tracking key's `last_recorded_rank`.
-///      Both writes are skipped when the post-write rank equals the rank we
-///      previously recorded for this driver — stationary drivers produce one
-///      event per actual rank change, not one per ping.
+///   2. Batched HSET (timestamp → rank) + EXPIRE on the per-driver hash.
 async fn record_rank_history(redis: &RedisConnectionPool, entered: &[EnteredForRankHistory]) {
     let zrank_pipeline = redis.writer_pool.next().pipeline();
     for e in entered {
