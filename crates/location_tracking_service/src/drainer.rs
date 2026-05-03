@@ -15,9 +15,8 @@ use crate::{
     },
     redis::{
         commands::{
-            add_driver_to_special_location_zset, batch_check_drivers_on_ride,
-            batch_get_driver_queue_last_ts, batch_get_driver_queue_trackings,
-            push_drainer_driver_location, DriverQueueTracking,
+            add_driver_to_special_location_zset, batch_get_driver_queue_last_ts,
+            batch_get_driver_queue_trackings, push_drainer_driver_location, DriverQueueTracking,
         },
         keys::{
             driver_loc_bucket_key, driver_queue_last_ts_key, driver_queue_rank_history_key,
@@ -141,9 +140,8 @@ async fn drain_queue_actions(
         })
         .collect();
 
-    let (trackings, on_ride_flags, last_ts_results) = tokio::join!(
+    let (trackings, last_ts_results) = tokio::join!(
         batch_get_driver_queue_trackings(redis, &pairs),
-        batch_check_drivers_on_ride(redis, &pairs),
         batch_get_driver_queue_last_ts(redis, &last_ts_triples)
     );
 
@@ -152,14 +150,6 @@ async fn drain_queue_actions(
         Err(e) => {
             error!(tag = "[Queue Batch MGET]", error = %e);
             return;
-        }
-    };
-
-    let on_ride_flags = match on_ride_flags {
-        Ok(f) => f,
-        Err(e) => {
-            error!(tag = "[Queue Batch On Ride Check]", error = %e);
-            vec![false; actions.len()]
         }
     };
 
@@ -174,10 +164,9 @@ async fn drain_queue_actions(
     // Step 2: Build all write commands into a single pipeline
     let pipeline = redis.writer_pool.next().pipeline();
 
-    for (((action, old_tracking), is_on_ride), stored_last_ts) in actions
+    for ((action, old_tracking), stored_last_ts) in actions
         .iter()
         .zip(trackings.iter())
-        .zip(on_ride_flags.iter())
         .zip(last_ts_results.iter())
     {
         match action {
@@ -188,11 +177,6 @@ async fn drain_queue_actions(
                 vehicle_type,
                 timestamp,
             } => {
-                if *is_on_ride {
-                    info!(tag = "[Queue Skip On Ride]", driver_id = %driver_id, special_location_id = %special_location_id, "Driver is on ride, skipping queue entry");
-                    continue;
-                }
-                info!(tag = "[Queue Enter Processing]", driver_id = %driver_id, special_location_id = %special_location_id, vehicle_type = %vehicle_type, "Processing queue enter, old_tracking={:?}, stored_last_ts={:?}", old_tracking, stored_last_ts);
                 let new_tracking = DriverQueueTracking {
                     special_location_id: special_location_id.clone(),
                     vehicle_type: vehicle_type.clone(),
