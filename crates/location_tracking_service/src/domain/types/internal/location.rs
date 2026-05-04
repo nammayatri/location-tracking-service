@@ -128,6 +128,46 @@ pub struct ManualQueueAddRequest {
     pub queue_position: u64, // 1-indexed desired position
 }
 
+/// Request body for DELETE manual queue remove. Optional — callers that don't
+/// send a body get `exit:manual` in the rank-history hash; callers that do
+/// get `exit:manual:<reason>` so the timeline shows *why* the operator pulled
+/// the driver (e.g. wrong queue, complaint, fraud).
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ManualQueueRemoveRequest {
+    pub reason: Option<String>,
+}
+
+/// One event from the per-driver rank-history hash. `value` is the raw event
+/// string — see `driver_queue_rank_history_key` doc for the format.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct DriverQueueHistoryEvent {
+    pub timestamp: f64,
+    pub value: String,
+}
+
+/// Snapshot of the tracking state alongside the historical timeline.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct DriverQueueTrackingSnapshot {
+    pub special_location_id: String,
+    pub vehicle_type: String,
+    pub consecutive_exit_pings: u32,
+    pub last_recorded_rank: Option<u64>,
+}
+
+/// Response for GET /internal/drivers/{merchant_id}/{driver_id}/queue-history.
+/// Bounded by `RANK_HISTORY_TTL_SECS` (2h) — events older than that are not
+/// returned because Redis has already expired them.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct DriverQueueHistoryResponse {
+    pub tracking_state: Option<DriverQueueTrackingSnapshot>,
+    pub current_rank: Option<u64>,
+    pub events: Vec<DriverQueueHistoryEvent>,
+}
+
 /// A single driver entry in the queue
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]

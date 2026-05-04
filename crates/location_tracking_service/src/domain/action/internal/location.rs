@@ -567,12 +567,55 @@ pub async fn driver_queue_position(
     })
 }
 
+pub async fn driver_queue_history(
+    data: Data<AppState>,
+    merchant_id: String,
+    driver_id: String,
+) -> Result<DriverQueueHistoryResponse, AppError> {
+    // Tracking state and event timeline can be fetched in parallel — neither
+    // depends on the other.
+    let (tracking, events) = tokio::try_join!(
+        get_driver_queue_tracking(&data.redis, &merchant_id, &driver_id),
+        get_driver_queue_rank_history(&data.redis, &merchant_id, &driver_id),
+    )?;
+
+    // Live ZRANK is only meaningful when we know which queue the driver is in.
+    // If tracking is gone (driver was evicted), skip the lookup; the events
+    // already tell the story of how they left.
+    let current_rank = if let Some(ref t) = tracking {
+        get_driver_queue_position(
+            &data.redis,
+            &t.special_location_id,
+            &t.vehicle_type,
+            &driver_id,
+        )
+        .await?
+    } else {
+        None
+    };
+
+    Ok(DriverQueueHistoryResponse {
+        tracking_state: tracking.map(|t| DriverQueueTrackingSnapshot {
+            special_location_id: t.special_location_id,
+            vehicle_type: t.vehicle_type,
+            consecutive_exit_pings: t.consecutive_exit_pings,
+            last_recorded_rank: t.last_recorded_rank,
+        }),
+        current_rank,
+        events: events
+            .into_iter()
+            .map(|(timestamp, value)| DriverQueueHistoryEvent { timestamp, value })
+            .collect(),
+    })
+}
+
 pub async fn manual_queue_remove(
     data: Data<AppState>,
     special_location_id: String,
     vehicle_type: String,
     merchant_id: String,
     driver_id: String,
+    reason: Option<String>,
 ) -> Result<APISuccess, AppError> {
     remove_driver_from_queue(&data.redis, &special_location_id, &vehicle_type, &driver_id).await?;
     delete_driver_queue_tracking(&data.redis, &merchant_id, &driver_id).await?;
@@ -580,23 +623,34 @@ pub async fn manual_queue_remove(
     // their original score via the drainer's ZADD-NX-with-stored-ts path.
     delete_driver_queue_last_ts(&data.redis, &special_location_id, &vehicle_type, &driver_id)
         .await?;
+    // Normalize once: empty/whitespace-only reasons collapse to None so the
+    // rank-history event and the prometheus label stay in sync.
+    let normalized_reason = reason.as_deref().map(str::trim).filter(|r| !r.is_empty());
     // Append the manual eviction to the rank-history hash so the timeline
     // shows why the driver disappeared. Best-effort: rank history is
     // observability, not source-of-truth, so a failure here shouldn't fail
     // the API call.
+    let event = match normalized_reason {
+        Some(r) => format!("exit:manual:{}", r),
+        None => "exit:manual".to_string(),
+    };
     if let Err(err) = append_rank_history_event(
         &data.redis,
         &merchant_id,
         &driver_id,
         Utc::now().timestamp() as f64,
-        "exit:manual",
+        &event,
     )
     .await
     {
         error!(tag = "[Manual Queue Remove Rank History]", error = %err);
     }
     QUEUE_EVICTIONS
-        .with_label_values(&["manual", &special_location_id])
+        .with_label_values(&[
+            "manual",
+            &special_location_id,
+            normalized_reason.unwrap_or(""),
+        ])
         .inc();
     Ok(APISuccess::default())
 }
