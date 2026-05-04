@@ -450,6 +450,10 @@ let detection_anti_violation_config = {=}
   with BUS_AC = detection_anti_violation_bus_config
   with AUTO_RICKSHAW = detection_anti_violation_cab_config
   with BIKE = detection_anti_violation_cab_config
+
+let fleet_operator_kafka_topics = [
+  { mapKey = "city1", mapValue = "city1_kafka_topic" }
+]
 in {
     logger_cfg = logger_cfg,
     redis_cfg = redis_cfg,
@@ -511,5 +515,6 @@ in {
     enable_special_location_bucketing = False,
     queue_position_range_offset = 2,
     queue_exit_hysteresis_threshold = 3,
-    enable_queue_cache_empty_guard = True
+    enable_queue_cache_empty_guard = True,
+    fleet_operator_kafka_topics = fleet_operator_kafka_topics
 }

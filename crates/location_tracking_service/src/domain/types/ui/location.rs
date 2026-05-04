@@ -9,12 +9,13 @@ use crate::common::types::*;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
-/// Person type for generic location APIs (rider or driver).
+/// Person type for generic location APIs (rider, driver, or fleet operator).
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum PersonType {
     Rider,
     Driver,
+    FleetOperator,
 }
 
 impl FromStr for PersonType {
@@ -24,6 +25,7 @@ impl FromStr for PersonType {
         match s.to_lowercase().as_str() {
             "rider" => Ok(PersonType::Rider),
             "driver" => Ok(PersonType::Driver),
+            "fleetoperator" | "fleet_operator" => Ok(PersonType::FleetOperator),
             _ => Err(()),
         }
     }
@@ -34,6 +36,7 @@ impl PersonType {
         match self {
             PersonType::Rider => "rider",
             PersonType::Driver => "driver",
+            PersonType::FleetOperator => "fleetOperator",
         }
     }
 }

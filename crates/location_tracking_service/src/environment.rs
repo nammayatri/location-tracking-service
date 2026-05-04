@@ -87,6 +87,9 @@ pub struct AppConfig {
     pub special_location_list_base_url: Option<String>,
     #[serde(default)]
     pub enable_special_location_bucketing: bool,
+    /// Mapping of gtfs_id to Kafka topic for fleet operator location updates
+    #[serde(default)]
+    pub fleet_operator_kafka_topics: HashMap<String, String>,
     #[serde(default = "default_queue_expiry")]
     pub queue_expiry_seconds: u64,
     #[serde(default = "default_queue_position_range_offset")]
@@ -245,6 +248,8 @@ pub struct AppState {
     pub queue_exit_hysteresis_threshold: u32,
     pub enable_queue_cache_empty_guard: bool,
     pub special_location_entry_ts_ttl_sec: u64,
+    /// Mapping of gtfs_id to Kafka topic for fleet operator location updates
+    pub fleet_operator_kafka_topics: HashMap<String, String>,
 }
 
 impl AppState {
@@ -462,6 +467,7 @@ impl AppState {
             queue_exit_hysteresis_threshold: app_config.queue_exit_hysteresis_threshold,
             enable_queue_cache_empty_guard: app_config.enable_queue_cache_empty_guard,
             special_location_entry_ts_ttl_sec: app_config.special_location_entry_ts_ttl_sec,
+            fleet_operator_kafka_topics: app_config.fleet_operator_kafka_topics,
         }
     }
 }
