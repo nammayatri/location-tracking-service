@@ -137,12 +137,25 @@ async fn get_queue_drivers(
     ))
 }
 
+#[get("/internal/drivers/{merchant_id}/{driver_id}/queue-history")]
+async fn driver_queue_history(
+    data: Data<AppState>,
+    path: Path<(String, String)>,
+) -> Result<Json<DriverQueueHistoryResponse>, AppError> {
+    let (merchant_id, driver_id) = path.into_inner();
+    Ok(Json(
+        location::driver_queue_history(data, merchant_id, driver_id).await?,
+    ))
+}
+
 #[delete("/internal/special-locations/{special_location_id}/queue/{vehicle_type}/drivers/{merchant_id}/{driver_id}")]
 async fn manual_queue_remove(
     data: Data<AppState>,
     path: Path<(String, String, String, String)>,
+    body: Option<Json<ManualQueueRemoveRequest>>,
 ) -> Result<Json<APISuccess>, AppError> {
     let (special_location_id, vehicle_type, merchant_id, driver_id) = path.into_inner();
+    let reason = body.and_then(|b| b.into_inner().reason);
     Ok(Json(
         location::manual_queue_remove(
             data,
@@ -150,6 +163,7 @@ async fn manual_queue_remove(
             vehicle_type,
             merchant_id,
             driver_id,
+            reason,
         )
         .await?,
     ))

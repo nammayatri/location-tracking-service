@@ -307,8 +307,10 @@ pub fn driver_queue_tracking_key(merchant_id: &str, driver_id: &str) -> String {
 ///     out-of-geofence pings hit the hysteresis threshold.
 ///   - `exit:switch` — drainer evicted the driver from this queue because
 ///     they entered a different special location's queue on this ping.
-///   - `exit:manual` — driver was removed via the internal manual-remove
-///     API (operator action), not by drainer logic.
+///   - `exit:manual` or `exit:manual:<reason>` — driver was removed via the
+///     internal manual-remove API (operator action), not by drainer logic.
+///     Reason suffix is the free-form `reason` field from the request body
+///     when supplied.
 ///     Bounded by a short TTL — observability only, not source-of-truth state.
 pub fn driver_queue_rank_history_key(merchant_id: &str, driver_id: &str) -> String {
     format!("lts:driver_queue_rank_hist:{}:{}", merchant_id, driver_id)

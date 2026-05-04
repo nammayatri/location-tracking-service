@@ -1285,6 +1285,31 @@ pub async fn append_rank_history_event(
     Ok(())
 }
 
+/// Read every event from a driver's rank-history hash and return them sorted
+/// by timestamp ascending. Field strings that aren't parseable as `f64` are
+/// dropped — they're not produced by any current writer, so this is a
+/// defensive guard rather than a normal case. Read from the writer pool to
+/// avoid replica-lag windows where a just-written event is invisible.
+pub async fn get_driver_queue_rank_history(
+    redis: &RedisConnectionPool,
+    merchant_id: &str,
+    driver_id: &str,
+) -> Result<Vec<(f64, String)>, AppError> {
+    let key = driver_queue_rank_history_key(merchant_id, driver_id);
+    let raw: HashMap<String, String> = redis
+        .writer_pool
+        .next()
+        .hgetall(&key)
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))?;
+    let mut events: Vec<(f64, String)> = raw
+        .into_iter()
+        .filter_map(|(field, value)| field.parse::<f64>().ok().map(|ts| (ts, value)))
+        .collect();
+    events.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    Ok(events)
+}
+
 /// Add a driver to the queue ZSET using ZADD NX (only if not already present).
 /// This preserves original entry timestamp/position on subsequent pings.
 pub async fn add_driver_to_queue(

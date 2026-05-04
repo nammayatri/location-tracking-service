@@ -46,6 +46,13 @@ pub static GPS_UPDATES_IGNORED_NO_ACTIVE_RIDE: once_cell::sync::Lazy<IntCounter>
 ///                            `switch`     (driver entered a different queue),
 ///                            or `manual`  (admin-triggered removal via internal API)
 /// * `special_location_id`  — the queue the driver was evicted from
+/// * `manual_reason`        — sub-reason from the manual-remove request body
+///                            (e.g. `wrong_queue`, `complaint`). Empty string
+///                            for `hysteresis`/`switch` evictions and for
+///                            `manual` evictions where no reason was supplied.
+///                            **Keep the operator vocabulary bounded** — every
+///                            unique string here is a new prometheus time
+///                            series.
 pub static QUEUE_EVICTIONS: once_cell::sync::Lazy<IntCounterVec> = once_cell::sync::Lazy::new(
     || {
         register_int_counter_vec!(
@@ -53,7 +60,7 @@ pub static QUEUE_EVICTIONS: once_cell::sync::Lazy<IntCounterVec> = once_cell::sy
                 "queue_evictions_total",
                 "Total drivers evicted from special-location FIFO queues, by reason and source location"
             ),
-            &["reason", "special_location_id"]
+            &["reason", "special_location_id", "manual_reason"]
         )
         .expect("Failed to register queue evictions metrics")
     },

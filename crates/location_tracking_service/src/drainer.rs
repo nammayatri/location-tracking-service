@@ -257,7 +257,7 @@ async fn drain_queue_actions(
                             .expire::<(), _>(&history_key, RANK_HISTORY_TTL_SECS)
                             .await;
                         QUEUE_EVICTIONS
-                            .with_label_values(&["switch", &old.special_location_id])
+                            .with_label_values(&["switch", &old.special_location_id, ""])
                             .inc();
                     }
                 }
@@ -400,7 +400,7 @@ async fn drain_queue_actions(
                         let _ = pipeline.zrem::<RedisValue, _, _>(&queue_key, member).await;
                         let _ = pipeline.del::<RedisValue, _>(&tracking_key).await;
                         QUEUE_EVICTIONS
-                            .with_label_values(&["hysteresis", &tracking.special_location_id])
+                            .with_label_values(&["hysteresis", &tracking.special_location_id, ""])
                             .inc();
                         // Trim last_ts to the short recovery window. While
                         // the driver was in-fence, Enter refreshed last_ts at
