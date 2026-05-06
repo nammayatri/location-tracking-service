@@ -336,7 +336,7 @@ impl AppState {
                         Some(Arc::new(pool))
                     }
                     Err(err) => {
-                        info!(
+                        error!(
                             tag = "[Redis Connection]",
                             "Error connecting to secondary Redis: {err}"
                         );
@@ -391,7 +391,7 @@ impl AppState {
             }
             Err(err) => {
                 producer = None;
-                info!(
+                error!(
                     tag = "[Kafka Connection]",
                     "Error connecting to kafka config: {err}"
                 );
@@ -414,7 +414,7 @@ impl AppState {
                         Some(val)
                     }
                     Err(err) => {
-                        info!(
+                        error!(
                             tag = "[Kafka Connection]",
                             "Error connecting to secondary kafka config: {err}"
                         );
