@@ -296,8 +296,10 @@ pub fn driver_queue_tracking_key(merchant_id: &str, driver_id: &str) -> String {
     format!("lts:driver_queue:{}:{}", merchant_id, driver_id)
 }
 
-/// Per-driver rolling hash of recent queue rank events. HASH field =
-/// server-side ping timestamp (stringified). Value is one of:
+/// Per-driver rolling Redis LIST of recent queue rank events. Each entry is
+/// a JSON object `{"ts": <server_timestamp>, "event": <string>}`, LPUSH'd at
+/// write time so reads are newest-first without an explicit sort. The event
+/// string is one of:
 ///   - `enter:<rank>` — driver was present in the queue at that timestamp
 ///     and the post-write ZRANK was `<rank>`. Only written when the rank
 ///     actually changes from the previously recorded value, so a stationary
@@ -311,6 +313,10 @@ pub fn driver_queue_tracking_key(merchant_id: &str, driver_id: &str) -> String {
 ///     internal manual-remove API (operator action), not by drainer logic.
 ///     Reason suffix is the free-form `reason` field from the request body
 ///     when supplied.
+///   - `exit:offline` — driver's mode flipped to OFFLINE; the location-update
+///     handler evicted them synchronously and skipped the drainer push for
+///     that ping. last_ts is left intact so re-entry within its TTL preserves
+///     the driver's original rank.
 ///     Bounded by a short TTL — observability only, not source-of-truth state.
 pub fn driver_queue_rank_history_key(merchant_id: &str, driver_id: &str) -> String {
     format!("lts:driver_queue_rank_hist:{}:{}", merchant_id, driver_id)

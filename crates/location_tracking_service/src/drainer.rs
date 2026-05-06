@@ -16,8 +16,8 @@ use crate::{
     redis::{
         commands::{
             add_driver_to_special_location_zset, batch_get_driver_queue_last_ts,
-            batch_get_driver_queue_trackings, push_drainer_driver_location, DriverQueueTracking,
-            RANK_HISTORY_TTL_SECS,
+            batch_get_driver_queue_trackings, push_drainer_driver_location, rank_history_payload,
+            DriverQueueTracking, RANK_HISTORY_TTL_SECS,
         },
         keys::{
             driver_loc_bucket_key, driver_queue_last_ts_key, driver_queue_rank_history_key,
@@ -26,7 +26,7 @@ use crate::{
     },
 };
 use chrono::{DateTime, Utc};
-use fred::prelude::{HashesInterface, KeysInterface, SortedSetsInterface};
+use fred::prelude::{KeysInterface, ListInterface, SortedSetsInterface};
 use fred::types::{Expiration, GeoPosition, GeoValue, RedisValue, SetOptions};
 use rustc_hash::FxHashMap;
 use shared::redis::types::RedisConnectionPool;
@@ -243,14 +243,14 @@ async fn drain_queue_actions(
                             driver_id,
                         );
                         let _ = pipeline.del::<RedisValue, _>(&old_last_ts_key).await;
-                        // Mark the switch on the rank-history hash, keyed by
+                        // Mark the switch on the rank-history list, keyed by
                         // the current ping ts (same source as Enter timestamps
                         // so events interleave on a single timeline).
                         let history_key = driver_queue_rank_history_key(merchant_id, driver_id);
                         let _ = pipeline
-                            .hset::<RedisValue, _, _>(
+                            .lpush::<RedisValue, _, _>(
                                 &history_key,
-                                (timestamp.to_string(), "exit:switch".to_string()),
+                                rank_history_payload(*timestamp, "exit:switch"),
                             )
                             .await;
                         let _ = pipeline
@@ -422,17 +422,17 @@ async fn drain_queue_actions(
                             .expire::<(), _>(&last_ts_key, last_ts_ttl_i64)
                             .await;
 
-                        // Append "exit" to the rank-history hash at the
-                        // ping timestamp that triggered the eviction. Same
-                        // pipeline as the ZREM/DEL so the event is durable
-                        // alongside the state change. EXPIRE refreshes the
-                        // hash TTL so the exit doesn't get truncated by an
-                        // earlier enter's expiry.
+                        // Append "exit:hysteresis" to the rank-history list at
+                        // the ping timestamp that triggered the eviction.
+                        // Same pipeline as the ZREM/DEL so the event is
+                        // durable alongside the state change. EXPIRE refreshes
+                        // the list TTL so the exit doesn't get truncated by
+                        // an earlier enter's expiry.
                         let history_key = driver_queue_rank_history_key(merchant_id, driver_id);
                         let _ = pipeline
-                            .hset::<RedisValue, _, _>(
+                            .lpush::<RedisValue, _, _>(
                                 &history_key,
-                                (timestamp.to_string(), "exit:hysteresis".to_string()),
+                                rank_history_payload(*timestamp, "exit:hysteresis"),
                             )
                             .await;
                         let _ = pipeline
@@ -492,11 +492,12 @@ async fn drain_queue_actions(
 
 /// Run two follow-up pipelines after the main drain:
 ///   1. Batched ZRANK for each Enter to discover the post-write rank.
-///   2. Batched HSET (`timestamp` → `enter:<rank>`) + EXPIRE on the per-driver
-///      hash, plus a refresh of the tracking key's `last_recorded_rank`.
-///      Both writes are skipped when the post-write rank equals the rank we
-///      previously recorded for this driver — stationary drivers produce one
-///      event per actual rank change, not one per ping.
+///   2. Batched LPUSH of `{ts, event: "enter:<rank>"}` + EXPIRE on the
+///      per-driver list, plus a refresh of the tracking key's
+///      `last_recorded_rank`. Both writes are skipped when the post-write
+///      rank equals the rank we previously recorded for this driver —
+///      stationary drivers produce one event per actual rank change, not
+///      one per ping.
 async fn record_rank_history(redis: &RedisConnectionPool, entered: &[EnteredForRankHistory]) {
     let zrank_pipeline = redis.writer_pool.next().pipeline();
     for e in entered {
@@ -515,7 +516,7 @@ async fn record_rank_history(redis: &RedisConnectionPool, entered: &[EnteredForR
         }
     };
 
-    let hset_pipeline = redis.writer_pool.next().pipeline();
+    let lpush_pipeline = redis.writer_pool.next().pipeline();
     let mut queued = 0usize;
     for (e, rank_val) in entered.iter().zip(ranks.iter()) {
         // ZRANK returns nil if the member is not in the set (eviction raced
@@ -534,17 +535,20 @@ async fn record_rank_history(redis: &RedisConnectionPool, entered: &[EnteredForR
             }
         };
         // Dedup: if this driver's rank hasn't changed since we last recorded
-        // it, skip both the history HSET and the tracking refresh. This is
+        // it, skip both the history LPUSH and the tracking refresh. This is
         // the common case for stationary drivers and trims the bulk of
         // rank-history writes.
         if e.prev_recorded_rank == Some(rank) {
             continue;
         }
         let key = driver_queue_rank_history_key(&e.merchant_id, &e.driver_id);
-        let _ = hset_pipeline
-            .hset::<RedisValue, _, _>(&key, (e.timestamp.to_string(), format!("enter:{}", rank)))
+        let _ = lpush_pipeline
+            .lpush::<RedisValue, _, _>(
+                &key,
+                rank_history_payload(e.timestamp, &format!("enter:{}", rank)),
+            )
             .await;
-        let _ = hset_pipeline
+        let _ = lpush_pipeline
             .expire::<(), _>(&key, RANK_HISTORY_TTL_SECS)
             .await;
         // Refresh the tracking key so the next batch's MGET sees the new
@@ -560,7 +564,7 @@ async fn record_rank_history(redis: &RedisConnectionPool, entered: &[EnteredForR
             last_recorded_rank: Some(rank),
         };
         if let Ok(value) = serde_json::to_string(&updated_tracking) {
-            let _ = hset_pipeline
+            let _ = lpush_pipeline
                 .set::<RedisValue, _, _>(&tracking_key, value, None, Some(SetOptions::XX), false)
                 .await;
         }
@@ -569,8 +573,8 @@ async fn record_rank_history(redis: &RedisConnectionPool, entered: &[EnteredForR
     if queued == 0 {
         return;
     }
-    if let Err(e) = hset_pipeline.all::<Vec<RedisValue>>().await {
-        error!(tag = "[Queue Rank History HSET]", error = %e);
+    if let Err(e) = lpush_pipeline.all::<Vec<RedisValue>>().await {
+        error!(tag = "[Queue Rank History LPUSH]", error = %e);
     }
 }
 
