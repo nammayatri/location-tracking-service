@@ -129,12 +129,13 @@ async fn start_server() -> std::io::Result<()> {
         .await;
     });
 
-    let (drainer_size, drainer_delay, bucket_size, nearby_bucket_threshold, redis) = (
+    let (drainer_size, drainer_delay, bucket_size, nearby_bucket_threshold, redis, queue_redis) = (
         data.drainer_size,
         data.drainer_delay,
         data.bucket_size,
         data.nearby_bucket_threshold,
         data.redis.clone(),
+        data.queue_redis(),
     );
     let special_location_cache = data
         .special_location_list_base_url
@@ -154,6 +155,7 @@ async fn start_server() -> std::io::Result<()> {
             bucket_size,
             nearby_bucket_threshold,
             redis,
+            queue_redis,
             special_location_cache,
             enable_special_location_bucketing,
             queue_expiry_seconds,

@@ -22,6 +22,20 @@ let replica_redis_cfg = {
     stream_read_count = 100,
     broadcast_channel_capacity = 10
 }
+
+let secondary_redis_cfg = {
+   redis_host = "localhost",
+    redis_port = 6379,
+    redis_pool_size = 10,
+    redis_partition = 0,
+    reconnect_max_attempts = 10,
+    reconnect_delay = 5000,
+    default_ttl = 3600,
+    default_hash_ttl = 3600,
+    stream_read_count = 100,
+    broadcast_channel_capacity = 10
+}
+
 let zone_to_redis_replica_mapping =
         { ap-south-1a = "0.0.0.0"
         , ap-south-1b = "0.0.0.0"
@@ -454,6 +468,7 @@ in {
     logger_cfg = logger_cfg,
     redis_cfg = redis_cfg,
     replica_redis_cfg = Some replica_redis_cfg,
+    secondary_redis_cfg = Some secondary_redis_cfg,
     zone_to_redis_replica_mapping = Some zone_to_redis_replica_mapping,
     workers = 1,
     drainer_size = 10,

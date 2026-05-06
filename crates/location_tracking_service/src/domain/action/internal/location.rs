@@ -547,8 +547,9 @@ pub async fn driver_queue_position(
     vehicle_type: String,
     driver_id: String,
 ) -> Result<DriverQueuePositionResponse, AppError> {
+    let primary_redis = data.queue_redis();
     let (rank, queue_size) = get_driver_queue_position_and_size(
-        &data.redis,
+        &primary_redis,
         &special_location_id,
         &vehicle_type,
         &driver_id,
@@ -572,11 +573,12 @@ pub async fn driver_queue_history(
     merchant_id: String,
     driver_id: String,
 ) -> Result<DriverQueueHistoryResponse, AppError> {
+    let primary_redis = data.queue_redis();
     // Tracking state and event timeline can be fetched in parallel — neither
     // depends on the other.
     let (tracking, events) = tokio::try_join!(
-        get_driver_queue_tracking(&data.redis, &merchant_id, &driver_id),
-        get_driver_queue_rank_history(&data.redis, &merchant_id, &driver_id),
+        get_driver_queue_tracking(&primary_redis, &merchant_id, &driver_id),
+        get_driver_queue_rank_history(&primary_redis, &merchant_id, &driver_id),
     )?;
 
     // Live ZRANK is only meaningful when we know which queue the driver is in.
@@ -584,7 +586,7 @@ pub async fn driver_queue_history(
     // already tell the story of how they left.
     let current_rank = if let Some(ref t) = tracking {
         get_driver_queue_position(
-            &data.redis,
+            &primary_redis,
             &t.special_location_id,
             &t.vehicle_type,
             &driver_id,
@@ -617,12 +619,24 @@ pub async fn manual_queue_remove(
     driver_id: String,
     reason: Option<String>,
 ) -> Result<APISuccess, AppError> {
-    remove_driver_from_queue(&data.redis, &special_location_id, &vehicle_type, &driver_id).await?;
-    delete_driver_queue_tracking(&data.redis, &merchant_id, &driver_id).await?;
+    let primary_redis = data.queue_redis();
+    remove_driver_from_queue(
+        &primary_redis,
+        &special_location_id,
+        &vehicle_type,
+        &driver_id,
+    )
+    .await?;
+    delete_driver_queue_tracking(&primary_redis, &merchant_id, &driver_id).await?;
     // Clear last_ts so the next in-fence ping cannot resurrect the driver at
     // their original score via the drainer's ZADD-NX-with-stored-ts path.
-    delete_driver_queue_last_ts(&data.redis, &special_location_id, &vehicle_type, &driver_id)
-        .await?;
+    delete_driver_queue_last_ts(
+        &primary_redis,
+        &special_location_id,
+        &vehicle_type,
+        &driver_id,
+    )
+    .await?;
     // Normalize once: empty/whitespace-only reasons collapse to None so the
     // rank-history event and the prometheus label stay in sync.
     let normalized_reason = reason.as_deref().map(str::trim).filter(|r| !r.is_empty());
@@ -635,7 +649,7 @@ pub async fn manual_queue_remove(
         None => "exit:manual".to_string(),
     };
     if let Err(err) = append_rank_history_event(
-        &data.redis,
+        &primary_redis,
         &merchant_id,
         &driver_id,
         Utc::now().timestamp() as f64,
@@ -663,13 +677,14 @@ pub async fn manual_queue_add(
     driver_id: String,
     queue_position: u64, // 1-indexed
 ) -> Result<APISuccess, AppError> {
+    let primary_redis = data.queue_redis();
     // First remove the driver if already in a different queue
     let existing_tracking =
-        get_driver_queue_tracking(&data.redis, &merchant_id, &driver_id).await?;
+        get_driver_queue_tracking(&primary_redis, &merchant_id, &driver_id).await?;
     if let Some(old) = &existing_tracking {
         if old.special_location_id != special_location_id || old.vehicle_type != vehicle_type {
             remove_driver_from_queue(
-                &data.redis,
+                &primary_redis,
                 &old.special_location_id,
                 &old.vehicle_type,
                 &driver_id,
@@ -679,11 +694,17 @@ pub async fn manual_queue_add(
     }
 
     // Also remove from the target queue if already present (to re-insert at new position)
-    remove_driver_from_queue(&data.redis, &special_location_id, &vehicle_type, &driver_id).await?;
+    remove_driver_from_queue(
+        &primary_redis,
+        &special_location_id,
+        &vehicle_type,
+        &driver_id,
+    )
+    .await?;
 
     // Recompute queue size after removal
     let queue_size_after_removal =
-        get_queue_size(&data.redis, &special_location_id, &vehicle_type).await?;
+        get_queue_size(&primary_redis, &special_location_id, &vehicle_type).await?;
 
     // Compute the score for the desired position
     let target_rank = if queue_position == 0 {
@@ -698,7 +719,7 @@ pub async fn manual_queue_add(
     } else if target_rank == 0 {
         // Insert at the front — use score slightly before the first member
         let scores =
-            get_queue_scores_at_range(&data.redis, &special_location_id, &vehicle_type, 0, 0)
+            get_queue_scores_at_range(&primary_redis, &special_location_id, &vehicle_type, 0, 0)
                 .await?;
         if let Some((_, first_score)) = scores.first() {
             first_score - 1.0
@@ -708,9 +729,14 @@ pub async fn manual_queue_add(
     } else if target_rank >= queue_size_after_removal {
         // Insert at the end — use score slightly after the last member
         let last = queue_size_after_removal as i64 - 1;
-        let scores =
-            get_queue_scores_at_range(&data.redis, &special_location_id, &vehicle_type, last, last)
-                .await?;
+        let scores = get_queue_scores_at_range(
+            &primary_redis,
+            &special_location_id,
+            &vehicle_type,
+            last,
+            last,
+        )
+        .await?;
         if let Some((_, last_score)) = scores.first() {
             last_score + 1.0
         } else {
@@ -720,9 +746,14 @@ pub async fn manual_queue_add(
         // Insert between ranks (target_rank - 1) and target_rank
         let before = target_rank as i64 - 1;
         let at = target_rank as i64;
-        let scores =
-            get_queue_scores_at_range(&data.redis, &special_location_id, &vehicle_type, before, at)
-                .await?;
+        let scores = get_queue_scores_at_range(
+            &primary_redis,
+            &special_location_id,
+            &vehicle_type,
+            before,
+            at,
+        )
+        .await?;
         if scores.len() == 2 {
             (scores[0].1 + scores[1].1) / 2.0
         } else {
@@ -731,7 +762,7 @@ pub async fn manual_queue_add(
     };
 
     add_driver_to_queue_force(
-        &data.redis,
+        &primary_redis,
         &special_location_id,
         &vehicle_type,
         &driver_id,
@@ -742,7 +773,7 @@ pub async fn manual_queue_add(
 
     // Set tracking key
     set_driver_queue_tracking(
-        &data.redis,
+        &primary_redis,
         &merchant_id,
         &driver_id,
         &DriverQueueTracking {
@@ -764,8 +795,10 @@ pub async fn get_queue_drivers(
     special_location_id: String,
     vehicle_type: String,
 ) -> Result<QueueDriversResponse, AppError> {
+    let primary_redis = data.queue_redis();
     let scores =
-        get_queue_scores_at_range(&data.redis, &special_location_id, &vehicle_type, 0, -1).await?;
+        get_queue_scores_at_range(&primary_redis, &special_location_id, &vehicle_type, 0, -1)
+            .await?;
     let drivers = scores
         .into_iter()
         .enumerate()
@@ -792,9 +825,10 @@ pub async fn get_special_location_drivers(
     if !data.enable_special_location_bucketing {
         return Ok(SpecialLocationDriversResponse { driver_ids: vec![] });
     }
+    let primary_redis = data.queue_redis();
     let current_bucket = get_bucket_from_timestamp(&data.bucket_size, TimeStamp(Utc::now()));
     let driver_ids = get_drivers_in_special_location(
-        &data.redis,
+        &primary_redis,
         &special_location_id,
         &current_bucket,
         &data.nearby_bucket_threshold,
