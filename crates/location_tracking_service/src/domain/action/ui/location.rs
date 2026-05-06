@@ -30,7 +30,7 @@ use crate::outbound::external::{
 use crate::outbound::types::{LocationUpdate, ViolationDetectionReq};
 use crate::redis::{commands::*, keys::*};
 use crate::tools::error::AppError;
-use crate::tools::prometheus::MEASURE_DURATION;
+use crate::tools::prometheus::{MEASURE_DURATION, QUEUE_EVICTIONS};
 use actix::Arbiter;
 use actix_web::{web::Data, HttpResponse};
 use chrono::Utc;
@@ -44,7 +44,7 @@ use std::env::var;
 use std::pin::Pin;
 use std::time::Duration;
 use strum::IntoEnumIterator;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 #[macros::measure_duration]
 async fn get_driver_id_from_authentication(
@@ -380,6 +380,59 @@ pub async fn update_driver_location(
     Ok(HttpResponse::Ok().finish())
 }
 
+/// Driver flipped to OFFLINE. Drop them from any queue they were tracked in
+/// and clear the tracking entry so a subsequent in-fence ping (after they go
+/// back ONLINE) re-enters fresh. last_ts is intentionally left untouched —
+/// its TTL gives them a recovery window where coming back online preserves
+/// their original rank via the drainer's stored-ts ZADD path. All steps are
+/// best-effort: failures are logged but don't propagate.
+async fn handle_driver_offline_queue_cleanup(
+    redis: &RedisConnectionPool,
+    merchant_id: &str,
+    driver_id: &str,
+) {
+    let tracking = match get_driver_queue_tracking(redis, merchant_id, driver_id).await {
+        Ok(t) => t,
+        Err(err) => {
+            error!(tag = "[Offline Queue Cleanup]", driver_id = %driver_id, error = %err);
+            return;
+        }
+    };
+    // Already evicted by some other path (hysteresis / switch / manual /
+    // earlier OFFLINE ping) — nothing to do, and skip writing a second
+    // exit:offline event.
+    let Some(tracking) = tracking else {
+        return;
+    };
+    if let Err(err) = remove_driver_from_queue(
+        redis,
+        &tracking.special_location_id,
+        &tracking.vehicle_type,
+        driver_id,
+    )
+    .await
+    {
+        error!(tag = "[Offline Queue Cleanup ZREM]", driver_id = %driver_id, error = %err);
+    }
+    if let Err(err) = delete_driver_queue_tracking(redis, merchant_id, driver_id).await {
+        error!(tag = "[Offline Queue Cleanup DEL]", driver_id = %driver_id, error = %err);
+    }
+    if let Err(err) = append_rank_history_event(
+        redis,
+        merchant_id,
+        driver_id,
+        Utc::now().timestamp() as f64,
+        "exit:offline",
+    )
+    .await
+    {
+        error!(tag = "[Offline Queue Cleanup History]", driver_id = %driver_id, error = %err);
+    }
+    QUEUE_EVICTIONS
+        .with_label_values(&["offline", &tracking.special_location_id, ""])
+        .inc();
+}
+
 #[macros::measure_duration]
 #[allow(clippy::type_complexity)]
 async fn process_driver_locations(
@@ -414,6 +467,16 @@ async fn process_driver_locations(
         group_id,
         group_id2,
     ) = args;
+
+    // OFFLINE pings are a state-change signal: evict the driver from any
+    // queue they were sitting in (last_ts retained for grace re-entry). Done
+    // before the drainer push so we don't race a same-tick Enter that would
+    // re-add them. `is_offline` then suppresses the drainer push below — an
+    // OFFLINE driver shouldn't appear in nearby-driver buckets either.
+    let is_offline = matches!(driver_mode, DriverMode::OFFLINE);
+    if is_offline {
+        handle_driver_offline_queue_cleanup(&data.redis, &merchant_id.0, &driver_id.0).await;
+    }
 
     let driver_ride_details = get_ride_details(&data.redis, &driver_id, &merchant_id).await?;
 
@@ -863,28 +926,30 @@ async fn process_driver_locations(
             };
             all_tasks.push(Box::pin(set_driver_last_location_update));
 
-            let send_driver_location_to_drainer = async {
-                let _ = &data
-                    .sender
-                    .send((
-                        Dimensions {
-                            merchant_id: merchant_id.to_owned(),
-                            city: city.to_owned(),
-                            vehicle_type: vehicle_type.to_owned(),
-                            created_at: Utc::now(),
-                            merchant_operating_city_id: merchant_operating_city_id.to_owned(),
-                        },
-                        latest_driver_location.pt.lat,
-                        latest_driver_location.pt.lon,
-                        current_ts,
-                        latest_driver_location_ts.to_owned(),
-                        driver_id.to_owned(),
-                    ))
-                    .await
-                    .map_err(|err| AppError::DrainerPushFailed(err.to_string()))?;
-                Ok(())
-            };
-            all_tasks.push(Box::pin(send_driver_location_to_drainer));
+            if !is_offline {
+                let send_driver_location_to_drainer = async {
+                    let _ = &data
+                        .sender
+                        .send((
+                            Dimensions {
+                                merchant_id: merchant_id.to_owned(),
+                                city: city.to_owned(),
+                                vehicle_type: vehicle_type.to_owned(),
+                                created_at: Utc::now(),
+                                merchant_operating_city_id: merchant_operating_city_id.to_owned(),
+                            },
+                            latest_driver_location.pt.lat,
+                            latest_driver_location.pt.lon,
+                            current_ts,
+                            latest_driver_location_ts.to_owned(),
+                            driver_id.to_owned(),
+                        ))
+                        .await
+                        .map_err(|err| AppError::DrainerPushFailed(err.to_string()))?;
+                    Ok(())
+                };
+                all_tasks.push(Box::pin(send_driver_location_to_drainer));
+            }
 
             join_all(all_tasks)
                 .await
@@ -911,7 +976,7 @@ async fn process_driver_locations(
                     &data.blacklist_polygon,
                 );
 
-            if !is_blacklist_for_special_zone {
+            if !is_blacklist_for_special_zone && !is_offline {
                 let send_driver_location_to_drainer = async {
                     let _ = &data
                         .sender

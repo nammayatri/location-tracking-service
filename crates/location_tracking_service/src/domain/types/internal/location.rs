@@ -138,7 +138,7 @@ pub struct ManualQueueRemoveRequest {
     pub reason: Option<String>,
 }
 
-/// One event from the per-driver rank-history hash. `value` is the raw event
+/// One event from the per-driver rank-history list. `value` is the raw event
 /// string — see `driver_queue_rank_history_key` doc for the format.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -158,6 +158,8 @@ pub struct DriverQueueTrackingSnapshot {
 }
 
 /// Response for GET /internal/drivers/{merchant_id}/{driver_id}/queue-history.
+/// `events` is ordered newest-first (LPUSH head order in the underlying Redis
+/// list) — index 0 is the most recent state change.
 /// Bounded by `RANK_HISTORY_TTL_SECS` (2h) — events older than that are not
 /// returned because Redis has already expired them.
 #[derive(Serialize, Deserialize, Debug, Clone)]

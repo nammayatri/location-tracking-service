@@ -10,7 +10,7 @@ use crate::domain::types::ui::location::PersonType;
 use crate::outbound::types::LocationUpdate;
 use crate::redis::keys::*;
 use crate::tools::error::AppError;
-use fred::prelude::{HashesInterface, KeysInterface, SortedSetsInterface};
+use fred::prelude::{KeysInterface, ListInterface, SortedSetsInterface};
 use fred::types::{GeoPosition, GeoUnit, RedisValue, SetOptions, SortOrder};
 use futures::Future;
 use rustc_hash::FxHashSet;
@@ -1255,16 +1255,43 @@ pub struct DriverQueueTracking {
     pub last_recorded_rank: Option<u64>,
 }
 
-/// TTL applied to the per-driver rank-history hash on every event write.
+/// TTL applied to the per-driver rank-history list on every event write.
 /// 2h is a balance between letting operators inspect rank churn over the
 /// recent past and keeping per-key memory bounded for large fleets.
 pub const RANK_HISTORY_TTL_SECS: i64 = 2 * 60 * 60;
 
+/// On-wire shape of a single rank-history list entry. Each LPUSH writes a
+/// JSON-serialized instance; reads deserialize back. Field names are short
+/// to keep the per-entry payload compact in Redis.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct RankHistoryEntry {
+    ts: f64,
+    event: String,
+}
+
+/// Build the JSON payload that goes into the rank-history list for one event.
+/// Single source of truth for the entry schema — both the standalone helper
+/// (`append_rank_history_event`) and the drainer's inline LPUSH writes route
+/// through this. Serialization can't fail for this fixed shape, so this
+/// returns `String` directly and panics only on a serde regression.
+pub(crate) fn rank_history_payload(ts: f64, event: &str) -> String {
+    // Safety: RankHistoryEntry is a flat struct of f64 + String — serialization is infallible.
+    match serde_json::to_string(&RankHistoryEntry {
+        ts,
+        event: event.to_string(),
+    }) {
+        Ok(s) => s,
+        Err(_) => String::from("{}"),
+    }
+}
+
 /// Append one event (e.g. `enter:<rank>`, `exit:hysteresis`, `exit:switch`,
-/// `exit:manual`) to a driver's rank-history hash and refresh its TTL in
-/// the same round trip. Standalone (non-pipelined); the drainer's batched
-/// path inlines the same HSET+EXPIRE pair into its existing pipeline so it
-/// shares one round trip with the surrounding ZADD/SET writes.
+/// `exit:manual`, `exit:offline`) to the head of a driver's rank-history
+/// list and refresh its TTL in the same round trip. LPUSH gives newest-first
+/// reads natively, no sort step required. Standalone (non-pipelined); the
+/// drainer's batched path inlines the same LPUSH+EXPIRE pair into its
+/// existing pipeline so it shares one round trip with the surrounding
+/// ZADD/SET writes.
 pub async fn append_rank_history_event(
     redis: &RedisConnectionPool,
     merchant_id: &str,
@@ -1273,10 +1300,9 @@ pub async fn append_rank_history_event(
     event: &str,
 ) -> Result<(), AppError> {
     let key = driver_queue_rank_history_key(merchant_id, driver_id);
+    let payload = rank_history_payload(timestamp, event);
     let pipeline = redis.writer_pool.next().pipeline();
-    let _ = pipeline
-        .hset::<RedisValue, _, _>(&key, (timestamp.to_string(), event.to_string()))
-        .await;
+    let _ = pipeline.lpush::<RedisValue, _, _>(&key, payload).await;
     let _ = pipeline.expire::<(), _>(&key, RANK_HISTORY_TTL_SECS).await;
     pipeline
         .all::<Vec<RedisValue>>()
@@ -1285,10 +1311,10 @@ pub async fn append_rank_history_event(
     Ok(())
 }
 
-/// Read every event from a driver's rank-history hash and return them sorted
-/// by timestamp ascending. Field strings that aren't parseable as `f64` are
-/// dropped — they're not produced by any current writer, so this is a
-/// defensive guard rather than a normal case. Read from the writer pool to
+/// Read every event from a driver's rank-history list. Returns newest-first
+/// (LPUSH head order) — no sort is applied. Entries that fail JSON
+/// deserialization are dropped (defensive: shouldn't happen for any payload
+/// produced by `append_rank_history_event`). Read from the writer pool to
 /// avoid replica-lag windows where a just-written event is invisible.
 pub async fn get_driver_queue_rank_history(
     redis: &RedisConnectionPool,
@@ -1296,18 +1322,17 @@ pub async fn get_driver_queue_rank_history(
     driver_id: &str,
 ) -> Result<Vec<(f64, String)>, AppError> {
     let key = driver_queue_rank_history_key(merchant_id, driver_id);
-    let raw: HashMap<String, String> = redis
+    let raw: Vec<String> = redis
         .writer_pool
         .next()
-        .hgetall(&key)
+        .lrange(&key, 0, -1)
         .await
         .map_err(|err| AppError::InternalError(err.to_string()))?;
-    let mut events: Vec<(f64, String)> = raw
+    Ok(raw
         .into_iter()
-        .filter_map(|(field, value)| field.parse::<f64>().ok().map(|ts| (ts, value)))
-        .collect();
-    events.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
-    Ok(events)
+        .filter_map(|s| serde_json::from_str::<RankHistoryEntry>(&s).ok())
+        .map(|e| (e.ts, e.event))
+        .collect())
 }
 
 /// Add a driver to the queue ZSET using ZADD NX (only if not already present).
