@@ -608,6 +608,7 @@ async fn drain_driver_locations(
     queue_exit_hysteresis_threshold: u32,
     entry_ts_ttl: u32,
     redis: &Arc<RedisConnectionPool>,
+    queue_redis: &Arc<RedisConnectionPool>,
 ) {
     info!(
         tag = "[Queued Entries For Draining]",
@@ -627,7 +628,7 @@ async fn drain_driver_locations(
                 .single()
                 .unwrap_or_else(Utc::now);
             if let Err(err) = add_driver_to_special_location_zset(
-                redis,
+                queue_redis,
                 key,
                 *bucket,
                 driver_id,
@@ -643,11 +644,11 @@ async fn drain_driver_locations(
 
     // Fire-and-forget queue actions in a spawned task so they don't block the main drain.
     if !queue_actions.is_empty() {
-        let redis = Arc::clone(redis);
+        let queue_redis = Arc::clone(queue_redis);
         tokio::spawn(async move {
             drain_queue_actions(
                 queue_actions,
-                &redis,
+                &queue_redis,
                 queue_expiry,
                 queue_exit_hysteresis_threshold,
                 entry_ts_ttl,
@@ -714,6 +715,7 @@ pub async fn run_drainer(
     bucket_size: u64,
     near_by_bucket_threshold: u64,
     redis: Arc<RedisConnectionPool>,
+    queue_redis: Arc<RedisConnectionPool>,
     special_location_cache: Option<SpecialLocationCache>,
     enable_special_location_bucketing: bool,
     queue_expiry_seconds: u64,
@@ -748,6 +750,7 @@ pub async fn run_drainer(
                     queue_exit_hysteresis_threshold,
                     special_location_entry_ts_ttl_sec as u32,
                     &redis,
+                    &queue_redis,
                 )
                 .await;
                 cleanup_drainer(
@@ -849,6 +852,7 @@ pub async fn run_drainer(
                                 queue_exit_hysteresis_threshold,
                                 special_location_entry_ts_ttl_sec as u32,
                                 &redis,
+                                &queue_redis,
                             )
                             .await;
                             cleanup_drainer(
@@ -880,6 +884,7 @@ pub async fn run_drainer(
                         queue_exit_hysteresis_threshold,
                         special_location_entry_ts_ttl_sec as u32,
                         &redis,
+                        &queue_redis,
                     )
                     .await;
                     cleanup_drainer(

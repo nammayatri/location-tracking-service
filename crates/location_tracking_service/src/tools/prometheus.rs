@@ -42,17 +42,17 @@ pub static GPS_UPDATES_IGNORED_NO_ACTIVE_RIDE: once_cell::sync::Lazy<IntCounter>
 /// the eviction reason and the source special location.
 ///
 /// Labels:
-/// * `reason`               — `hysteresis` (consecutive_exit_pings reached threshold),
-///                            `switch`     (driver entered a different queue),
-///                            or `manual`  (admin-triggered removal via internal API)
-/// * `special_location_id`  — the queue the driver was evicted from
-/// * `manual_reason`        — sub-reason from the manual-remove request body
-///                            (e.g. `wrong_queue`, `complaint`). Empty string
-///                            for `hysteresis`/`switch` evictions and for
-///                            `manual` evictions where no reason was supplied.
-///                            **Keep the operator vocabulary bounded** — every
-///                            unique string here is a new prometheus time
-///                            series.
+/// * `reason` — `hysteresis` (consecutive_exit_pings reached threshold),
+///   `switch` (driver entered a different queue),
+///   or `manual` (admin-triggered removal via internal API)
+/// * `special_location_id` — the queue the driver was evicted from
+/// * `manual_reason` — sub-reason from the manual-remove request body
+///   (e.g. `wrong_queue`, `complaint`). Empty string
+///   for `hysteresis`/`switch` evictions and for
+///   `manual` evictions where no reason was supplied.
+///   **Keep the operator vocabulary bounded** — every
+///   unique string here is a new prometheus time
+///   series.
 pub static QUEUE_EVICTIONS: once_cell::sync::Lazy<IntCounterVec> = once_cell::sync::Lazy::new(
     || {
         register_int_counter_vec!(

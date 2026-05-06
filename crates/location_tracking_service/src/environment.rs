@@ -30,6 +30,7 @@ pub struct AppConfig {
     pub logger_cfg: LoggerConfig,
     pub redis_cfg: RedisConfig,
     pub replica_redis_cfg: Option<RedisConfig>,
+    pub secondary_redis_cfg: Option<RedisConfig>,
     pub zone_to_redis_replica_mapping: Option<HashMap<String, String>>,
     pub workers: usize,
     pub drainer_delay: u64,
@@ -177,6 +178,8 @@ where
 #[derive(Clone)]
 pub struct AppState {
     pub redis: Arc<RedisConnectionPool>,
+    pub secondary_redis: Option<Arc<RedisConnectionPool>>,
+    pub use_secondary_lts_redis: bool,
     pub sender: Sender<(
         Dimensions,
         Latitude,
@@ -259,6 +262,10 @@ impl AppState {
             DriverId,
         )>,
     ) -> AppState {
+        let use_secondary_lts_redis = var("RUN_IN_SECONDARY_LTS_REDIS")
+            .map(|val| val.to_lowercase() == "true")
+            .unwrap_or(false); // default: false — use primary Redis for queue operations
+
         let pod_zone = var("POD_ZONE").ok();
         let new_replica_host = pod_zone
             .as_ref()
@@ -300,6 +307,45 @@ impl AppState {
             .await
             .expect("Failed to create Generic Redis connection pool"),
         );
+
+        let secondary_redis: Option<Arc<RedisConnectionPool>> = match app_config.secondary_redis_cfg
+        {
+            Some(secondary_cfg) => {
+                match RedisConnectionPool::new(
+                    RedisSettings::new(
+                        secondary_cfg.redis_host,
+                        secondary_cfg.redis_port,
+                        secondary_cfg.redis_pool_size,
+                        secondary_cfg.redis_partition,
+                        secondary_cfg.reconnect_max_attempts,
+                        secondary_cfg.reconnect_delay,
+                        secondary_cfg.default_ttl,
+                        secondary_cfg.default_hash_ttl,
+                        secondary_cfg.stream_read_count,
+                        secondary_cfg.broadcast_channel_capacity,
+                    ),
+                    None,
+                )
+                .await
+                {
+                    Ok(pool) => {
+                        info!(
+                            tag = "[Redis Connection]",
+                            "Secondary Redis connected successfully"
+                        );
+                        Some(Arc::new(pool))
+                    }
+                    Err(err) => {
+                        info!(
+                            tag = "[Redis Connection]",
+                            "Error connecting to secondary Redis: {err}"
+                        );
+                        None
+                    }
+                }
+            }
+            None => None,
+        };
 
         let geo_config_path = var("GEO_CONFIG").unwrap_or_else(|_| "./geo_config".to_string());
         let polygons = read_geo_polygon(&geo_config_path).expect("Failed to read geoJSON");
@@ -391,6 +437,8 @@ impl AppState {
 
         AppState {
             redis,
+            secondary_redis,
+            use_secondary_lts_redis,
             drainer_delay: app_config.drainer_delay,
             drainer_size: app_config.drainer_size,
             sender,
@@ -463,5 +511,17 @@ impl AppState {
             enable_queue_cache_empty_guard: app_config.enable_queue_cache_empty_guard,
             special_location_entry_ts_ttl_sec: app_config.special_location_entry_ts_ttl_sec,
         }
+    }
+
+    /// Returns the Redis pool to use for special-location queue operations.
+    /// When `RUN_IN_SECONDARY_LTS_REDIS=true` and a secondary pool is configured,
+    /// returns the secondary pool; otherwise falls back to the primary.
+    pub fn queue_redis(&self) -> Arc<RedisConnectionPool> {
+        if self.use_secondary_lts_redis {
+            if let Some(ref secondary) = self.secondary_redis {
+                return secondary.clone();
+            }
+        }
+        self.redis.clone()
     }
 }

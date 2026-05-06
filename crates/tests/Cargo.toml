@@ -3,6 +3,9 @@ name = "tests"
 version = "0.1.0"
 edition = "2021"
 
+[lints.rust]
+unexpected_cfgs = "allow"
+
 [dependencies]
 tokio = "1.28.2"
 futures = "0.3"
