@@ -54,6 +54,7 @@ pub struct DriverLocationDetail {
     pub bear: Option<Direction>,
     pub ride_details: Option<RideDetailsApiEntity>,
     pub vehicle_type: Option<VehicleType>,
+    pub driver_mode: Option<DriverMode>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
