@@ -327,16 +327,19 @@ async fn drain_queue_actions(
                 };
                 let _ = pipeline.expire::<(), _>(&queue_key, expiry_i64).await;
 
-                // Refresh last_ts on every Enter at the full queue_expiry, so
-                // a driver who keeps pinging in-fence never has their rank
-                // memory decay. The post-evict short window is applied at the
-                // hysteresis evict site below via EXPIRE.
+                // Refresh last_ts on every Enter at the recovery-window TTL.
+                // A driver pinging in-fence faster than `queue_last_ts_ttl`
+                // keeps last_ts alive indefinitely (each Enter resets the
+                // timer); when they stop, last_ts naturally expires
+                // `queue_last_ts_ttl` after the final in-fence ping —
+                // collapsing the previous "long TTL while pinging, trim on
+                // evict" model into a single, uniform recovery window.
                 if let Ok(value) = serde_json::to_string(&effective_score) {
                     let _ = pipeline
                         .set::<RedisValue, _, _>(
                             &last_ts_key,
                             value,
-                            Some(Expiration::EX(expiry_i64)),
+                            Some(Expiration::EX(last_ts_ttl_i64)),
                             None,
                             false,
                         )
@@ -402,11 +405,13 @@ async fn drain_queue_actions(
                         QUEUE_EVICTIONS
                             .with_label_values(&["hysteresis", &tracking.special_location_id, ""])
                             .inc();
-                        // Trim last_ts to the short recovery window. While
-                        // the driver was in-fence, Enter refreshed last_ts at
-                        // queue_expiry so it never decayed; here we cap the
-                        // remaining lifetime so the TTL doubles as a
-                        // false-evict-vs-real-exit discriminator:
+                        // Reset last_ts's recovery window from this exact
+                        // moment. Enter writes already use this TTL, so most
+                        // of the time this is a no-op refresh — but it
+                        // matters when the last in-fence Enter was a while
+                        // ago (e.g. consecutive PossibleExits eating into the
+                        // remaining TTL), guaranteeing the discriminator
+                        // resets cleanly:
                         //   - re-entry within `queue_last_ts_ttl` (e.g. GPS
                         //     noise, drainer race) → last_ts still alive →
                         //     ZADD NX with stored ts → original rank
