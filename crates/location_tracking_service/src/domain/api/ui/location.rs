@@ -111,8 +111,10 @@ pub async fn track_person_entity_location(
     let (person_type, entity_type, entity_id) = path.into_inner();
     let person_type = PersonType::from_str(&person_type)
         .map_err(|_| AppError::InvalidRequest(format!("Invalid person_type: {}", person_type)))?;
+    let entity_type = EntityType::from_str(&entity_type)
+        .map_err(|_| AppError::InvalidRequest(format!("Invalid entity_type: {}", entity_type)))?;
     Ok(Json(
-        location::track_person_entity_location(data, person_type, &entity_type, &entity_id).await?,
+        location::track_person_entity_location(data, person_type, entity_type, &entity_id).await?,
     ))
 }
 

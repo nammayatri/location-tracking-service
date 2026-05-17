@@ -1,0 +1,221 @@
+{
+  "v": 11,
+  "name": "LocationTrackingService-RiderSos",
+  "folders": [],
+  "requests": [
+    {
+      "v": "17",
+      "name": "RiderAuth",
+      "method": "POST",
+      "endpoint": "http://localhost:8013/v2/auth",
+      "params": [],
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "application/json;charset=utf-8",
+          "active": true,
+          "description": ""
+        }
+      ],
+      "preRequestScript": "",
+      "testScript": "",
+      "auth": {
+        "authType": "inherit",
+        "authActive": true
+      },
+      "body": {
+        "contentType": "application/json",
+        "body": "{\"mobileNumber\":\"9999999999\",\"mobileCountryCode\":\"+91\",\"merchantId\":\"NAMMA_YATRI\"}"
+      },
+      "requestVariables": [],
+      "responses": {},
+      "description": null
+    },
+    {
+      "v": "17",
+      "name": "Verify",
+      "method": "POST",
+      "endpoint": "http://localhost:8013/v2/auth/<<customer_authId>>/verify",
+      "params": [],
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "application/json;charset=utf-8",
+          "active": true,
+          "description": ""
+        }
+      ],
+      "preRequestScript": "",
+      "testScript": "",
+      "auth": {
+        "authType": "inherit",
+        "authActive": true
+      },
+      "body": {
+        "contentType": "application/json",
+        "body": "{\"otp\":\"7891\",\"deviceToken\":\"5497873d-10ca-42f3-8a32-22de4c916026\"}"
+      },
+      "requestVariables": [
+        {
+          "key": "authId",
+          "value": "<<customer_authId>>",
+          "active": true
+        }
+      ],
+      "responses": {},
+      "description": null
+    },
+    {
+      "v": "17",
+      "name": "Create Sos",
+      "method": "POST",
+      "endpoint": "http://localhost:8013/v2/sos/create",
+      "params": [],
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "application/json",
+          "active": true,
+          "description": ""
+        },
+        {
+          "key": "token",
+          "value": "<<customer_token>>",
+          "active": true,
+          "description": ""
+        }
+      ],
+      "preRequestScript": "",
+      "testScript": "",
+      "auth": {
+        "authType": "inherit",
+        "authActive": true
+      },
+      "body": {
+        "contentType": "application/json",
+        "body": "{\"flow\":{\"tag\":\"SafetyFlow\"},\"rideId\":\"48c7d88d-4402-4eeb-92bf-fb1ae33e72b2\",\"isRideEnded\":null,\"sendPNOnPostRideSOS\":null,\"notifyAllContacts\":true,\"customerLocation\":{\"lat\":12.9716,\"lon\":77.5946>>"
+      },
+      "requestVariables": [],
+      "responses": {},
+      "description": null
+    },
+    {
+      "v": "17",
+      "name": "Start SOS LTS",
+      "method": "POST",
+      "endpoint": "http://localhost:8081/internal/entity/rider/sos/<<sos_id>>/upsert",
+      "params": [],
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "application/json",
+          "active": true,
+          "description": ""
+        }
+      ],
+      "preRequestScript": "",
+      "testScript": "",
+      "auth": {
+        "authType": "inherit",
+        "authActive": true
+      },
+      "body": {
+        "contentType": "application/json",
+        "body": "{\n    \"personId\": \"dev\",\n    \"merchantId\": \"dev\",\n    \"entityInfo\": { \"entityInfo\": \"entityStart\" }\n  }"
+      },
+      "requestVariables": [],
+      "responses": {},
+      "description": null
+    },
+    {
+      "v": "17",
+      "name": "Update Location",
+      "method": "POST",
+      "endpoint": "http://localhost:8081/ui/location/rider",
+      "params": [],
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "application/json",
+          "active": true,
+          "description": ""
+        },
+        {
+          "key": "token",
+          "value": "dev",
+          "active": true,
+          "description": ""
+        }
+      ],
+      "preRequestScript": "",
+      "testScript": "",
+      "auth": {
+        "authType": "inherit",
+        "authActive": true
+      },
+      "body": {
+        "contentType": "application/json",
+        "body": "[{\n    \"pt\": { \"lat\": 12.34, \"lon\": 77.78 },\n    \"ts\": \"2025-03-03T10:00:00Z\",\n    \"acc\": null,\n    \"v\": null,\n    \"bear\": null\n  }]"
+      },
+      "requestVariables": [],
+      "responses": {},
+      "description": null
+    },
+    {
+      "v": "17",
+      "name": "Track SOS location",
+      "method": "GET",
+      "endpoint": "http://localhost:8081/ui/location/rider/sos/<<sos_id>>",
+      "params": [],
+      "headers": [
+        {
+          "key": "token",
+          "value": "dev",
+          "active": true,
+          "description": ""
+        }
+      ],
+      "preRequestScript": "",
+      "testScript": "",
+      "auth": {
+        "authType": "inherit",
+        "authActive": true
+      },
+      "body": {
+        "contentType": null,
+        "body": null
+      },
+      "requestVariables": [],
+      "responses": {},
+      "description": null
+    },
+    {
+      "v": "17",
+      "name": "End Tracking",
+      "method": "POST",
+      "endpoint": "http://localhost:8081/internal/entity/rider/sos/98f57af8-6604-45d2-bb20-e63c035d2f6a/upsert",
+      "params": [],
+      "headers": [],
+      "preRequestScript": "",
+      "testScript": "",
+      "auth": {
+        "authType": "inherit",
+        "authActive": true
+      },
+      "body": {
+        "contentType": "application/json",
+        "body": "{\n  \"personId\": \"dev\",\n  \"merchantId\": \"dev\",\n  \"entityInfo\": {\n    \"entityInfo\": \"entityEnd\",\n    \"lat\": 12.9716,\n    \"lon\": 77.5946\n  }\n}"
+      },
+      "requestVariables": [],
+      "responses": {},
+      "description": null
+    }
+  ],
+  "auth": {
+    "authActive": true,
+    "authType": "inherit"
+  },
+  "headers": [],
+  "variables": [],
+  "description": null
+}
