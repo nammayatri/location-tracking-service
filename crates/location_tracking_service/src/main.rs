@@ -57,7 +57,10 @@ async fn start_server() -> std::io::Result<()> {
         error!("Panic Occured : {} - {:?}", payload, panic_info);
     }));
 
-    let port = app_config.port;
+    let port = var("SERVICE_PORT")
+        .ok()
+        .and_then(|p| p.parse::<u16>().ok())
+        .unwrap_or(app_config.port);
     let workers = app_config.workers;
     let max_allowed_req_size = app_config.max_allowed_req_size;
 
