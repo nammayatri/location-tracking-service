@@ -203,6 +203,9 @@ fn convert_gps_to_location_updates(
             v: speed,
             acc: None,
             bear: bearing,
+            person_type: None,
+            gtfs_id: None,
+            vehicle_no: None,
         });
     }
 
