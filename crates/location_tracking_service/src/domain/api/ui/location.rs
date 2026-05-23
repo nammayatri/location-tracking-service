@@ -42,6 +42,23 @@ pub async fn update_driver_location(
             "token (Header) not found".to_string(),
         ))?;
 
+    if matches!(
+        request_body.first().and_then(|r| r.person_type),
+        Some(crate::domain::types::ui::location::PersonType::Conductor)
+    ) {
+        return crate::domain::action::ui::location::forward_conductor_locations(
+            Token(token.clone()),
+            data,
+            request_body,
+            req.headers()
+                .get("mid")
+                .and_then(|v| v.to_str().ok())
+                .map(|s| MerchantId(s.to_string())),
+        )
+        .await
+        .map(|_| HttpResponse::Ok().finish());
+    }
+
     let vehicle_type = req
         .headers()
         .get("vt")

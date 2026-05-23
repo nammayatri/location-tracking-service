@@ -126,6 +126,112 @@ async fn get_rider_id_from_authentication(
     }
 }
 
+#[derive(serde::Serialize)]
+struct ConductorGpsUpdate {
+    #[serde(rename = "deviceId")]
+    device_id: String,
+    #[serde(rename = "vehicleNo")]
+    vehicle_no: String,
+    #[serde(rename = "personType")]
+    person_type: &'static str,
+    #[serde(rename = "gtfsId")]
+    gtfs_id: String,
+    lat: f64,
+    #[serde(rename = "long")]
+    lon: f64,
+    timestamp: i64,
+    #[serde(rename = "serverTime")]
+    server_time: i64,
+    provider: &'static str,
+}
+
+pub async fn forward_conductor_locations(
+    token: Token,
+    data: Data<AppState>,
+    request_body: Vec<UpdateDriverLocationRequest>,
+    req_merchant_id: Option<MerchantId>,
+) -> Result<(), AppError> {
+    let (driver_id, merchant_id, _moc_id) = if var("DEV").is_ok() {
+        (
+            DriverId(token.to_owned().inner()),
+            req_merchant_id.unwrap_or_else(|| MerchantId("dev".to_string())),
+            MerchantOperatingCityId("dev".to_string()),
+        )
+    } else {
+        get_driver_id_from_authentication(
+            &data.redis,
+            &data.auth_url,
+            &data.auth_api_key,
+            &data.auth_token_expiry,
+            &token,
+        )
+        .await?
+    };
+
+    // Conductor identity reuses the driver auth path; the authenticated
+    // person id is recorded as the rate-limit subject.
+    let conductor_person_id = PersonId(driver_id.0.clone());
+
+    let topic_for_gtfs = |gtfs_id: &str| -> Result<&str, AppError> {
+        data.gtfs_id_to_topic
+            .get(gtfs_id)
+            .map(|s| s.as_str())
+            .ok_or_else(|| {
+                AppError::InvalidRequest(format!("no kafka topic configured for gtfs_id={gtfs_id}"))
+            })
+    };
+
+    let now_secs = Utc::now().timestamp();
+
+    for entry in request_body.into_iter() {
+        let gtfs_id = entry.gtfs_id.clone().ok_or_else(|| {
+            AppError::InvalidRequest("gtfs_id required for conductor ping".to_string())
+        })?;
+        let vehicle_no = entry.vehicle_no.clone().ok_or_else(|| {
+            AppError::InvalidRequest("vehicle_no required for conductor ping".to_string())
+        })?;
+        let topic = topic_for_gtfs(&gtfs_id)?.to_string();
+
+        let city = get_city(&entry.pt.lat, &entry.pt.lon, &data.polygon)?;
+        sliding_window_limiter(
+            &data.redis,
+            &person_rate_limit_key(&merchant_id, &conductor_person_id, &city),
+            data.location_update_limit,
+            data.location_update_interval as u32,
+        )
+        .await?;
+
+        let payload = ConductorGpsUpdate {
+            device_id: format!("{gtfs_id}:{vehicle_no}"),
+            vehicle_no: vehicle_no.clone(),
+            person_type: "conductor",
+            gtfs_id,
+            lat: entry.pt.lat.0,
+            lon: entry.pt.lon.0,
+            timestamp: entry.ts.0.timestamp(),
+            server_time: now_secs,
+            provider: "lts-conductor",
+        };
+
+        if let Err(e) = crate::common::kafka::push_to_kafka(
+            &data.producer,
+            &data.secondary_producer,
+            &topic,
+            &vehicle_no,
+            payload,
+        )
+        .await
+        {
+            error!(
+                "conductor forward failed (topic={}, vehicle={}): {:?}",
+                topic, vehicle_no, e
+            );
+        }
+    }
+
+    Ok(())
+}
+
 #[macros::measure_duration]
 fn get_filtered_driver_locations(
     last_known_location: Option<&DriverLastKnownLocation>,
@@ -1499,6 +1605,11 @@ pub async fn update_person_location(
         }
         PersonType::Driver => Err(AppError::InvalidRequest(
             "Generic update_person_location does not support driver; use existing driver API"
+                .to_string(),
+        )),
+        PersonType::Conductor => Err(AppError::InvalidRequest(
+            "Generic update_person_location does not support conductor; \
+             use /ui/driver/location with person_type=conductor"
                 .to_string(),
         )),
     }

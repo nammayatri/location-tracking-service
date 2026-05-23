@@ -9,12 +9,13 @@ use crate::common::types::*;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
-/// Person type for generic location APIs (rider or driver).
+/// Person type for generic location APIs (rider, driver, or conductor).
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum PersonType {
     Rider,
     Driver,
+    Conductor,
 }
 
 impl FromStr for PersonType {
@@ -24,6 +25,7 @@ impl FromStr for PersonType {
         match s.to_lowercase().as_str() {
             "rider" => Ok(PersonType::Rider),
             "driver" => Ok(PersonType::Driver),
+            "conductor" => Ok(PersonType::Conductor),
             _ => Err(()),
         }
     }
@@ -34,6 +36,7 @@ impl PersonType {
         match self {
             PersonType::Rider => "rider",
             PersonType::Driver => "driver",
+            PersonType::Conductor => "conductor",
         }
     }
 }
@@ -74,6 +77,13 @@ pub struct UpdateDriverLocationRequest {
     pub acc: Option<Accuracy>,
     pub v: Option<SpeedInMeterPerSecond>,
     pub bear: Option<Direction>,
+    /// Optional. When set to `Conductor` together with `gtfs_id` and
+    /// `vehicle_no`, the handler forwards the ping to the Kafka topic
+    /// configured for that fleet instead of running the driver flow.
+    /// Absent → existing driver path.
+    pub person_type: Option<PersonType>,
+    pub gtfs_id: Option<String>,
+    pub vehicle_no: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
