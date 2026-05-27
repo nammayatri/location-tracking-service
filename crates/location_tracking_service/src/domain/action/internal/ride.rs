@@ -269,6 +269,13 @@ pub async fn entity_upsert(
     };
     let person_type = PersonType::from_str(person_type)
         .map_err(|_| AppError::InvalidRequest(format!("Invalid person_type: {}", person_type)))?;
+    if person_type.is_bus_crew() {
+        return Err(AppError::InvalidRequest(
+            "bus crew (bus_conductor / bus_driver) does not support entity upsert; \
+             they forward directly to Kafka"
+                .to_string(),
+        ));
+    }
     let person_id = PersonId(request_body.person_id.clone());
     let merchant_id = &request_body.merchant_id;
 
