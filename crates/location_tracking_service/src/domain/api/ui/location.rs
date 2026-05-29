@@ -42,11 +42,12 @@ pub async fn update_driver_location(
             "token (Header) not found".to_string(),
         ))?;
 
-    if matches!(
-        request_body.first().and_then(|r| r.person_type),
-        Some(crate::domain::types::ui::location::PersonType::Conductor)
-    ) {
-        return crate::domain::action::ui::location::forward_conductor_locations(
+    if request_body
+        .first()
+        .and_then(|r| r.person_type)
+        .is_some_and(|pt| pt.is_bus_crew())
+    {
+        return location::handle_driver_conductor_location_update(
             Token(token.clone()),
             data,
             request_body,

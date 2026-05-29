@@ -9,13 +9,14 @@ use crate::common::types::*;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
-/// Person type for generic location APIs (rider, driver, or conductor).
+/// Person type for generic location APIs (rider, driver, or bus crew).
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 pub enum PersonType {
     Rider,
     Driver,
-    Conductor,
+    BusConductor,
+    BusDriver,
 }
 
 impl FromStr for PersonType {
@@ -25,7 +26,8 @@ impl FromStr for PersonType {
         match s.to_lowercase().as_str() {
             "rider" => Ok(PersonType::Rider),
             "driver" => Ok(PersonType::Driver),
-            "conductor" => Ok(PersonType::Conductor),
+            "bus_conductor" => Ok(PersonType::BusConductor),
+            "bus_driver" => Ok(PersonType::BusDriver),
             _ => Err(()),
         }
     }
@@ -36,7 +38,24 @@ impl PersonType {
         match self {
             PersonType::Rider => "rider",
             PersonType::Driver => "driver",
-            PersonType::Conductor => "conductor",
+            PersonType::BusConductor => "bus_conductor",
+            PersonType::BusDriver => "bus_driver",
+        }
+    }
+
+    /// True for bus crew pings (`bus_conductor` / `bus_driver`) that are
+    /// forwarded to the per-fleet Kafka topic instead of running the
+    /// driver location pipeline.
+    pub fn is_bus_crew(&self) -> bool {
+        matches!(self, PersonType::BusConductor | PersonType::BusDriver)
+    }
+
+    /// `(person_type, provider)` strings carried in the forwarded Kafka payload.
+    pub fn bus_kafka_tags(&self) -> Option<(&'static str, &'static str)> {
+        match self {
+            PersonType::BusConductor => Some(("bus_conductor", "lts-bus-conductor")),
+            PersonType::BusDriver => Some(("bus_driver", "lts-bus-driver")),
+            _ => None,
         }
     }
 }
@@ -77,9 +96,9 @@ pub struct UpdateDriverLocationRequest {
     pub acc: Option<Accuracy>,
     pub v: Option<SpeedInMeterPerSecond>,
     pub bear: Option<Direction>,
-    /// Optional. When set to `Conductor` together with `gtfs_id` and
-    /// `vehicle_no`, the handler forwards the ping to the Kafka topic
-    /// configured for that fleet instead of running the driver flow.
+    /// Optional. When set to `"bus_conductor"` / `"bus_driver"` together with
+    /// `gtfs_id` and `vehicle_no`, the handler forwards the ping to the Kafka
+    /// topic configured for that fleet instead of running the driver flow.
     /// Absent → existing driver path.
     pub person_type: Option<PersonType>,
     pub gtfs_id: Option<String>,
@@ -127,4 +146,55 @@ pub struct PersonLocationResponse {
     pub curr_point: Point,
     pub last_update: TimeStamp,
     pub accuracy: Option<Accuracy>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn person_type_wire_values_round_trip() {
+        let cases = [
+            (PersonType::Rider, "\"rider\""),
+            (PersonType::Driver, "\"driver\""),
+            (PersonType::BusConductor, "\"bus_conductor\""),
+            (PersonType::BusDriver, "\"bus_driver\""),
+        ];
+        for (variant, wire) in cases {
+            assert_eq!(serde_json::to_string(&variant).ok(), Some(wire.to_string()));
+            assert_eq!(
+                serde_json::from_str::<PersonType>(wire).ok(),
+                Some(variant),
+                "deserialize {wire}"
+            );
+            // FromStr (path params) must agree with the serde wire value.
+            let bare = wire.trim_matches('"');
+            assert_eq!(PersonType::from_str(bare).ok(), Some(variant));
+            assert_eq!(variant.as_str(), bare);
+        }
+    }
+
+    #[test]
+    fn legacy_conductor_value_is_rejected() {
+        // `conductor` was intentionally removed; it must no longer parse.
+        assert!(serde_json::from_str::<PersonType>("\"conductor\"").is_err());
+        assert!(PersonType::from_str("conductor").is_err());
+    }
+
+    #[test]
+    fn bus_kafka_tags_only_for_bus_crew() {
+        assert_eq!(
+            PersonType::BusConductor.bus_kafka_tags(),
+            Some(("bus_conductor", "lts-bus-conductor"))
+        );
+        assert_eq!(
+            PersonType::BusDriver.bus_kafka_tags(),
+            Some(("bus_driver", "lts-bus-driver"))
+        );
+        assert_eq!(PersonType::Driver.bus_kafka_tags(), None);
+        assert_eq!(PersonType::Rider.bus_kafka_tags(), None);
+        assert!(PersonType::BusConductor.is_bus_crew());
+        assert!(PersonType::BusDriver.is_bus_crew());
+        assert!(!PersonType::Driver.is_bus_crew());
+    }
 }

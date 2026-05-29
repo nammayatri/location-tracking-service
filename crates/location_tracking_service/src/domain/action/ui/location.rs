@@ -127,7 +127,7 @@ async fn get_rider_id_from_authentication(
 }
 
 #[derive(serde::Serialize)]
-struct ConductorGpsUpdate {
+struct BusGpsUpdate {
     #[serde(rename = "deviceId")]
     device_id: String,
     #[serde(rename = "vehicleNo")]
@@ -145,7 +145,11 @@ struct ConductorGpsUpdate {
     provider: &'static str,
 }
 
-pub async fn forward_conductor_locations(
+/// Forward bus-crew pings (`bus_conductor` / `bus_driver`) straight to the
+/// per-fleet Kafka topic keyed by `gtfs_id`, bypassing the driver location
+/// pipeline. Each entry carries its own `person_type`, `gtfs_id` and
+/// `vehicle_no`.
+pub async fn handle_driver_conductor_location_update(
     token: Token,
     data: Data<AppState>,
     request_body: Vec<UpdateDriverLocationRequest>,
@@ -168,9 +172,9 @@ pub async fn forward_conductor_locations(
         .await?
     };
 
-    // Conductor identity reuses the driver auth path; the authenticated
+    // Bus-crew identity reuses the driver auth path; the authenticated
     // person id is recorded as the rate-limit subject.
-    let conductor_person_id = PersonId(driver_id.0.clone());
+    let bus_person_id = PersonId(driver_id.0.clone());
 
     let topic_for_gtfs = |gtfs_id: &str| -> Result<&str, AppError> {
         data.gtfs_id_to_topic
@@ -184,33 +188,41 @@ pub async fn forward_conductor_locations(
     let now_secs = Utc::now().timestamp();
 
     for entry in request_body.into_iter() {
+        let (person_type, provider) = entry
+            .person_type
+            .and_then(|pt| pt.bus_kafka_tags())
+            .ok_or_else(|| {
+                AppError::InvalidRequest(
+                    "person_type must be bus_conductor or bus_driver".to_string(),
+                )
+            })?;
         let gtfs_id = entry.gtfs_id.clone().ok_or_else(|| {
-            AppError::InvalidRequest("gtfs_id required for conductor ping".to_string())
+            AppError::InvalidRequest("gtfs_id required for bus crew ping".to_string())
         })?;
         let vehicle_no = entry.vehicle_no.clone().ok_or_else(|| {
-            AppError::InvalidRequest("vehicle_no required for conductor ping".to_string())
+            AppError::InvalidRequest("vehicle_no required for bus crew ping".to_string())
         })?;
         let topic = topic_for_gtfs(&gtfs_id)?.to_string();
 
         let city = get_city(&entry.pt.lat, &entry.pt.lon, &data.polygon)?;
         sliding_window_limiter(
             &data.redis,
-            &person_rate_limit_key(&merchant_id, &conductor_person_id, &city),
+            &person_rate_limit_key(&merchant_id, &bus_person_id, &city),
             data.location_update_limit,
             data.location_update_interval as u32,
         )
         .await?;
 
-        let payload = ConductorGpsUpdate {
+        let payload = BusGpsUpdate {
             device_id: format!("{gtfs_id}:{vehicle_no}"),
             vehicle_no: vehicle_no.clone(),
-            person_type: "conductor",
+            person_type,
             gtfs_id,
             lat: entry.pt.lat.0,
             lon: entry.pt.lon.0,
             timestamp: entry.ts.0.timestamp(),
             server_time: now_secs,
-            provider: "lts-conductor",
+            provider,
         };
 
         if let Err(e) = crate::common::kafka::push_to_kafka(
@@ -223,7 +235,7 @@ pub async fn forward_conductor_locations(
         .await
         {
             error!(
-                "conductor forward failed (topic={}, vehicle={}): {:?}",
+                "bus crew forward failed (topic={}, vehicle={}): {:?}",
                 topic, vehicle_no, e
             );
         }
@@ -1510,6 +1522,13 @@ pub async fn track_person_entity_location(
     entity_type: &str,
     entity_id: &str,
 ) -> Result<PersonLocationResponse, AppError> {
+    if person_type.is_bus_crew() {
+        return Err(AppError::InvalidRequest(
+            "bus crew (bus_conductor / bus_driver) is not tracked via entity location; \
+             they forward directly to Kafka"
+                .to_string(),
+        ));
+    }
     let person_id_str = get_person_by_entity(&data.redis, entity_type, entity_id)
         .await?
         .ok_or(AppError::RiderLocationNotFound)?;
@@ -1607,9 +1626,9 @@ pub async fn update_person_location(
             "Generic update_person_location does not support driver; use existing driver API"
                 .to_string(),
         )),
-        PersonType::Conductor => Err(AppError::InvalidRequest(
-            "Generic update_person_location does not support conductor; \
-             use /ui/driver/location with person_type=conductor"
+        PersonType::BusConductor | PersonType::BusDriver => Err(AppError::InvalidRequest(
+            "Generic update_person_location does not support bus crew; \
+             use /ui/driver/location with person_type=bus_conductor or bus_driver"
                 .to_string(),
         )),
     }
