@@ -17,7 +17,7 @@ use crate::{
     domain::types::internal::location::*,
     environment::AppState,
     redis::commands::*,
-    tools::prometheus::{MEASURE_DURATION, QUEUE_EVICTIONS},
+    tools::prometheus::{MEASURE_DURATION, NEARBY_DRIVERS_RETURNED, QUEUE_EVICTIONS},
 };
 use actix_web::web::Data;
 use chrono::Utc;
@@ -379,7 +379,7 @@ pub async fn get_nearby_drivers(
 
     let current_bucket = get_bucket_from_timestamp(&data.bucket_size, TimeStamp(Utc::now()));
 
-    match vehicle_type {
+    let resp = match vehicle_type {
         None => {
             let mut resp: Vec<DriverLocationDetail> = Vec::new();
 
@@ -407,7 +407,7 @@ pub async fn get_nearby_drivers(
                 }
             }
 
-            Ok(resp)
+            resp
         }
         Some(vehicles) => {
             let mut resp: Vec<DriverLocationDetail> = Vec::new();
@@ -434,9 +434,13 @@ pub async fn get_nearby_drivers(
                     }
                 }
             }
-            Ok(resp)
+            resp
         }
-    }
+    };
+
+    NEARBY_DRIVERS_RETURNED.observe(resp.len() as f64);
+
+    Ok(resp)
 }
 
 #[macros::measure_duration]

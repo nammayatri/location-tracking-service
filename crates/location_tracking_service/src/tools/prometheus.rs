@@ -9,8 +9,8 @@
 
 use actix_web_prom::PrometheusMetrics;
 use prometheus::{
-    opts, register_histogram_vec, register_int_counter, register_int_counter_vec, HistogramVec,
-    IntCounter, IntCounterVec,
+    histogram_opts, opts, register_histogram, register_histogram_vec, register_int_counter,
+    register_int_counter_vec, Histogram, HistogramVec, IntCounter, IntCounterVec,
 };
 pub use shared::tools::prometheus::*;
 
@@ -66,6 +66,29 @@ pub static QUEUE_EVICTIONS: once_cell::sync::Lazy<IntCounterVec> = once_cell::sy
         .expect("Failed to register queue evictions metrics")
     },
 );
+
+/// Histogram of the number of drivers returned per `GET /internal/drivers/nearby`
+/// request.
+///
+/// Observed once per request with the total driver count across all requested
+/// vehicle types. The histogram exposes:
+/// * `nearby_drivers_returned_count` — number of nearby requests served
+/// * `nearby_drivers_returned_sum`   — total drivers returned across requests
+/// * `nearby_drivers_returned_bucket` — distribution over the count buckets
+///
+/// Average drivers per request can be computed in prometheus as
+/// `rate(nearby_drivers_returned_sum[5m]) / rate(nearby_drivers_returned_count[5m])`.
+/// The buckets are tuned for counts (not latency), so the default histogram
+/// buckets are overridden.
+pub static NEARBY_DRIVERS_RETURNED: once_cell::sync::Lazy<Histogram> =
+    once_cell::sync::Lazy::new(|| {
+        register_histogram!(histogram_opts!(
+            "nearby_drivers_returned",
+            "Number of drivers returned per nearby drivers request",
+            vec![0.0, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 200.0, 500.0, 750.0, 1000.0, 1500.0]
+        ))
+        .expect("Failed to register nearby drivers returned metrics")
+    });
 
 /// Macro that observes the latency of a queue drainer process.
 ///
@@ -132,6 +155,11 @@ pub fn prometheus_metrics() -> PrometheusMetrics {
         .registry
         .register(Box::new(QUEUE_EVICTIONS.to_owned()))
         .expect("Failed to register queue evictions metrics");
+
+    prometheus
+        .registry
+        .register(Box::new(NEARBY_DRIVERS_RETURNED.to_owned()))
+        .expect("Failed to register nearby drivers returned metrics");
 
     prometheus
 }
