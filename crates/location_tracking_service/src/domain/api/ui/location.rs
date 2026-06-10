@@ -42,19 +42,42 @@ pub async fn update_driver_location(
             "token (Header) not found".to_string(),
         ))?;
 
-    if request_body
-        .first()
-        .and_then(|r| r.person_type)
-        .is_some_and(|pt| pt.is_bus_crew())
+    if let Some(person_type) = req
+        .headers()
+        .get("person-type")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| PersonType::from_str(s).ok())
+        .filter(|pt| pt.is_bus_crew())
     {
+        let gtfs_id = req
+            .headers()
+            .get("gtfs-id")
+            .and_then(|v| v.to_str().ok())
+            .map(String::from)
+            .ok_or(AppError::InvalidRequest(
+                "gtfs-id (Header) required for bus crew".to_string(),
+            ))?;
+        let vehicle_no = req
+            .headers()
+            .get("vehicle-no")
+            .and_then(|v| v.to_str().ok())
+            .map(String::from)
+            .ok_or(AppError::InvalidRequest(
+                "vehicle-no (Header) required for bus crew".to_string(),
+            ))?;
+        let req_merchant_id = req
+            .headers()
+            .get("mid")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| MerchantId(s.to_string()));
         return location::handle_driver_conductor_location_update(
             Token(token.clone()),
             data,
             request_body,
-            req.headers()
-                .get("mid")
-                .and_then(|v| v.to_str().ok())
-                .map(|s| MerchantId(s.to_string())),
+            req_merchant_id,
+            person_type,
+            gtfs_id,
+            vehicle_no,
         )
         .await
         .map(|_| HttpResponse::Ok().finish());
