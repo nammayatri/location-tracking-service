@@ -1256,9 +1256,9 @@ pub struct DriverQueueTracking {
 }
 
 /// TTL applied to the per-driver rank-history list on every event write.
-/// 2h is a balance between letting operators inspect rank churn over the
-/// recent past and keeping per-key memory bounded for large fleets.
-pub const RANK_HISTORY_TTL_SECS: i64 = 2 * 60 * 60;
+/// 24h gives operators a full day to inspect rank churn while debugging,
+/// at the cost of more per-key memory for large fleets.
+pub const RANK_HISTORY_TTL_SECS: i64 = 24 * 60 * 60;
 
 /// On-wire shape of a single rank-history list entry. Each LPUSH writes a
 /// JSON-serialized instance; reads deserialize back. Field names are short
