@@ -147,13 +147,15 @@ struct BusGpsUpdate {
 
 /// Forward bus-crew pings (`bus_conductor` / `bus_driver`) straight to the
 /// per-fleet Kafka topic keyed by `gtfs_id`, bypassing the driver location
-/// pipeline. Each entry carries its own `person_type`, `gtfs_id` and
-/// `vehicle_no`.
+/// pipeline. `person_type`, `gtfs_id` and `vehicle_no` are passed as headers.
 pub async fn handle_driver_conductor_location_update(
     token: Token,
     data: Data<AppState>,
     request_body: Vec<UpdateDriverLocationRequest>,
     req_merchant_id: Option<MerchantId>,
+    person_type_value: PersonType,
+    gtfs_id: String,
+    vehicle_no: String,
 ) -> Result<(), AppError> {
     let (driver_id, merchant_id, _moc_id) = if var("DEV").is_ok() {
         (
@@ -187,23 +189,12 @@ pub async fn handle_driver_conductor_location_update(
 
     let now_secs = Utc::now().timestamp();
 
-    for entry in request_body.into_iter() {
-        let (person_type, provider) = entry
-            .person_type
-            .and_then(|pt| pt.bus_kafka_tags())
-            .ok_or_else(|| {
-                AppError::InvalidRequest(
-                    "person_type must be bus_conductor or bus_driver".to_string(),
-                )
-            })?;
-        let gtfs_id = entry.gtfs_id.clone().ok_or_else(|| {
-            AppError::InvalidRequest("gtfs_id required for bus crew ping".to_string())
-        })?;
-        let vehicle_no = entry.vehicle_no.clone().ok_or_else(|| {
-            AppError::InvalidRequest("vehicle_no required for bus crew ping".to_string())
-        })?;
-        let topic = topic_for_gtfs(&gtfs_id)?.to_string();
+    let (person_type_tag, provider) = person_type_value.bus_kafka_tags().ok_or_else(|| {
+        AppError::InvalidRequest("person_type must be bus_conductor or bus_driver".to_string())
+    })?;
+    let topic = topic_for_gtfs(&gtfs_id)?.to_string();
 
+    for entry in request_body.into_iter() {
         let city = get_city(&entry.pt.lat, &entry.pt.lon, &data.polygon)?;
         sliding_window_limiter(
             &data.redis,
@@ -216,8 +207,8 @@ pub async fn handle_driver_conductor_location_update(
         let payload = BusGpsUpdate {
             device_id: format!("{gtfs_id}:{vehicle_no}"),
             vehicle_no: vehicle_no.clone(),
-            person_type,
-            gtfs_id,
+            person_type: person_type_tag,
+            gtfs_id: gtfs_id.clone(),
             lat: entry.pt.lat.0,
             lon: entry.pt.lon.0,
             timestamp: entry.ts.0.timestamp(),

@@ -96,13 +96,6 @@ pub struct UpdateDriverLocationRequest {
     pub acc: Option<Accuracy>,
     pub v: Option<SpeedInMeterPerSecond>,
     pub bear: Option<Direction>,
-    /// Optional. When set to `"bus_conductor"` / `"bus_driver"` together with
-    /// `gtfs_id` and `vehicle_no`, the handler forwards the ping to the Kafka
-    /// topic configured for that fleet instead of running the driver flow.
-    /// Absent → existing driver path.
-    pub person_type: Option<PersonType>,
-    pub gtfs_id: Option<String>,
-    pub vehicle_no: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
