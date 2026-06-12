@@ -296,6 +296,16 @@ pub fn driver_queue_tracking_key(merchant_id: &str, driver_id: &str) -> String {
     format!("lts:driver_queue:{}:{}", merchant_id, driver_id)
 }
 
+/// Key holding a driver's pool data, written by the driver-app (BPP) backend
+/// and synced into the LTS-accessible Redis. We only read it here to gate
+/// airport-queue entry on the `enableForAirport` flag.
+///
+/// IMPORTANT: this must match the backend's `driverPoolDataKey` exactly —
+/// it has NO `lts:` prefix.
+pub fn driver_pool_data_key(driver_id: &str) -> String {
+    format!("driver-pool-data:{driver_id}")
+}
+
 /// Per-driver rolling Redis LIST of recent queue rank events. Each entry is
 /// a JSON object `{"ts": <server_timestamp>, "event": <string>}`, LPUSH'd at
 /// write time so reads are newest-first without an explicit sort. The event
