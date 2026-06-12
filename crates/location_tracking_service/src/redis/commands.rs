@@ -1255,6 +1255,41 @@ pub struct DriverQueueTracking {
     pub last_recorded_rank: Option<u64>,
 }
 
+/// Airport-queue eligibility flag stored on the driver's `driver-pool-data`
+/// (field `enableForAirport`), written by the driver-app backend. The backend
+/// serializes the Haskell enum `AirportRestrictionType` as a bare JSON string
+/// (`"ENABLED"` / `"DISABLED"` / `"BLOCKED"`). `Unknown` is a forward-compat
+/// catch-all so an unexpected value never fails the whole MGET batch.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AirportRestrictionType {
+    #[serde(rename = "ENABLED")]
+    Enabled,
+    #[serde(rename = "DISABLED")]
+    Disabled,
+    #[serde(rename = "BLOCKED")]
+    Blocked,
+    #[serde(other)]
+    Unknown,
+}
+
+impl AirportRestrictionType {
+    /// A driver is barred from the airport queue only when explicitly
+    /// DISABLED or BLOCKED. ENABLED and any unknown/forward-compat value are
+    /// treated as allowed (fail-open), matching the missing-data behaviour in
+    /// `batch_get_driver_airport_restriction`.
+    pub fn is_airport_queue_blocked(&self) -> bool {
+        matches!(self, Self::Disabled | Self::Blocked)
+    }
+}
+
+/// Minimal view over `driver-pool-data` — we only read the airport flag and
+/// let serde ignore every other field the backend stores there.
+#[derive(Deserialize, Debug)]
+pub struct DriverPoolAirportData {
+    #[serde(rename = "enableForAirport", default)]
+    pub enable_for_airport: Option<AirportRestrictionType>,
+}
+
 /// TTL applied to the per-driver rank-history list on every event write.
 /// 24h gives operators a full day to inspect rank churn while debugging,
 /// at the cost of more per-key memory for large fleets.
@@ -1522,6 +1557,44 @@ pub async fn batch_get_driver_queue_trackings(
         .mget_keys::<DriverQueueTracking>(keys)
         .await
         .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
+/// Batch-fetch the airport-queue eligibility flag (`enableForAirport`) from
+/// each driver's `driver-pool-data`. `driver_ids` is sparse — `None` slots
+/// (e.g. PossibleExit actions, which never enqueue) are skipped in the MGET
+/// but kept in the returned vector so callers can zip it 1-to-1 against their
+/// action list.
+///
+/// A slot resolves to `None` when the key is absent or the field is
+/// missing/null; callers treat that as "allowed" (fail-open). Only the
+/// `enableForAirport` field is read — all other pool-data fields are ignored.
+pub async fn batch_get_driver_airport_restriction(
+    redis: &RedisConnectionPool,
+    driver_ids: &[Option<&str>],
+) -> Result<Vec<Option<AirportRestrictionType>>, AppError> {
+    if driver_ids.is_empty() {
+        return Ok(vec![]);
+    }
+    let mut keys: Vec<String> = Vec::with_capacity(driver_ids.len());
+    let mut slots: Vec<usize> = Vec::with_capacity(driver_ids.len());
+    for (idx, d) in driver_ids.iter().enumerate() {
+        if let Some(driver_id) = d {
+            keys.push(driver_pool_data_key(driver_id));
+            slots.push(idx);
+        }
+    }
+    if keys.is_empty() {
+        return Ok(vec![None; driver_ids.len()]);
+    }
+    let raw: Vec<Option<DriverPoolAirportData>> = redis
+        .mget_keys::<DriverPoolAirportData>(keys)
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))?;
+    let mut out: Vec<Option<AirportRestrictionType>> = vec![None; driver_ids.len()];
+    for (slot, val) in slots.into_iter().zip(raw.into_iter()) {
+        out[slot] = val.and_then(|d| d.enable_for_airport);
+    }
+    Ok(out)
 }
 
 pub async fn batch_check_drivers_on_ride(

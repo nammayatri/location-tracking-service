@@ -15,9 +15,10 @@ use crate::{
     },
     redis::{
         commands::{
-            add_driver_to_special_location_zset, batch_get_driver_queue_last_ts,
-            batch_get_driver_queue_trackings, push_drainer_driver_location, rank_history_payload,
-            DriverQueueTracking, RANK_HISTORY_TTL_SECS,
+            add_driver_to_special_location_zset, batch_get_driver_airport_restriction,
+            batch_get_driver_queue_last_ts, batch_get_driver_queue_trackings,
+            push_drainer_driver_location, rank_history_payload, DriverQueueTracking,
+            RANK_HISTORY_TTL_SECS,
         },
         keys::{
             driver_loc_bucket_key, driver_queue_last_ts_key, driver_queue_rank_history_key,
@@ -147,9 +148,21 @@ async fn drain_queue_actions(
         })
         .collect();
 
-    let (trackings, last_ts_results) = tokio::join!(
+    // Airport-queue gating: for each Enter action we need the driver's
+    // `enableForAirport` flag. PossibleExit slots are None (no enqueue
+    // happens), so they're skipped in the MGET but kept aligned to `actions`.
+    let enter_driver_ids: Vec<Option<&str>> = actions
+        .iter()
+        .map(|a| match a {
+            QueueAction::Enter { driver_id, .. } => Some(driver_id.as_str()),
+            QueueAction::PossibleExit { .. } => None,
+        })
+        .collect();
+
+    let (trackings, last_ts_results, airport_restrictions) = tokio::join!(
         batch_get_driver_queue_trackings(redis, &pairs),
-        batch_get_driver_queue_last_ts(redis, &last_ts_triples)
+        batch_get_driver_queue_last_ts(redis, &last_ts_triples),
+        batch_get_driver_airport_restriction(redis, &enter_driver_ids)
     );
 
     let trackings = match trackings {
@@ -168,13 +181,25 @@ async fn drain_queue_actions(
         }
     };
 
+    // Fail-open: if the pool-data MGET errors we can't tell who's restricted,
+    // so allow everyone into the queue (None = allowed) rather than blocking
+    // the whole batch.
+    let airport_restrictions = match airport_restrictions {
+        Ok(v) => v,
+        Err(e) => {
+            error!(tag = "[Queue Batch Airport Restriction MGET]", error = %e);
+            vec![None; actions.len()]
+        }
+    };
+
     // Step 2: Build all write commands into a single pipeline
     let pipeline = redis.writer_pool.next().pipeline();
 
-    for ((action, old_tracking), stored_last_ts) in actions
+    for (((action, old_tracking), stored_last_ts), airport_restriction) in actions
         .iter()
         .zip(trackings.iter())
         .zip(last_ts_results.iter())
+        .zip(airport_restrictions.iter())
     {
         match action {
             QueueAction::Enter {
@@ -184,6 +209,24 @@ async fn drain_queue_actions(
                 vehicle_type,
                 timestamp,
             } => {
+                // Airport-queue gating: only drivers explicitly ENABLED for
+                // the airport may enter. DISABLED/BLOCKED are kept out. Missing
+                // / unreadable pool-data is fail-open (None → allowed). This
+                // only blocks *new* entries — a driver already in the queue who
+                // becomes restricted stays until they leave the geofence.
+                if airport_restriction.is_some_and(|r| r.is_airport_queue_blocked()) {
+                    info!(
+                        tag = "[Queue Enter Blocked]",
+                        driver_id = %driver_id,
+                        merchant_id = %merchant_id,
+                        special_location_id = %special_location_id,
+                        vehicle_type = %vehicle_type,
+                        restriction = ?airport_restriction,
+                        "Driver not ENABLED for airport queue; skipping enqueue"
+                    );
+                    continue;
+                }
+
                 // True only if prior tracking exists AND points at this same
                 // queue. Drives both (1) carry-forward of last_recorded_rank
                 // for HSET dedup and (2) the queue-switch eviction below.
