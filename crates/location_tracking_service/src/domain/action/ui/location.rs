@@ -194,16 +194,19 @@ pub async fn handle_driver_conductor_location_update(
     })?;
     let topic = topic_for_gtfs(&gtfs_id)?.to_string();
 
-    for entry in request_body.into_iter() {
-        let city = get_city(&entry.pt.lat, &entry.pt.lon, &data.polygon)?;
-        sliding_window_limiter(
-            &data.redis,
-            &person_rate_limit_key(&merchant_id, &bus_person_id, &city),
-            data.location_update_limit,
-            data.location_update_interval as u32,
-        )
-        .await?;
+    let Some(last_entry) = request_body.last() else {
+        return Ok(());
+    };
+    let city = get_city(&last_entry.pt.lat, &last_entry.pt.lon, &data.polygon)?;
+    sliding_window_limiter(
+        &data.redis,
+        &person_rate_limit_key(&merchant_id, &bus_person_id, &city),
+        data.location_update_limit,
+        data.location_update_interval as u32,
+    )
+    .await?;
 
+    for entry in request_body.into_iter() {
         let payload = BusGpsUpdate {
             device_id: format!("{gtfs_id}:{vehicle_no}"),
             vehicle_no: vehicle_no.clone(),
