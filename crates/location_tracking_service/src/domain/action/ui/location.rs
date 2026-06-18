@@ -219,20 +219,13 @@ pub async fn handle_driver_conductor_location_update(
             provider,
         };
 
-        if let Err(e) = crate::common::kafka::push_to_kafka(
-            &data.producer,
-            &data.secondary_producer,
+        crate::common::kafka::enqueue_to_kafka(
+            &data.enqueue_producer,
+            &data.enqueue_secondary_producer,
             &topic,
             &vehicle_no,
-            payload,
-        )
-        .await
-        {
-            error!(
-                "bus crew forward failed (topic={}, vehicle={}): {:?}",
-                topic, vehicle_no, e
-            );
-        }
+            &payload,
+        );
     }
 
     Ok(())
