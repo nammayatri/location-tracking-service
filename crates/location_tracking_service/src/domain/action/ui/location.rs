@@ -206,6 +206,10 @@ pub async fn handle_driver_conductor_location_update(
     )
     .await?;
 
+    let producer = data.producer.clone();
+    let secondary_producer = data.secondary_producer.clone();
+    let topic = topic.clone();
+    let vehicle_no = vehicle_no.clone();
     for entry in request_body.into_iter() {
         let payload = BusGpsUpdate {
             device_id: format!("{gtfs_id}:{vehicle_no}"),
@@ -219,20 +223,26 @@ pub async fn handle_driver_conductor_location_update(
             provider,
         };
 
-        if let Err(e) = crate::common::kafka::push_to_kafka(
-            &data.producer,
-            &data.secondary_producer,
-            &topic,
-            &vehicle_no,
-            payload,
-        )
-        .await
-        {
-            error!(
-                "bus crew forward failed (topic={}, vehicle={}): {:?}",
-                topic, vehicle_no, e
-            );
-        }
+        let producer = producer.clone();
+        let secondary_producer = secondary_producer.clone();
+        let topic = topic.clone();
+        let vehicle_no = vehicle_no.clone();
+        tokio::spawn(async move {
+            if let Err(e) = crate::common::kafka::push_to_kafka(
+                &producer,
+                &secondary_producer,
+                &topic,
+                &vehicle_no,
+                payload,
+            )
+            .await
+            {
+                error!(
+                    "bus crew forward failed (topic={}, vehicle={}): {:?}",
+                    topic, vehicle_no, e
+                );
+            }
+        });
     }
 
     Ok(())
