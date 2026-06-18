@@ -5,12 +5,13 @@
     or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more details. You should have received a copy of
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
+use std::sync::Arc;
 use std::time::Duration;
 
 use crate::tools::error::AppError;
-use log::{error, info};
+use log::{debug, error, info};
 use rdkafka::{
-    producer::{FutureProducer, FutureRecord},
+    producer::{BaseProducer, BaseRecord, FutureProducer, FutureRecord},
     util::Timeout,
 };
 use serde::Serialize;
@@ -117,4 +118,62 @@ where
     }
 
     Ok(())
+}
+
+pub fn enqueue_to_kafka<T: Serialize>(
+    producer: &Option<Arc<BaseProducer>>,
+    secondary_producer: &Option<Arc<BaseProducer>>,
+    topic: &str,
+    key: &str,
+    message: &T,
+) {
+    let msg = match serde_json::to_string(message) {
+        Ok(s) => s,
+        Err(e) => {
+            error!(
+                "[Kafka Enqueue] Serialization failed - topic: {}, key: {}, error: {}",
+                topic, key, e
+            );
+            return;
+        }
+    };
+
+    match producer {
+        Some(p) => {
+            match p.send(BaseRecord::to(topic).key(key).payload(&msg)) {
+                Ok(_) => debug!("[Kafka Enqueue] Enqueued - topic: {}, key: {}", topic, key),
+                Err((e, _)) => error!(
+                    "[Kafka Enqueue] Failed - topic: {}, key: {}, error: {}",
+                    topic, key, e
+                ),
+            }
+            p.poll(Duration::ZERO);
+        }
+        None => error!(
+            "[Kafka Enqueue] Producer is None - topic: {}, key: {}",
+            topic, key
+        ),
+    }
+
+    if should_produce_secondary() {
+        match secondary_producer {
+            Some(p) => {
+                match p.send(BaseRecord::to(topic).key(key).payload(&msg)) {
+                    Ok(_) => debug!(
+                        "[Kafka Enqueue Secondary] Enqueued - topic: {}, key: {}",
+                        topic, key
+                    ),
+                    Err((e, _)) => error!(
+                        "[Kafka Enqueue Secondary] Failed - topic: {}, key: {}, error: {}",
+                        topic, key, e
+                    ),
+                }
+                p.poll(Duration::ZERO);
+            }
+            None => error!(
+                "[Kafka Enqueue Secondary] Producer is None - topic: {}, key: {}",
+                topic, key
+            ),
+        }
+    }
 }

@@ -10,7 +10,10 @@
 use std::{env::var, sync::Arc};
 
 use chrono::NaiveTime;
-use rdkafka::{error::KafkaError, producer::FutureProducer, ClientConfig};
+use rdkafka::{
+    producer::{BaseProducer, FutureProducer},
+    ClientConfig,
+};
 use reqwest::Url;
 use rustc_hash::FxHashMap;
 use serde::Deserialize;
@@ -207,6 +210,8 @@ pub struct AppState {
     pub location_update_interval: u64,
     pub producer: Option<FutureProducer>,
     pub secondary_producer: Option<FutureProducer>,
+    pub enqueue_producer: Option<Arc<BaseProducer>>,
+    pub enqueue_secondary_producer: Option<Arc<BaseProducer>>,
     pub driver_location_update_topic: String,
     pub gtfs_id_to_topic: HashMap<String, String>,
     pub batch_size: i64,
@@ -378,37 +383,49 @@ impl AppState {
         let bus_depot_polygons =
             read_geo_polygon(&bus_depot_geo_config_path).expect("Failed to read bus depot geoJSON");
 
-        let producer: Option<FutureProducer>;
-
-        let result: Result<FutureProducer, KafkaError> = ClientConfig::new()
+        let primary_kafka_cfg = ClientConfig::new()
             .set(
                 app_config.kafka_cfg.kafka_key,
                 app_config.kafka_cfg.kafka_host,
             )
             .set("compression.type", "lz4")
-            .create();
+            .to_owned();
 
-        match result {
-            Ok(val) => {
-                producer = Some(val);
-            }
+        let producer: Option<FutureProducer> = match primary_kafka_cfg.create() {
+            Ok(val) => Some(val),
             Err(err) => {
-                producer = None;
                 error!(
                     tag = "[Kafka Connection]",
                     "Error connecting to kafka config: {err}"
                 );
+                None
             }
-        }
+        };
 
-        let secondary_producer: Option<FutureProducer> = match app_config.secondary_kafka_cfg {
+        let enqueue_producer: Option<Arc<BaseProducer>> = match primary_kafka_cfg
+            .clone()
+            .set("request.required.acks", "0")
+            .create()
+        {
+            Ok(val) => Some(Arc::new(val)),
+            Err(err) => {
+                error!(
+                    tag = "[Kafka Connection]",
+                    "Error creating enqueue_producer: {err}"
+                );
+                None
+            }
+        };
+
+        let (secondary_producer, enqueue_secondary_producer) = match app_config.secondary_kafka_cfg
+        {
             Some(secondary_cfg) => {
-                let result: Result<FutureProducer, KafkaError> = ClientConfig::new()
+                let secondary_kafka_cfg = ClientConfig::new()
                     .set(secondary_cfg.kafka_key, secondary_cfg.kafka_host)
                     .set("compression.type", "lz4")
-                    .create();
+                    .to_owned();
 
-                match result {
+                let fut: Option<FutureProducer> = match secondary_kafka_cfg.create() {
                     Ok(val) => {
                         info!(
                             tag = "[Kafka Connection]",
@@ -423,9 +440,26 @@ impl AppState {
                         );
                         None
                     }
-                }
+                };
+
+                let enq: Option<Arc<BaseProducer>> = match secondary_kafka_cfg
+                    .clone()
+                    .set("request.required.acks", "0")
+                    .create()
+                {
+                    Ok(val) => Some(Arc::new(val)),
+                    Err(err) => {
+                        error!(
+                            tag = "[Kafka Connection]",
+                            "Error creating enqueue_secondary_producer: {err}"
+                        );
+                        None
+                    }
+                };
+
+                (fut, enq)
             }
-            None => None,
+            None => (None, None),
         };
 
         let blacklist_merchants = app_config
@@ -460,6 +494,8 @@ impl AppState {
             location_update_interval: app_config.location_update_interval,
             producer,
             secondary_producer,
+            enqueue_producer,
+            enqueue_secondary_producer,
             driver_location_update_topic: app_config.driver_location_update_topic,
             gtfs_id_to_topic: app_config.gtfs_id_to_topic,
             batch_size: app_config.batch_size,
