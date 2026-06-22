@@ -51,5 +51,8 @@ macros = { git = "https://github.com/nammayatri/shared-kernel-rs", rev = "7f890c
 url = "2.5.4"
 geohash = "0.13.1"
 
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(test)'] }
+
 [dev-dependencies]
 pprof = { version = "0.12", features = ["flamegraph"] }
