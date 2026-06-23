@@ -1463,40 +1463,48 @@ pub async fn track_driver_location(
 ) -> Result<DriverLocationResponse, AppError> {
     let RideId(unwrapped_ride_id) = ride_id.to_owned();
 
-    let (driver_details, found_in_secondary) =
-        match get_driver_details(&data.redis, &ride_id).await? {
-            Some(details) => (details, false),
-            None => {
-                if let Some(ref secondary_redis) = data.secondary_redis {
-                    warn!(
+    let driver_details = match get_driver_details(&data.redis, &ride_id).await? {
+        Some(details) => details,
+        None => {
+            if let Some(ref secondary_redis) = data.secondary_redis {
+                warn!(
                     tag = "[Track Driver Location]",
                     "driver_details not found in primary redis for ride_id: {}, trying secondary",
                     unwrapped_ride_id
                 );
-                    let details = get_driver_details(secondary_redis, &ride_id).await?.ok_or(
-                        AppError::InvalidRideStatus(
-                            unwrapped_ride_id.to_owned(),
-                            "COMPLETED".to_string(),
-                        ),
-                    )?;
-                    (details, true)
-                } else {
-                    return Err(AppError::InvalidRideStatus(
+                get_driver_details(secondary_redis, &ride_id).await?.ok_or(
+                    AppError::InvalidRideStatus(
                         unwrapped_ride_id.to_owned(),
                         "COMPLETED".to_string(),
-                    ));
+                    ),
+                )?
+            } else {
+                return Err(AppError::InvalidRideStatus(
+                    unwrapped_ride_id.to_owned(),
+                    "COMPLETED".to_string(),
+                ));
+            }
+        }
+    };
+
+    let driver_location_details =
+        match get_driver_location(&data.redis, &driver_details.driver_id).await? {
+            Some(details) => details,
+            None => {
+                if let Some(ref secondary_redis) = data.secondary_redis {
+                    warn!(
+                    tag = "[Track Driver Location]",
+                    "driver_location not found in primary redis for ride_id: {}, trying secondary",
+                    unwrapped_ride_id
+                );
+                    get_driver_location(secondary_redis, &driver_details.driver_id)
+                        .await?
+                        .ok_or(AppError::DriverLastKnownLocationNotFound)?
+                } else {
+                    return Err(AppError::DriverLastKnownLocationNotFound);
                 }
             }
         };
-
-    let location_redis = match (found_in_secondary, &data.secondary_redis) {
-        (true, Some(secondary)) => secondary,
-        _ => &data.redis,
-    };
-
-    let driver_location_details = get_driver_location(location_redis, &driver_details.driver_id)
-        .await?
-        .ok_or(AppError::DriverLastKnownLocationNotFound)?;
 
     let delay_time = match driver_location_details.ride_status {
         Some(RideStatus::NEW) => {
