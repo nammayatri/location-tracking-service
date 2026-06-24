@@ -632,15 +632,6 @@ pub async fn manual_queue_remove(
     )
     .await?;
     delete_driver_queue_tracking(&primary_redis, &merchant_id, &driver_id).await?;
-    // Clear last_ts so the next in-fence ping cannot resurrect the driver at
-    // their original score via the drainer's ZADD-NX-with-stored-ts path.
-    delete_driver_queue_last_ts(
-        &primary_redis,
-        &special_location_id,
-        &vehicle_type,
-        &driver_id,
-    )
-    .await?;
     // Normalize once: empty/whitespace-only reasons collapse to None so the
     // rank-history event and the prometheus label stay in sync.
     let normalized_reason = reason.as_deref().map(str::trim).filter(|r| !r.is_empty());
