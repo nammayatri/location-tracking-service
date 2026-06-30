@@ -204,6 +204,9 @@ pub enum VehicleType {
     #[strum(serialize = "E_RICKSHAW")]
     #[serde(rename = "E_RICKSHAW")]
     ERickShaw,
+    #[strum(serialize = "PINK_AUTO")]
+    #[serde(rename = "PINK_AUTO")]
+    PinkAuto,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug, Display, PartialEq)]
