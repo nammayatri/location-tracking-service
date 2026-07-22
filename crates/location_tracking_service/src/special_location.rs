@@ -126,3 +126,22 @@ pub fn lookup_special_location<'a>(
         .iter()
         .find(|entry| entry.multipolygon.intersects(&point))
 }
+
+/// Returns the first queue-enabled special location containing the point.
+/// Entries are ordered by ascending priority, so this still respects priority
+/// among queue-enabled zones. Used so a queue-enabled zone isn't shadowed by a
+/// higher-priority overlapping zone that has queueing disabled.
+pub fn lookup_queue_enabled_special_location<'a>(
+    cache: &'a FxHashMap<MerchantOperatingCityId, Vec<SpecialLocationEntry>>,
+    merchant_operating_city_id: &MerchantOperatingCityId,
+    lat: &Latitude,
+    lon: &Longitude,
+) -> Option<&'a SpecialLocationEntry> {
+    let entries = cache.get(merchant_operating_city_id)?;
+    let Latitude(lat_f) = *lat;
+    let Longitude(lon_f) = *lon;
+    let point = geo::point!(x: lon_f, y: lat_f);
+    entries
+        .iter()
+        .find(|entry| entry.is_queue_enabled && entry.multipolygon.intersects(&point))
+}
