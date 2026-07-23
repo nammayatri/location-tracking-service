@@ -6,7 +6,9 @@
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 use crate::queue_drainer_latency;
-use crate::special_location::{lookup_special_location, SpecialLocationCache};
+use crate::special_location::{
+    lookup_queue_enabled_special_location, lookup_special_location, SpecialLocationCache,
+};
 use crate::tools::prometheus::{QUEUE_DRAINER_LATENCY, QUEUE_EVICTIONS, TOTAL_LOCATION_UPDATES};
 use crate::{
     common::{
@@ -799,13 +801,27 @@ pub async fn run_drainer(
                                             server_timestamp.timestamp() as f64,
                                         ));
                                 }
-                                // Queue entry: if this special location is queue-enabled, enqueue driver
-                                if entry.is_queue_enabled {
-                                    info!(tag = "[Queue Action]", driver_id = %driver_id, special_location_id = %entry.id.0, vehicle_type = %vehicle_type, "Pushing Enter action");
+                                // Queue entry: enqueue under the queue-enabled zone containing the
+                                // driver. The primary (priority) match may have queueing disabled while
+                                // it overlaps a queue-enabled zone; fall through to that zone so a
+                                // queue-enabled special location isn't shadowed by a higher-priority
+                                // overlapping one with is_queue_enabled = false.
+                                let queue_entry = if entry.is_queue_enabled {
+                                    Some(entry)
+                                } else {
+                                    lookup_queue_enabled_special_location(
+                                        &guard,
+                                        &merchant_operating_city_id,
+                                        &Latitude(latitude),
+                                        &Longitude(longitude),
+                                    )
+                                };
+                                if let Some(queue_entry) = queue_entry {
+                                    info!(tag = "[Queue Action]", driver_id = %driver_id, special_location_id = %queue_entry.id.0, vehicle_type = %vehicle_type, "Pushing Enter action");
                                     queue_actions.push(QueueAction::Enter {
                                         merchant_id: merchant_id.0.clone(),
                                         driver_id: driver_id.clone(),
-                                        special_location_id: entry.id.0.clone(),
+                                        special_location_id: queue_entry.id.0.clone(),
                                         vehicle_type: vehicle_type.to_string(),
                                         timestamp: server_timestamp.timestamp() as f64,
                                     });
