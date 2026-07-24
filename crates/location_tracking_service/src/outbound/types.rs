@@ -61,6 +61,7 @@ pub struct LocationUpdate {
     pub lat: Latitude,
     pub lon: Longitude,
     pub ts: Option<i64>,
+    pub acc: Option<Accuracy>,
 }
 
 // Bulk location update during the ride

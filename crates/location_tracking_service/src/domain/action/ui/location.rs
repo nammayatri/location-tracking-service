@@ -1202,6 +1202,7 @@ async fn process_driver_locations(
                                 lat: loc.pt.lat,
                                 lon: loc.pt.lon,
                                 ts: Some(loc.ts.0.timestamp()),
+                                acc: loc.acc,
                             }),
                             LocationType::FILTERED => None,
                         })
@@ -1235,6 +1236,7 @@ async fn process_driver_locations(
                                         lat: dl.lat,
                                         lon: dl.lon,
                                         ts: dl.ts,
+                                        acc: dl.acc,
                                     })
                                     .collect(),
                             )

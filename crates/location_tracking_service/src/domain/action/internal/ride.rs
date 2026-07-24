@@ -79,6 +79,7 @@ pub async fn ride_end(
         lat: request_body.lat,
         lon: request_body.lon,
         ts: Some(request_body.ts.unwrap_or_else(|| Utc::now().timestamp())),
+        acc: Some(Accuracy(0.0 as f64)),
     });
 
     ride_cleanup(
