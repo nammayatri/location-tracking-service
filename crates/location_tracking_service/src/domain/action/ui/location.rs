@@ -1033,6 +1033,20 @@ async fn process_driver_locations(
 
             if !is_offline {
                 let send_driver_location_to_drainer = async {
+                    // Best-effort: this only decides whether to *also* write into a cohort
+                    // tag's dedicated bucket, alongside the normal vehicle-type write below,
+                    // which must not be blocked by a transient Redis issue on this optional
+                    // check. Fail soft to "no matched tags" rather than failing the whole ping.
+                    let matched_tags = get_matched_cohort_tags(
+                        &data.redis,
+                        data.secondary_redis.as_deref(),
+                        &driver_id,
+                    )
+                    .await
+                    .unwrap_or_else(|err| {
+                        error!(tag = "[Cohort Tag Match]", driver_id = ?driver_id, error = %err);
+                        Vec::new()
+                    });
                     let _ = &data
                         .sender
                         .send((
@@ -1042,6 +1056,7 @@ async fn process_driver_locations(
                                 vehicle_type: vehicle_type.to_owned(),
                                 created_at: Utc::now(),
                                 merchant_operating_city_id: merchant_operating_city_id.to_owned(),
+                                matched_tags,
                             },
                             latest_driver_location.pt.lat,
                             latest_driver_location.pt.lon,
@@ -1083,6 +1098,20 @@ async fn process_driver_locations(
 
             if !is_blacklist_for_special_zone && !is_offline {
                 let send_driver_location_to_drainer = async {
+                    // Best-effort: this only decides whether to *also* write into a cohort
+                    // tag's dedicated bucket, alongside the normal vehicle-type write below,
+                    // which must not be blocked by a transient Redis issue on this optional
+                    // check. Fail soft to "no matched tags" rather than failing the whole ping.
+                    let matched_tags = get_matched_cohort_tags(
+                        &data.redis,
+                        data.secondary_redis.as_deref(),
+                        &driver_id,
+                    )
+                    .await
+                    .unwrap_or_else(|err| {
+                        error!(tag = "[Cohort Tag Match]", driver_id = ?driver_id, error = %err);
+                        Vec::new()
+                    });
                     let _ = &data
                         .sender
                         .send((
@@ -1092,6 +1121,7 @@ async fn process_driver_locations(
                                 vehicle_type: vehicle_type.to_owned(),
                                 created_at: Utc::now(),
                                 merchant_operating_city_id: merchant_operating_city_id.to_owned(),
+                                matched_tags,
                             },
                             latest_driver_location.pt.lat,
                             latest_driver_location.pt.lon,

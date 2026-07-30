@@ -32,6 +32,7 @@ pub fn handler(config: &mut ServiceConfig) {
         .service(internal::location::manual_queue_remove)
         .service(internal::location::manual_queue_add)
         .service(internal::location::driver_queue_history)
+        .service(internal::location::get_nearby_drivers_by_tag)
         .service(external::gps::external_gps_location)
         .service(ui::location::track_person_entity_location)
         .service(ui::location::update_person_location)

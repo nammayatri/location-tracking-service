@@ -443,6 +443,62 @@ pub async fn get_nearby_drivers(
     Ok(resp)
 }
 
+/// Searches the dedicated per-tag GEO buckets for an ops-assigned cohort tag
+/// (e.g. "MAHILA_SHAKTI"), independent of vehicle_type. Backs the
+/// driver-app backend's `nearByTagCount` estimate-visibility check, which
+/// only consumes the response length -- per-driver enrichment (last-known
+/// timestamp, bearing, vehicle_type, group) isn't needed at that stage, so
+/// it's defaulted here instead of an extra per-driver Redis lookup.
+#[macros::measure_duration]
+pub async fn get_nearby_drivers_by_tag(
+    data: Data<AppState>,
+    NearbyDriversByTagRequest {
+        lat,
+        lon,
+        tag,
+        radius,
+        merchant_id,
+    }: NearbyDriversByTagRequest,
+) -> Result<NearbyDriverResponse, AppError> {
+    let city = get_city(&lat, &lon, &data.polygon)?;
+    let current_bucket = get_bucket_from_timestamp(&data.bucket_size, TimeStamp(Utc::now()));
+
+    let nearby_drivers = get_drivers_within_tag_radius(
+        &data.redis,
+        &data.nearby_bucket_threshold,
+        &merchant_id,
+        &city,
+        &tag,
+        &current_bucket,
+        Point { lat, lon },
+        &radius,
+    )
+    .await?;
+
+    let now = TimeStamp(Utc::now());
+    let resp = nearby_drivers
+        .iter()
+        .map(|driver| DriverLocationDetail {
+            driver_id: driver.driver_id.to_owned(),
+            lat: driver.location.lat,
+            lon: driver.location.lon,
+            coordinates_calculated_at: now,
+            created_at: now,
+            updated_at: now,
+            merchant_id: merchant_id.to_owned(),
+            group_id: None,
+            group_id2: None,
+            ride_details: None,
+            bear: None,
+            vehicle_type: None,
+        })
+        .collect::<Vec<DriverLocationDetail>>();
+
+    NEARBY_DRIVERS_RETURNED.observe(resp.len() as f64);
+
+    Ok(resp)
+}
+
 #[macros::measure_duration]
 pub async fn get_drivers_location(
     data: Data<AppState>,
