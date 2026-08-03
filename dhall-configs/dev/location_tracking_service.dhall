@@ -1,6 +1,6 @@
 let redis_cfg = {
     redis_host = "localhost",
-    redis_port = 6379,
+    redis_port = 6380,
     redis_pool_size = 10,
     redis_partition = 0,
     reconnect_max_attempts = 10,
@@ -12,7 +12,7 @@ let redis_cfg = {
 }
 let replica_redis_cfg = {
     redis_host = "localhost",
-    redis_port = 6379,
+    redis_port = 6380,
     redis_pool_size = 10,
     redis_partition = 0,
     reconnect_max_attempts = 10,
@@ -25,7 +25,7 @@ let replica_redis_cfg = {
 
 let secondary_redis_cfg = {
    redis_host = "localhost",
-    redis_port = 6379,
+    redis_port = 6381,
     redis_pool_size = 10,
     redis_partition = 0,
     reconnect_max_attempts = 10,
