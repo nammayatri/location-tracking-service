@@ -23,6 +23,21 @@ pub struct NearbyDriversRequest {
 
 pub type NearbyDriverResponse = Vec<DriverLocationDetail>;
 
+/// Request body for GET /internal/drivers/nearby/tag. Same shape as
+/// `NearbyDriversRequest` but scoped by an ops-assigned cohort tag (e.g.
+/// "MAHILA_SHAKTI") instead of vehicle_type — searches the dedicated per-tag GEO
+/// buckets populated by the drainer for drivers currently matched against that
+/// tag (see `get_matched_cohort_tags`, derived from `driver-pool-data`).
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct NearbyDriversByTagRequest {
+    pub lat: Latitude,
+    pub lon: Longitude,
+    pub tag: String,
+    pub radius: Radius,
+    pub merchant_id: MerchantId,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct GetDriversLocationRequest {

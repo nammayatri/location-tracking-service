@@ -10,6 +10,7 @@ use crate::domain::types::ui::location::PersonType;
 use crate::outbound::types::LocationUpdate;
 use crate::redis::keys::*;
 use crate::tools::error::AppError;
+use chrono::{DateTime, NaiveDateTime, Utc};
 use fred::prelude::{KeysInterface, ListInterface, SortedSetsInterface};
 use fred::types::{GeoPosition, GeoUnit, RedisValue, SetOptions, SortOrder};
 use futures::Future;
@@ -306,6 +307,178 @@ pub async fn get_drivers_within_radius(
     }
 
     Ok(resp)
+}
+
+/// Same as `get_drivers_within_radius`, but searches the dedicated per-tag GEO
+/// buckets (see `driver_loc_tag_bucket_key`) instead of the per-vehicle-type ones.
+/// Only drivers currently matched against the tag (see `get_matched_cohort_tags`,
+/// derived from `driver-pool-data`) are ever written into these buckets by the
+/// drainer, so no separate membership filter is needed here.
+#[allow(clippy::too_many_arguments)]
+pub async fn get_drivers_within_tag_radius(
+    redis: &RedisConnectionPool,
+    nearby_bucket_threshold: &u64,
+    merchant_id: &MerchantId,
+    city: &CityName,
+    tag: &str,
+    bucket: &u64,
+    location: Point,
+    Radius(radius): &Radius,
+) -> Result<Vec<DriverLocationPoint>, AppError> {
+    let Latitude(lat) = location.lat;
+    let Longitude(lon) = location.lon;
+
+    let bucket_keys: Vec<String> = (0..*nearby_bucket_threshold)
+        .map(|bucket_idx| driver_loc_tag_bucket_key(merchant_id, city, tag, &(bucket - bucket_idx)))
+        .collect();
+
+    let nearby_drivers: Vec<(DriverId, Point)> = redis
+        .mgeo_search(
+            bucket_keys,
+            GeoPosition::from((lon, lat)),
+            (*radius, GeoUnit::Meters),
+            SortOrder::Asc,
+        )
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))?
+        .into_iter()
+        .map(|(driver_id, point)| {
+            (
+                DriverId(driver_id),
+                Point {
+                    lat: Latitude(point.lat),
+                    lon: Longitude(point.lon),
+                },
+            )
+        })
+        .collect();
+
+    info!("Get Nearby Drivers By Tag {:?}", nearby_drivers);
+
+    let mut driver_ids: FxHashSet<DriverId> = FxHashSet::default();
+    let mut resp: Vec<DriverLocationPoint> = Vec::with_capacity(nearby_drivers.len());
+
+    for (driver_id, location) in nearby_drivers.into_iter() {
+        if !(driver_ids.contains(&driver_id)) {
+            driver_ids.insert(driver_id.to_owned());
+            resp.push(DriverLocationPoint {
+                driver_id,
+                location,
+            })
+        }
+    }
+
+    Ok(resp)
+}
+
+/// Partial view of the JSON the driver-app backend writes to
+/// `driver-pool-data:{driverId}` (`SharedLogic/DriverPool/DriverPoolData.hs`,
+/// ~45 fields total). Only the two fields cohort-tag eligibility needs are
+/// modeled here; every other field in the real payload is silently ignored by
+/// serde's default behavior (this codebase uses no `deny_unknown_fields`).
+/// Field names match Haskell's record fields verbatim (no prefix stripping on
+/// that side), hence `rename_all = "camelCase"` rather than any renaming.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DriverPoolDataForCohort {
+    #[serde(default)]
+    pub driver_tag: Option<Vec<String>>,
+    #[serde(default)]
+    pub selected_service_tiers: Option<Vec<String>>,
+}
+
+/// Fetches the cohort-relevant subset of a driver's `driver-pool-data` entry,
+/// falling back to the secondary LTS Redis if the primary has no entry yet --
+/// mirrors the driver-app backend's own `withLTSRedis`/`withSecondaryLTSRedis`
+/// fallback for this same key, and this codebase's existing fallback pattern
+/// (see `track_driver_location`'s use of `get_driver_details`/`get_driver_location`).
+/// Returns `Ok(None)` if the key doesn't exist in either -- not an error: the
+/// driver-app backend's own sync (`syncDriverPoolDataToLTS`) only merges into an
+/// *existing* entry, so a driver who has never yet been part of a real pool
+/// computation (`getOrBuildDriverPoolDataBatch`) simply has no entry yet. This
+/// self-corrects on that driver's first real pool-computation cycle.
+pub async fn get_driver_pool_data(
+    redis: &RedisConnectionPool,
+    secondary_redis: Option<&RedisConnectionPool>,
+    driver_id: &DriverId,
+) -> Result<Option<DriverPoolDataForCohort>, AppError> {
+    let primary = redis
+        .get_key::<DriverPoolDataForCohort>(&driver_pool_data_key(driver_id))
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))?;
+    match primary {
+        Some(data) => Ok(Some(data)),
+        None => match secondary_redis {
+            Some(sr) => sr
+                .get_key::<DriverPoolDataForCohort>(&driver_pool_data_key(driver_id))
+                .await
+                .map_err(|err| AppError::InternalError(err.to_string())),
+            None => Ok(None),
+        },
+    }
+}
+
+/// Parses one raw `driverTag` entry as a cohort tag if it matches the
+/// `Cohort#<tier>[#expiry]` convention, returning the tier name if present and
+/// (if an expiry segment exists) unexpired. `<tier>` is always the same string
+/// as the gated `ServiceTierType` itself (e.g. "MAHILA_SHAKTI") -- no separate
+/// short-code convention, so no mapping lookup is ever needed to know which
+/// tier a cohort tag corresponds to; the tag value already says so directly.
+/// No whitelist -- any tier name is recognized without a corresponding Rust
+/// source change, replicating `Lib/Yudhishthira/Tools/Utils.hs`'s
+/// `elemTagNameValue` + `filterExpiredTags'` semantics exactly (verified
+/// directly against that source).
+///
+/// Deliberately uses `split` (unbounded), not `splitn` -- Haskell's `T.splitOn`
+/// splits on every `#` and only inspects the first three segments, silently
+/// dropping anything beyond; a capped `splitn(3, ..)` would instead fold a 4th
+/// segment into the 3rd, corrupting the expiry-timestamp parse.
+fn parse_cohort_tier(raw: &str, now: DateTime<Utc>) -> Option<String> {
+    let segments: Vec<&str> = raw.split('#').collect();
+    if segments.first().copied() != Some("Cohort") {
+        return None;
+    }
+    let tier = (*segments.get(1)?).to_string();
+    match segments.get(2) {
+        None => Some(tier), // no expiry segment: never expires
+        Some(expiry_str) => match NaiveDateTime::parse_from_str(expiry_str, "%Y-%m-%dT%H:%M:%S") {
+            Ok(naive) => {
+                (DateTime::<Utc>::from_naive_utc_and_offset(naive, Utc) >= now).then_some(tier)
+            }
+            Err(_) => Some(tier), // unparsable expiry: fail open, matches Haskell's `Nothing -> True`
+        },
+    }
+}
+
+/// Checks membership across every cohort tag found in one driver's
+/// `driver-pool-data`, generically -- no whitelist, any `Cohort#X` tag is
+/// recognized without a corresponding Rust source change. For each cohort tag
+/// found, verifies the driver's `selectedServiceTiers` includes that same tier
+/// name before counting it as matched -- since the tag value and the tier name
+/// are always the same string by convention, this is a pure in-memory check
+/// against data already fetched in `pool_data`, with no further Redis I/O.
+/// Called once per location ping on the ingestion hot path; returns only the
+/// tags actually matched so the drainer only ever writes buckets a driver is
+/// really eligible for. Returns `Ok(vec![])`, not an error, if the driver has no
+/// `driver-pool-data` entry yet (see `get_driver_pool_data`'s bootstrap-gap note).
+pub async fn get_matched_cohort_tags(
+    redis: &RedisConnectionPool,
+    secondary_redis: Option<&RedisConnectionPool>,
+    driver_id: &DriverId,
+) -> Result<Vec<String>, AppError> {
+    let Some(pool_data) = get_driver_pool_data(redis, secondary_redis, driver_id).await? else {
+        return Ok(Vec::new());
+    };
+    let driver_tag = pool_data.driver_tag.unwrap_or_default();
+    let selected_service_tiers = pool_data.selected_service_tiers.unwrap_or_default();
+    let now = Utc::now();
+
+    let matched: Vec<String> = driver_tag
+        .iter()
+        .filter_map(|raw| parse_cohort_tier(raw, now))
+        .filter(|tier| selected_service_tiers.contains(tier))
+        .collect();
+    Ok(matched)
 }
 
 /// Fetches the last known location of a driver.
@@ -1613,4 +1786,158 @@ pub async fn get_drivers_in_special_location(
         }
     }
     Ok(driver_ids.into_iter().collect())
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod cohort_tag_tests {
+    use super::*;
+
+    fn now() -> DateTime<Utc> {
+        Utc::now()
+    }
+
+    #[test]
+    fn parses_bare_tag_with_no_expiry() {
+        assert_eq!(
+            parse_cohort_tier("Cohort#MAHILA_SHAKTI", now()),
+            Some("MAHILA_SHAKTI".to_string())
+        );
+    }
+
+    #[test]
+    fn recognizes_any_tier_no_whitelist() {
+        // No prior knowledge of "AUTO_PLUS" required -- this is the whole point
+        // of generalizing away from a hardcoded cohort list.
+        assert_eq!(
+            parse_cohort_tier("Cohort#AUTO_PLUS", now()),
+            Some("AUTO_PLUS".to_string())
+        );
+    }
+
+    #[test]
+    fn rejects_wrong_tag_name() {
+        assert_eq!(parse_cohort_tier("SafetyCohort#New", now()), None);
+        assert_eq!(parse_cohort_tier("TollCohort#None", now()), None);
+    }
+
+    #[test]
+    fn parses_unexpired_tag() {
+        let future = "2099-01-01T00:00:00";
+        let entry = format!("Cohort#MAHILA_SHAKTI#{future}");
+        assert_eq!(
+            parse_cohort_tier(&entry, now()),
+            Some("MAHILA_SHAKTI".to_string())
+        );
+    }
+
+    #[test]
+    fn rejects_expired_tag() {
+        let past = "2000-01-01T00:00:00";
+        let entry = format!("Cohort#MAHILA_SHAKTI#{past}");
+        assert_eq!(parse_cohort_tier(&entry, now()), None);
+    }
+
+    #[test]
+    fn malformed_expiry_fails_open() {
+        // Matches Haskell's `filterExpiredTags'`: an unparsable expiry segment
+        // is treated the same as no expiry at all (`Nothing -> True`), not a
+        // rejection.
+        let entry = "Cohort#MAHILA_SHAKTI#not-a-timestamp";
+        assert_eq!(
+            parse_cohort_tier(entry, now()),
+            Some("MAHILA_SHAKTI".to_string())
+        );
+    }
+
+    #[test]
+    fn extra_segments_beyond_expiry_are_ignored() {
+        // Regression test for the `split` vs `splitn` gotcha: Haskell's
+        // `T.splitOn` splits on every `#` and only inspects the first three
+        // segments, silently dropping the rest. A capped `splitn(3, ..)`
+        // would instead fold a 4th segment into the 3rd, corrupting the
+        // expiry-timestamp parse.
+        let future = "2099-01-01T00:00:00";
+        let entry = format!("Cohort#MAHILA_SHAKTI#{future}#extra#segments");
+        assert_eq!(
+            parse_cohort_tier(&entry, now()),
+            Some("MAHILA_SHAKTI".to_string())
+        );
+    }
+
+    #[test]
+    fn extracts_tiers_from_multiple_entries() {
+        let tags = [
+            "SafetyCohort#New".to_string(),
+            "Cohort#MAHILA_SHAKTI".to_string(),
+            "TollCohort#None".to_string(),
+            "Cohort#AUTO_PLUS".to_string(),
+        ];
+        let now = now();
+        let matched: Vec<String> = tags
+            .iter()
+            .filter_map(|raw| parse_cohort_tier(raw, now))
+            .collect();
+        assert_eq!(
+            matched,
+            vec!["MAHILA_SHAKTI".to_string(), "AUTO_PLUS".to_string()]
+        );
+    }
+
+    /// Mirrors `get_matched_cohort_tags`'s core filtering logic (parse tags,
+    /// keep only those also present in `selectedServiceTiers`) without the
+    /// surrounding Redis fetch -- this is now a pure computation over already
+    /// -fetched data, so a driver holding a cohort tag for a tier they haven't
+    /// (or no longer) selected must not be counted as matched, even though the
+    /// tag itself is present and unexpired.
+    #[test]
+    fn only_matches_tags_present_in_selected_service_tiers() {
+        let driver_tag = [
+            "Cohort#MAHILA_SHAKTI".to_string(),
+            "Cohort#AUTO_PLUS".to_string(),
+        ];
+        let selected_service_tiers = ["AUTO_RICKSHAW".to_string(), "MAHILA_SHAKTI".to_string()];
+        let now = now();
+
+        let matched: Vec<String> = driver_tag
+            .iter()
+            .filter_map(|raw| parse_cohort_tier(raw, now))
+            .filter(|tier| selected_service_tiers.contains(tier))
+            .collect();
+
+        // AUTO_PLUS is tagged but not selected -- correctly excluded.
+        assert_eq!(matched, vec!["MAHILA_SHAKTI".to_string()]);
+    }
+
+    #[test]
+    fn deserializes_driver_pool_data_ignoring_unknown_fields() {
+        // Realistic ~45-field DriverPoolData payload (captured live from a dev
+        // driver-pool-data:{driverId} entry) - only driverTag/selectedServiceTiers
+        // should populate; everything else must be silently ignored, proving
+        // this partial struct tolerates the full real-world shape.
+        let json = r#"{"acRestrictionLiftCount":0,"acUsageRestrictionType":"NoRestriction","active":true,"airConditionScore":null,"airConditioned":false,"bankAccountPaymentMode":null,"blocked":false,"canSwitchToInterCity":true,"canSwitchToIntraCity":true,"canSwitchToRental":false,"chargesEnabled":false,"clientBundleVersion":null,"clientConfigVersion":null,"clientDevice":null,"clientSdkVersion":null,"cloudType":"AWS","deviceToken":"abc","driverId":"fac674ef-c064-4f88-b63d-f593d5c4338d","driverTag":["Cohort#MAHILA_SHAKTI","SafetyCohort#New"],"driverTripEndLocation":null,"enableForAirport":"ENABLED","enabled":true,"fleetOwnerId":null,"forwardBatchingEnabled":true,"gender":"UNKNOWN","goHomeStatus":null,"hasAdvanceBooking":false,"hasRideStarted":false,"isPetModeEnabled":false,"isSpecialLocWarrior":false,"language":"ENGLISH","latestScheduledBooking":null,"latestScheduledPickup":null,"luggageCapacity":null,"mYManufacturing":"2024-01-01","maxPickupRadius":null,"mode":"ONLINE","onRide":false,"onRideTripCategory":"OneWay_OneWayOnDemandDynamicOffer","registrationNo":"UP16MT6438","safetyPlusEnabled":false,"schemaVersion":4,"selectedServiceTiers":["AUTO_RICKSHAW","MAHILA_SHAKTI"],"softBlockStiers":null,"subscribed":true,"tollRouteBlockedTill":null,"totalRides":0,"tripDistanceMaxThreshold":null,"tripDistanceMinThreshold":null,"variant":"AUTO_RICKSHAW","vehicleRating":null,"vehicleTags":null}"#;
+
+        let parsed: DriverPoolDataForCohort = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            parsed.driver_tag,
+            Some(vec![
+                "Cohort#MAHILA_SHAKTI".to_string(),
+                "SafetyCohort#New".to_string()
+            ])
+        );
+        assert_eq!(
+            parsed.selected_service_tiers,
+            Some(vec![
+                "AUTO_RICKSHAW".to_string(),
+                "MAHILA_SHAKTI".to_string()
+            ])
+        );
+    }
+
+    #[test]
+    fn deserializes_missing_fields_as_none() {
+        let parsed: DriverPoolDataForCohort = serde_json::from_str("{}").unwrap();
+        assert_eq!(parsed.driver_tag, None);
+        assert_eq!(parsed.selected_service_tiers, None);
+    }
 }

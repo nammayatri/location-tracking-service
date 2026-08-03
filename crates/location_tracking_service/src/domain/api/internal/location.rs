@@ -189,3 +189,14 @@ async fn manual_queue_add(
         .await?,
     ))
 }
+
+#[get("/internal/drivers/nearby/tag")]
+async fn get_nearby_drivers_by_tag(
+    data: Data<AppState>,
+    param_obj: Json<NearbyDriversByTagRequest>,
+) -> Result<Json<NearbyDriverResponse>, AppError> {
+    let request_body = param_obj.into_inner();
+    Ok(Json(
+        location::get_nearby_drivers_by_tag(data, request_body).await?,
+    ))
+}

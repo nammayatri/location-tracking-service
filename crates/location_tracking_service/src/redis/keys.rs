@@ -174,6 +174,41 @@ pub fn driver_loc_bucket_key(
     format!("lts:dl:off_ride:loc:{merchant_id}:{vehicle_type}:{city}:{bucket}")
 }
 
+/// Constructs a Redis key for storing driver locations bucketed by an ops-assigned
+/// cohort tag, independent of vehicle_type. Populated only for drivers currently
+/// matched against that cohort tag, as derived from the driver-app backend's own
+/// `driver-pool-data:{driverId}` cache (see `driver_pool_data_key`,
+/// `get_matched_cohort_tags`) -- this service reads that cache directly rather
+/// than tracking membership in a set of its own. `tag` is always the same string
+/// as the gated `ServiceTierType` itself (e.g. "MAHILA_SHAKTI") -- there is no
+/// separate short-code convention, so no mapping is needed to know which tier a
+/// cohort tag corresponds to.
+///
+/// The resulting key has a duration determined by the bucket and is intended for
+/// non-persistent Redis storage, mirroring `driver_loc_bucket_key`.
+pub fn driver_loc_tag_bucket_key(
+    MerchantId(merchant_id): &MerchantId,
+    CityName(city): &CityName,
+    tag: &str,
+    bucket: &u64,
+) -> String {
+    format!("lts:dl:off_ride:loc:tag:{merchant_id}:{tag}:{city}:{bucket}")
+}
+
+/// Constructs the Redis key for the driver-app backend's own "driver-pool-data"
+/// cache entry (`SharedLogic/DriverPool/DriverPoolData.hs`, `driverPoolDataKey`),
+/// which already carries a driver's current tag list (`driverTag`) and vehicle
+/// service tiers (`selectedServiceTiers`) -- kept in sync by the driver-app
+/// backend on every relevant Postgres write, independent of anything this
+/// service does. The `dynamic-offer-driver-app-lts:` segment is a Hedis
+/// connection-level key prefix applied on the Haskell side at connection time
+/// (`Environment.hs`, `connectHedis ltsRedisCfg ("dynamic-offer-driver-app-lts:" <>)`)
+/// -- it is NOT part of the literal key Haskell's own key-builder returns, so it
+/// must be hardcoded here to match what's actually on the wire.
+pub fn driver_pool_data_key(DriverId(driver_id): &DriverId) -> String {
+    format!("dynamic-offer-driver-app-lts:driver-pool-data:{driver_id}")
+}
+
 pub fn driver_loc_based_on_route_key(route_code: &str) -> String {
     format!("route:{route_code}")
 }

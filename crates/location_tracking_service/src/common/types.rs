@@ -329,6 +329,11 @@ pub struct Dimensions {
     pub vehicle_type: VehicleType,
     pub created_at: DateTime<Utc>,
     pub merchant_operating_city_id: MerchantOperatingCityId,
+    /// Ops-assigned cohort tags (e.g. "MAHILA_SHAKTI") this driver
+    /// currently holds, checked once per ping. Drives the drainer's dual-write
+    /// into each tag's dedicated GEO bucket, alongside the normal
+    /// vehicle-type bucket. Empty for the overwhelming majority of drivers.
+    pub matched_tags: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

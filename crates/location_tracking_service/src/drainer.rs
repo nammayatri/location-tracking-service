@@ -22,8 +22,8 @@ use crate::{
             DriverQueueTracking, RANK_HISTORY_TTL_SECS,
         },
         keys::{
-            driver_loc_bucket_key, driver_queue_last_ts_key, driver_queue_rank_history_key,
-            driver_queue_tracking_key, special_location_queue_key,
+            driver_loc_bucket_key, driver_loc_tag_bucket_key, driver_queue_last_ts_key,
+            driver_queue_rank_history_key, driver_queue_tracking_key, special_location_queue_key,
         },
     },
 };
@@ -777,7 +777,7 @@ pub async fn run_drainer(
             item = rx.recv() => {
                 info!(tag = "[Recieved Entries For Queuing]");
                 match item {
-                    Some((Dimensions { merchant_id, city, vehicle_type, created_at, merchant_operating_city_id }, Latitude(latitude), Longitude(longitude), TimeStamp(server_timestamp), TimeStamp(timestamp), DriverId(driver_id))) => {
+                    Some((Dimensions { merchant_id, city, vehicle_type, created_at, merchant_operating_city_id, matched_tags }, Latitude(latitude), Longitude(longitude), TimeStamp(server_timestamp), TimeStamp(timestamp), DriverId(driver_id))) => {
                         let bucket = get_bucket_from_timestamp(&bucket_size, TimeStamp(timestamp));
 
                         let skip_normal_drain = if let Some(ref cache) = special_location_cache {
@@ -850,6 +850,22 @@ pub async fn run_drainer(
                         };
 
                         if !skip_normal_drain {
+                            // Dedicated per-tag buckets (e.g. Mahila Shakti), additive to the
+                            // normal vehicle-type bucket below. Only ever populated for drivers
+                            // currently in the tag's membership set (see get_matched_cohort_tags),
+                            // so this loop is a no-op for the overwhelming majority of pings.
+                            for tag in &matched_tags {
+                                driver_locations
+                                    .entry(driver_loc_tag_bucket_key(&merchant_id, &city, tag, &bucket))
+                                    .or_default()
+                                    .push(GeoValue {
+                                        coordinates: GeoPosition {
+                                            latitude,
+                                            longitude,
+                                        },
+                                        member: driver_id.clone().into(),
+                                    });
+                            }
                             driver_locations
                                 .entry(driver_loc_bucket_key(&merchant_id, &city, &vehicle_type, &bucket))
                                 .or_default()
