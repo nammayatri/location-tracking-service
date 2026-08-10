@@ -25,7 +25,8 @@ use crate::outbound::external::get_distance_matrix;
 use crate::outbound::external::trigger_detection_alert;
 use crate::outbound::external::{
     authenticate_bap, authenticate_dobpp, bulk_location_update_dobpp, driver_reached_destination,
-    trigger_fcm_bap, trigger_fcm_dobpp, trigger_stop_detection_event,
+    forward_driver_location_to_cloud, trigger_fcm_bap, trigger_fcm_dobpp,
+    trigger_stop_detection_event,
 };
 use crate::outbound::types::{LocationUpdate, ViolationDetectionReq};
 use crate::redis::{commands::*, keys::*};
@@ -53,12 +54,21 @@ async fn get_driver_id_from_authentication(
     auth_api_key: &str,
     auth_token_expiry: &u32,
     token: &Token,
-) -> Result<(DriverId, MerchantId, MerchantOperatingCityId), AppError> {
+) -> Result<
+    (
+        DriverId,
+        MerchantId,
+        MerchantOperatingCityId,
+        Option<CloudType>,
+    ),
+    AppError,
+> {
     match get_driver_id(redis, token).await? {
         Some(auth_data) => Ok((
             auth_data.driver_id,
             auth_data.merchant_id,
             auth_data.merchant_operating_city_id,
+            auth_data.cloud_type,
         )),
         None => {
             let response = authenticate_dobpp(auth_url, token.0.as_str(), auth_api_key).await?;
@@ -69,12 +79,14 @@ async fn get_driver_id_from_authentication(
                 response.driver_id.to_owned(),
                 response.merchant_id.to_owned(),
                 response.merchant_operating_city_id.to_owned(),
+                response.cloud_type,
             )
             .await?;
             Ok((
                 response.driver_id,
                 response.merchant_id,
                 response.merchant_operating_city_id,
+                response.cloud_type,
             ))
         }
     }
@@ -157,11 +169,13 @@ pub async fn handle_driver_conductor_location_update(
     gtfs_id: String,
     vehicle_no: String,
 ) -> Result<(), AppError> {
-    let (driver_id, merchant_id, _moc_id) = if var("DEV").is_ok() {
+    // Bus-crew path always processes locally, so the cloud_type from auth is ignored.
+    let (driver_id, merchant_id, _moc_id, _cloud_type) = if var("DEV").is_ok() {
         (
             DriverId(token.to_owned().inner()),
             req_merchant_id.unwrap_or_else(|| MerchantId("dev".to_string())),
             MerchantOperatingCityId("dev".to_string()),
+            None,
         )
     } else {
         get_driver_id_from_authentication(
@@ -277,13 +291,17 @@ pub async fn update_driver_location_by_token(
     group_id: Option<String>,
     group_id2: Option<String>,
     req_merchant_id: Option<MerchantId>,
+    is_forwarded_request: bool,
 ) -> Result<HttpResponse, AppError> {
     let current_ts = Utc::now();
-    let (driver_id, merchant_id, merchant_operating_city_id) = if var("DEV").is_ok() {
+    let (driver_id, merchant_id, merchant_operating_city_id, cloud_type) = if var("DEV").is_ok() {
         (
             DriverId(token.to_owned().inner()),
-            req_merchant_id.unwrap_or_else(|| MerchantId("dev".to_string())),
+            req_merchant_id
+                .clone()
+                .unwrap_or_else(|| MerchantId("dev".to_string())),
             MerchantOperatingCityId("dev".to_string()),
+            None,
         )
     } else {
         get_driver_id_from_authentication(
@@ -295,6 +313,38 @@ pub async fn update_driver_location_by_token(
         )
         .await?
     };
+
+    // Cross-cloud routing: if the merchant's cloud (from auth) differs from
+    // the cloud this LTS runs in, forward the raw request to the owning
+    // cloud's LTS and skip local processing. The `is_forwarded_request` loop
+    // guard ensures the receiving side always processes locally.
+    if !is_forwarded_request {
+        if let Some(cloud) = cloud_type {
+            if cloud != CloudType::UNAVAILABLE && cloud != data.cloud_type {
+                if let Some(url) = data.cloud_lts_url_mapping.get(&cloud) {
+                    info!(
+                        tag = "[Cross Cloud Forwarding]",
+                        "Forwarding location update for Driver Id : {:?} to driver cloud {} from current cloud {}",
+                        &driver_id,
+                        cloud,
+                        data.cloud_type
+                    );
+                    forward_driver_location_to_cloud(
+                        url,
+                        token.0.as_str(),
+                        &vehicle_type,
+                        &driver_mode,
+                        req_merchant_id.as_ref(),
+                        group_id.as_deref(),
+                        group_id2.as_deref(),
+                        &locations,
+                    )
+                    .await?;
+                    return Ok(HttpResponse::Ok().finish());
+                }
+            }
+        }
+    }
 
     if locations.len() > data.batch_size as usize {
         warn!(

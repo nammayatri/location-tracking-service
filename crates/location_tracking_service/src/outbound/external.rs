@@ -8,6 +8,7 @@
 use super::types::*;
 use crate::common::types::*;
 use crate::domain::types::internal::ride::ExternalReauthResponse;
+use crate::domain::types::ui::location::UpdateDriverLocationRequest;
 use crate::tools::error::AppError;
 use actix_http::StatusCode;
 use reqwest::{Method, Url};
@@ -121,6 +122,63 @@ pub async fn authenticate_bap(
         }),
     )
     .await
+}
+
+/// Forwards a driver location update batch to the LTS deployment of another
+/// cloud (the one owning the driver's merchant, per auth `cloudType`).
+///
+/// The request is replayed against `<base_url>/ui/driver/location` with the
+/// same `token`/`vt`/`dm` (and optional `mid`/`gid`/`gid2`) headers, plus an
+/// `x-forwarded-from-cloud: true` loop guard so the receiving cloud always
+/// processes it locally.
+#[allow(clippy::too_many_arguments)]
+pub async fn forward_driver_location_to_cloud(
+    base_url: &Url,
+    token: &str,
+    vehicle_type: &VehicleType,
+    driver_mode: &DriverMode,
+    merchant_id: Option<&MerchantId>,
+    group_id: Option<&str>,
+    group_id2: Option<&str>,
+    locations: &Vec<UpdateDriverLocationRequest>,
+) -> Result<(), AppError> {
+    let url = format!(
+        "{}/ui/driver/location",
+        base_url.as_str().trim_end_matches('/')
+    );
+    let url = Url::parse(&url)
+        .map_err(|e| AppError::InvalidRequest(format!("Invalid forward URL: {}", e)))?;
+
+    let vehicle_type = vehicle_type.to_string();
+    let driver_mode = driver_mode.to_string();
+
+    let mut headers: Vec<(&str, &str)> = vec![
+        ("content-type", "application/json"),
+        ("token", token),
+        ("vt", vehicle_type.as_str()),
+        ("dm", driver_mode.as_str()),
+        ("x-forwarded-from-cloud", "true"),
+    ];
+    if let Some(MerchantId(merchant_id)) = merchant_id {
+        headers.push(("mid", merchant_id.as_str()));
+    }
+    if let Some(group_id) = group_id {
+        headers.push(("gid", group_id));
+    }
+    if let Some(group_id2) = group_id2 {
+        headers.push(("gid2", group_id2));
+    }
+
+    call_api::<(), Vec<UpdateDriverLocationRequest>>(
+        Protocol::Http1,
+        Method::POST,
+        &url,
+        headers,
+        Some(locations.to_owned()),
+        Some("cross-cloud-forward"),
+    )
+    .await
+    .map_err(|e| e.into())
 }
 
 /// Sends a bulk location update to the `dobpp` endpoint.

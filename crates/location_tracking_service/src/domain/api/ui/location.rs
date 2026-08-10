@@ -119,6 +119,15 @@ pub async fn update_driver_location(
         .and_then(|header_value| header_value.to_str().ok())
         .map(|mid_str| MerchantId(mid_str.to_string()));
 
+    // Loop guard set by a sibling LTS deployment that forwarded this request
+    // from another cloud — process locally instead of forwarding again.
+    let is_forwarded_request = req
+        .headers()
+        .get("x-forwarded-from-cloud")
+        .and_then(|header_value| header_value.to_str().ok())
+        .map(|value| value == "true")
+        .unwrap_or(false);
+
     location::update_driver_location_by_token(
         Token(token),
         vehicle_type,
@@ -128,6 +137,7 @@ pub async fn update_driver_location(
         group_id,
         group_id2,
         req_merchant_id,
+        is_forwarded_request,
     )
     .await?;
     Ok(HttpResponse::Ok().finish())

@@ -43,6 +43,9 @@ pub struct AuthResponseData {
     pub driver_id: DriverId,
     pub merchant_id: MerchantId,
     pub merchant_operating_city_id: MerchantOperatingCityId,
+    /// JSON key `cloudType`; optional so older driver-app responses still deserialize.
+    #[serde(default)]
+    pub cloud_type: Option<CloudType>,
 }
 
 // BAP Authentication (rider). BAP sends "riderId" in JSON; we expose as person_id.
