@@ -124,22 +124,31 @@ pub async fn authenticate_bap(
     .await
 }
 
+/// Hop-by-hop / connection-level headers that must not be replayed when
+/// forwarding a request; the HTTP client computes its own values for these.
+const NON_FORWARDABLE_HEADERS: [&str; 9] = [
+    "host",
+    "content-length",
+    "connection",
+    "keep-alive",
+    "transfer-encoding",
+    "upgrade",
+    "te",
+    "trailer",
+    "proxy-authorization",
+];
+
 /// Forwards a driver location update batch to the LTS deployment of another
 /// cloud (the one owning the driver's merchant, per auth `cloudType`).
 ///
-/// The request is replayed against `<base_url>/ui/driver/location` with the
-/// same `token`/`vt`/`dm` (and optional `mid`/`gid`/`gid2`) headers, plus an
+/// The request is replayed against `<base_url>/ui/driver/location` with all
+/// original request headers passed through unchanged (so headers added to
+/// this API in the future are never silently dropped), plus an appended
 /// `x-forwarded-from-cloud: true` loop guard so the receiving cloud always
 /// processes it locally.
-#[allow(clippy::too_many_arguments)]
 pub async fn forward_driver_location_to_cloud(
     base_url: &Url,
-    token: &str,
-    vehicle_type: &VehicleType,
-    driver_mode: &DriverMode,
-    merchant_id: Option<&MerchantId>,
-    group_id: Option<&str>,
-    group_id2: Option<&str>,
+    req_headers: &[(String, String)],
     locations: &Vec<UpdateDriverLocationRequest>,
 ) -> Result<(), AppError> {
     let url = format!(
@@ -149,25 +158,15 @@ pub async fn forward_driver_location_to_cloud(
     let url = Url::parse(&url)
         .map_err(|e| AppError::InvalidRequest(format!("Invalid forward URL: {}", e)))?;
 
-    let vehicle_type = vehicle_type.to_string();
-    let driver_mode = driver_mode.to_string();
-
-    let mut headers: Vec<(&str, &str)> = vec![
-        ("content-type", "application/json"),
-        ("token", token),
-        ("vt", vehicle_type.as_str()),
-        ("dm", driver_mode.as_str()),
-        ("x-forwarded-from-cloud", "true"),
-    ];
-    if let Some(MerchantId(merchant_id)) = merchant_id {
-        headers.push(("mid", merchant_id.as_str()));
-    }
-    if let Some(group_id) = group_id {
-        headers.push(("gid", group_id));
-    }
-    if let Some(group_id2) = group_id2 {
-        headers.push(("gid2", group_id2));
-    }
+    let mut headers: Vec<(&str, &str)> = req_headers
+        .iter()
+        .filter(|(name, _)| {
+            !NON_FORWARDABLE_HEADERS.contains(&name.to_lowercase().as_str())
+                && !name.eq_ignore_ascii_case("x-forwarded-from-cloud")
+        })
+        .map(|(name, value)| (name.as_str(), value.as_str()))
+        .collect();
+    headers.push(("x-forwarded-from-cloud", "true"));
 
     call_api::<(), Vec<UpdateDriverLocationRequest>>(
         Protocol::Http1,

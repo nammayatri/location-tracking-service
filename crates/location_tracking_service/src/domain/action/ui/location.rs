@@ -291,9 +291,14 @@ pub async fn update_driver_location_by_token(
     group_id: Option<String>,
     group_id2: Option<String>,
     req_merchant_id: Option<MerchantId>,
-    is_forwarded_request: bool,
+    req_headers: Vec<(String, String)>,
 ) -> Result<HttpResponse, AppError> {
     let current_ts = Utc::now();
+    // Loop guard set by a sibling LTS deployment that forwarded this request
+    // from another cloud — process locally instead of forwarding again.
+    let is_forwarded_request = req_headers.iter().any(|(name, value)| {
+        name.eq_ignore_ascii_case("x-forwarded-from-cloud") && value == "true"
+    });
     let (driver_id, merchant_id, merchant_operating_city_id, cloud_type) = if var("DEV").is_ok() {
         (
             DriverId(token.to_owned().inner()),
@@ -332,17 +337,7 @@ pub async fn update_driver_location_by_token(
                         cloud,
                         data.cloud_type
                     );
-                    forward_driver_location_to_cloud(
-                        url,
-                        token.0.as_str(),
-                        &vehicle_type,
-                        &driver_mode,
-                        req_merchant_id.as_ref(),
-                        group_id.as_deref(),
-                        group_id2.as_deref(),
-                        &locations,
-                    )
-                    .await?;
+                    forward_driver_location_to_cloud(url, &req_headers, &locations).await?;
                     return Ok(HttpResponse::Ok().finish());
                 }
             }
