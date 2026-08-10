@@ -271,6 +271,11 @@ pub enum DriverMode {
 pub enum CloudType {
     AWS,
     GCP,
+    /// `serde(other)`: any cloud value this LTS build doesn't know (e.g. a
+    /// newer driver-app adds a variant) deserializes here instead of failing
+    /// the whole auth response, which would black out the driver's pings.
+    /// UNAVAILABLE never forwards, so unknown clouds process locally.
+    #[serde(other)]
     UNAVAILABLE,
 }
 
