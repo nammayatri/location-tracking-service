@@ -320,7 +320,10 @@ pub async fn update_driver_location_by_token(
     // guard ensures the receiving side always processes locally.
     if !is_forwarded_request {
         if let Some(cloud) = cloud_type {
-            if cloud != CloudType::UNAVAILABLE && cloud != data.cloud_type {
+            if data.cloud_type != CloudType::UNAVAILABLE
+                && cloud != CloudType::UNAVAILABLE
+                && cloud != data.cloud_type
+            {
                 if let Some(url) = data.cloud_lts_url_mapping.get(&cloud) {
                     info!(
                         tag = "[Cross Cloud Forwarding]",
