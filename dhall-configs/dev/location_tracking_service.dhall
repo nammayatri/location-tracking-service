@@ -534,5 +534,9 @@ in {
     enable_special_location_bucketing = False,
     queue_position_range_offset = 2,
     queue_exit_hysteresis_threshold = 3,
-    enable_queue_cache_empty_guard = True
+    enable_queue_cache_empty_guard = True,
+    cloud_type = Some "AWS",
+    cloud_lts_url_mapping = Some (toMap {
+      GCP = "http://localhost:8081"
+    })
 }

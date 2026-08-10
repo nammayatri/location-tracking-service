@@ -7,7 +7,7 @@
 */
 #![allow(clippy::expect_used)]
 
-use std::{env::var, sync::Arc};
+use std::{env::var, str::FromStr, sync::Arc};
 
 use chrono::NaiveTime;
 use rdkafka::{
@@ -114,6 +114,14 @@ pub struct AppConfig {
     /// tail. Defaults to 1800 (30 minutes).
     #[serde(default = "default_special_location_entry_ts_ttl")]
     pub special_location_entry_ts_ttl_sec: u64,
+    /// Cloud this LTS deployment runs in ("AWS" / "GCP"). Absent or
+    /// unparseable => UNAVAILABLE (cross-cloud forwarding disabled).
+    #[serde(default)]
+    pub cloud_type: Option<String>,
+    /// Cloud name -> base URL of that cloud's LTS deployment, used to
+    /// forward driver location updates to the owning cloud.
+    #[serde(default)]
+    pub cloud_lts_url_mapping: Option<HashMap<String, String>>,
 }
 
 fn default_queue_expiry() -> u64 {
@@ -256,6 +264,8 @@ pub struct AppState {
     pub queue_exit_hysteresis_threshold: u32,
     pub enable_queue_cache_empty_guard: bool,
     pub special_location_entry_ts_ttl_sec: u64,
+    pub cloud_type: CloudType,
+    pub cloud_lts_url_mapping: HashMap<CloudType, Url>,
 }
 
 impl AppState {
@@ -472,6 +482,37 @@ impl AppState {
         let detection_violation_config = app_config.detection_violation_config;
         let detection_anti_violation_config = app_config.detection_anti_violation_config;
 
+        let cloud_type = match app_config.cloud_type.as_deref() {
+            Some(cloud_type_str) => CloudType::from_str(cloud_type_str).unwrap_or_else(|_| {
+                error!(
+                    tag = "[Cloud Type]",
+                    "Failed to parse cloud_type '{}', defaulting to UNAVAILABLE", cloud_type_str
+                );
+                CloudType::UNAVAILABLE
+            }),
+            None => CloudType::UNAVAILABLE,
+        };
+
+        let cloud_lts_url_mapping: HashMap<CloudType, Url> = app_config
+            .cloud_lts_url_mapping
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(
+                |(cloud, url)| match (CloudType::from_str(&cloud), Url::parse(&url)) {
+                    (Ok(cloud), Ok(url)) => Some((cloud, url)),
+                    _ => {
+                        error!(
+                            tag = "[Cloud LTS Url Mapping]",
+                            "Skipping invalid cloud_lts_url_mapping entry: '{}' -> '{}'",
+                            cloud,
+                            url
+                        );
+                        None
+                    }
+                },
+            )
+            .collect();
+
         AppState {
             redis,
             secondary_redis,
@@ -550,6 +591,8 @@ impl AppState {
             queue_exit_hysteresis_threshold: app_config.queue_exit_hysteresis_threshold,
             enable_queue_cache_empty_guard: app_config.enable_queue_cache_empty_guard,
             special_location_entry_ts_ttl_sec: app_config.special_location_entry_ts_ttl_sec,
+            cloud_type,
+            cloud_lts_url_mapping,
         }
     }
 

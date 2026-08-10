@@ -8,6 +8,7 @@
 use super::types::*;
 use crate::common::types::*;
 use crate::domain::types::internal::ride::ExternalReauthResponse;
+use crate::domain::types::ui::location::UpdateDriverLocationRequest;
 use crate::tools::error::AppError;
 use actix_http::StatusCode;
 use reqwest::{Method, Url};
@@ -121,6 +122,62 @@ pub async fn authenticate_bap(
         }),
     )
     .await
+}
+
+/// Hop-by-hop / connection-level headers that must not be replayed when
+/// forwarding a request; the HTTP client computes its own values for these.
+const NON_FORWARDABLE_HEADERS: [&str; 9] = [
+    "host",
+    "content-length",
+    "connection",
+    "keep-alive",
+    "transfer-encoding",
+    "upgrade",
+    "te",
+    "trailer",
+    "proxy-authorization",
+];
+
+/// Forwards a driver location update batch to the LTS deployment of another
+/// cloud (the one owning the driver's merchant, per auth `cloudType`).
+///
+/// The request is replayed against `<base_url>/ui/driver/location` with all
+/// original request headers passed through unchanged (so headers added to
+/// this API in the future are never silently dropped), plus an appended
+/// `x-forwarded-from-cloud: true` loop guard so the receiving cloud always
+/// processes it locally.
+pub async fn forward_driver_location_to_cloud(
+    base_url: &Url,
+    req_headers: &[(String, String)],
+    locations: &Vec<UpdateDriverLocationRequest>,
+) -> Result<(), AppError> {
+    let url = format!(
+        "{}/ui/driver/location",
+        base_url.as_str().trim_end_matches('/')
+    );
+    let url = Url::parse(&url)
+        .map_err(|e| AppError::InvalidRequest(format!("Invalid forward URL: {}", e)))?;
+
+    let mut headers: Vec<(&str, &str)> = req_headers
+        .iter()
+        .filter(|(name, _)| {
+            !NON_FORWARDABLE_HEADERS.contains(&name.to_lowercase().as_str())
+                && !name.eq_ignore_ascii_case("x-forwarded-from-cloud")
+        })
+        .map(|(name, value)| (name.as_str(), value.as_str()))
+        .collect();
+    headers.push(("x-forwarded-from-cloud", "true"));
+
+    call_api::<(), Vec<UpdateDriverLocationRequest>>(
+        Protocol::Http1,
+        Method::POST,
+        &url,
+        headers,
+        Some(locations.to_owned()),
+        Some("cross-cloud-forward"),
+    )
+    .await
+    .map_err(|e| e.into())
 }
 
 /// Sends a bulk location update to the `dobpp` endpoint.

@@ -119,6 +119,20 @@ pub async fn update_driver_location(
         .and_then(|header_value| header_value.to_str().ok())
         .map(|mid_str| MerchantId(mid_str.to_string()));
 
+    // Full header set, passed through as-is on a cross-cloud forward so
+    // headers added to this API in the future are never silently dropped.
+    // Also carries the x-forwarded-from-cloud loop-guard flag.
+    let req_headers: Vec<(String, String)> = req
+        .headers()
+        .iter()
+        .filter_map(|(name, value)| {
+            value
+                .to_str()
+                .ok()
+                .map(|value| (name.as_str().to_string(), value.to_string()))
+        })
+        .collect();
+
     location::update_driver_location_by_token(
         Token(token),
         vehicle_type,
@@ -128,6 +142,7 @@ pub async fn update_driver_location(
         group_id,
         group_id2,
         req_merchant_id,
+        req_headers,
     )
     .await?;
     Ok(HttpResponse::Ok().finish())

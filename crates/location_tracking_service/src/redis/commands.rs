@@ -717,11 +717,13 @@ pub async fn set_driver_id(
     driver_id: DriverId,
     merchant_id: MerchantId,
     merchant_operating_city_id: MerchantOperatingCityId,
+    cloud_type: Option<CloudType>,
 ) -> Result<(), AppError> {
     let auth_data = AuthData {
         driver_id,
         merchant_id,
         merchant_operating_city_id,
+        cloud_type,
     };
     redis
         .set_key(&set_driver_id_key(token), auth_data, *auth_token_expiry)

@@ -264,6 +264,21 @@ pub enum DriverMode {
     SILENT,
 }
 
+/// Cloud a merchant's traffic is homed in, as reported by the driver-app
+/// internal auth endpoint (`cloudType`). Used to route driver location
+/// updates to the LTS deployment of the owning cloud.
+#[derive(Debug, Clone, Copy, EnumString, Display, Serialize, Deserialize, Eq, Hash, PartialEq)]
+pub enum CloudType {
+    AWS,
+    GCP,
+    /// `serde(other)`: any cloud value this LTS build doesn't know (e.g. a
+    /// newer driver-app adds a variant) deserializes here instead of failing
+    /// the whole auth response, which would black out the driver's pings.
+    /// UNAVAILABLE never forwards, so unknown clouds process locally.
+    #[serde(other)]
+    UNAVAILABLE,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct APISuccess {
     result: String,
@@ -282,6 +297,10 @@ pub struct AuthData {
     pub driver_id: DriverId,
     pub merchant_id: MerchantId,
     pub merchant_operating_city_id: MerchantOperatingCityId,
+    /// Cloud owning this merchant's traffic. `#[serde(default)]` keeps
+    /// backward compatibility with Redis entries cached before this field existed.
+    #[serde(default)]
+    pub cloud_type: Option<CloudType>,
 }
 
 pub struct DriverLocationPoint {
