@@ -155,7 +155,13 @@ async fn manual_queue_remove(
     body: Option<Json<ManualQueueRemoveRequest>>,
 ) -> Result<Json<APISuccess>, AppError> {
     let (special_location_id, vehicle_type, merchant_id, driver_id) = path.into_inner();
-    let reason = body.and_then(|b| b.into_inner().reason);
+    // Absent body or absent field → preserve position (soft removal).
+    let (reason, preserve_position) = body
+        .map(|b| {
+            let b = b.into_inner();
+            (b.reason, b.preserve_position.unwrap_or(true))
+        })
+        .unwrap_or((None, true));
     Ok(Json(
         location::manual_queue_remove(
             data,
@@ -164,6 +170,7 @@ async fn manual_queue_remove(
             merchant_id,
             driver_id,
             reason,
+            preserve_position,
         )
         .await?,
     ))

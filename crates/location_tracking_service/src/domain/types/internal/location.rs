@@ -147,10 +147,18 @@ pub struct ManualQueueAddRequest {
 /// send a body get `exit:manual` in the rank-history hash; callers that do
 /// get `exit:manual:<reason>` so the timeline shows *why* the operator pulled
 /// the driver (e.g. wrong queue, complaint, fraud).
+///
+/// `preserve_position` controls whether the driver keeps their queue position.
+/// Optional and defaults to `true` (absent → preserve): the removal leaves
+/// `last_ts` intact, so a driver still pinging in-fence is re-added at their
+/// original rank within its TTL — a "soft" removal. Set it to `false` for a
+/// hard removal that also deletes `last_ts`, so a re-entry restarts fresh at
+/// the tail of the queue.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct ManualQueueRemoveRequest {
     pub reason: Option<String>,
+    pub preserve_position: Option<bool>,
 }
 
 /// One event from the per-driver rank-history list. `value` is the raw event
