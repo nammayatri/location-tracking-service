@@ -533,6 +533,7 @@ pub async fn get_nearby_drivers_by_tag(
 
     let nearby_drivers = get_drivers_within_tag_radius(
         &data.redis,
+        data.secondary_redis.as_deref(),
         &data.nearby_bucket_threshold,
         &merchant_id,
         &city,
