@@ -9,12 +9,13 @@ use super::types::*;
 use crate::common::types::*;
 use crate::domain::types::internal::ride::ExternalReauthResponse;
 use crate::domain::types::ui::location::UpdateDriverLocationRequest;
-use crate::tools::error::AppError;
+use crate::tools::error::{AppError, ErrorBody};
 use actix_http::StatusCode;
 use reqwest::{Method, Url};
 use serde::{Deserialize, Serialize};
 use shared::tools::callapi::{call_api, call_api_unwrapping_error, Protocol};
 use std::collections::HashMap;
+use tracing::error;
 
 /// Authenticates a driver using the `dobpp` method.
 ///
@@ -168,16 +169,43 @@ pub async fn forward_driver_location_to_cloud(
         .collect();
     headers.push(("x-forwarded-from-cloud", "true"));
 
-    call_api::<(), Vec<UpdateDriverLocationRequest>>(
+    call_api_unwrapping_error::<(), Vec<UpdateDriverLocationRequest>, AppError>(
         Protocol::Http1,
         Method::POST,
         &url,
         headers,
         Some(locations.to_owned()),
         Some("cross-cloud-forward"),
+        Box::new(|resp| {
+            Box::pin(async move {
+                let status = resp.status().as_u16();
+                match resp.json::<ErrorBody>().await {
+                    Ok(body) => {
+                        error!(
+                            tag = "[CROSS CLOUD FORWARD - PEER ERROR]",
+                            peer_status = status,
+                            peer_error_code = %body.error_code,
+                            peer_error_message = %body.error_message,
+                        );
+                        AppError::ForwardedCloudError(status, body.error_code, body.error_message)
+                    }
+                    Err(err) => {
+                        error!(
+                            tag = "[CROSS CLOUD FORWARD - PEER ERROR]",
+                            peer_status = status,
+                            body_parse_error = %err,
+                        );
+                        AppError::ForwardedCloudError(
+                            status,
+                            "FORWARDED_CLOUD_ERROR".to_string(),
+                            String::new(),
+                        )
+                    }
+                }
+            })
+        }),
     )
     .await
-    .map_err(|e| e.into())
 }
 
 /// Sends a bulk location update to the `dobpp` endpoint.
