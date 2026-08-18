@@ -16,7 +16,7 @@ use shared::tools::callapi::CallAPIError;
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ErrorBody {
-    error_message: String,
+    pub error_message: String,
     pub error_code: String,
 }
 
@@ -55,6 +55,7 @@ pub enum AppError {
     TraceTokenExpired,
     RiderAuthFailed,
     RiderLocationNotFound,
+    ForwardedCloudError(u16, String, String),
 }
 
 impl AppError {
@@ -101,6 +102,7 @@ impl AppError {
             }
             AppError::RiderAuthFailed => "Rider authentication failed".to_string(),
             AppError::RiderLocationNotFound => "Rider location not found".to_string(),
+            AppError::ForwardedCloudError(_, _, error_message) => error_message.to_string(),
             _ => "Some Error Occured".to_string(),
         }
     }
@@ -142,6 +144,7 @@ impl AppError {
             AppError::TraceTokenExpired => "TRACE_TOKEN_EXPIRED",
             AppError::RiderAuthFailed => "RIDER_AUTH_FAILED",
             AppError::RiderLocationNotFound => "RIDER_LOCATION_NOT_FOUND",
+            AppError::ForwardedCloudError(_, error_code, _) => error_code.as_str(),
         }
         .to_string()
     }
@@ -189,6 +192,9 @@ impl ResponseError for AppError {
             AppError::TraceTokenExpired => StatusCode::UNAUTHORIZED,
             AppError::RiderAuthFailed => StatusCode::UNAUTHORIZED,
             AppError::RiderLocationNotFound => StatusCode::NOT_FOUND,
+            AppError::ForwardedCloudError(status, _, _) => {
+                StatusCode::from_u16(*status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR)
+            }
         }
     }
 }
