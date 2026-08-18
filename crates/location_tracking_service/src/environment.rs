@@ -266,6 +266,11 @@ pub struct AppState {
     pub special_location_entry_ts_ttl_sec: u64,
     pub cloud_type: CloudType,
     pub cloud_lts_url_mapping: HashMap<CloudType, Url>,
+    /// Long-lived HTTP client for cross-cloud forwards. Built once at startup
+    /// so forwards reuse pooled connections instead of paying a client build
+    /// plus TCP/TLS handshake on every driver ping (reqwest::Client is a
+    /// cheap Arc handle to clone).
+    pub forward_client: reqwest::Client,
 }
 
 impl AppState {
@@ -593,6 +598,7 @@ impl AppState {
             special_location_entry_ts_ttl_sec: app_config.special_location_entry_ts_ttl_sec,
             cloud_type,
             cloud_lts_url_mapping,
+            forward_client: reqwest::Client::new(),
         }
     }
 

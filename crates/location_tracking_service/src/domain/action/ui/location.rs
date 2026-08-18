@@ -337,7 +337,13 @@ pub async fn update_driver_location_by_token(
                         cloud,
                         data.cloud_type
                     );
-                    forward_driver_location_to_cloud(url, &req_headers, &locations).await?;
+                    forward_driver_location_to_cloud(
+                        &data.forward_client,
+                        url,
+                        &req_headers,
+                        &locations,
+                    )
+                    .await?;
                     return Ok(HttpResponse::Ok().finish());
                 }
             }

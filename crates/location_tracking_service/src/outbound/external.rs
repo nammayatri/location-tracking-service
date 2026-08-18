@@ -13,7 +13,7 @@ use crate::tools::error::{AppError, ErrorBody};
 use actix_http::StatusCode;
 use reqwest::{Method, Url};
 use serde::{Deserialize, Serialize};
-use shared::tools::callapi::{call_api, call_api_unwrapping_error, Protocol};
+use shared::tools::callapi::{call_api, call_api_unwrapping_error, call_api_with_client, Protocol};
 use std::collections::HashMap;
 use tracing::error;
 
@@ -148,6 +148,7 @@ const NON_FORWARDABLE_HEADERS: [&str; 9] = [
 /// `x-forwarded-from-cloud: true` loop guard so the receiving cloud always
 /// processes it locally.
 pub async fn forward_driver_location_to_cloud(
+    client: &reqwest::Client,
     base_url: &Url,
     req_headers: &[(String, String)],
     locations: &Vec<UpdateDriverLocationRequest>,
@@ -169,8 +170,12 @@ pub async fn forward_driver_location_to_cloud(
         .collect();
     headers.push(("x-forwarded-from-cloud", "true"));
 
-    call_api_unwrapping_error::<(), Vec<UpdateDriverLocationRequest>, AppError>(
-        Protocol::Http1,
+    // Long-lived client from AppState: call_api/call_api_unwrapping_error
+    // build a fresh reqwest::Client (a new connection pool) per call, which
+    // costs a TCP/TLS handshake on every forwarded ping; this reuses pooled
+    // connections instead.
+    call_api_with_client::<(), Vec<UpdateDriverLocationRequest>, AppError>(
+        client,
         Method::POST,
         &url,
         headers,
