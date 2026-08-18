@@ -598,7 +598,16 @@ impl AppState {
             special_location_entry_ts_ttl_sec: app_config.special_location_entry_ts_ttl_sec,
             cloud_type,
             cloud_lts_url_mapping,
-            forward_client: reqwest::Client::new(),
+            // Pool settings mirror the ERSS provider client. pool_idle_timeout
+            // stays below typical LB idle timeouts (~60s) so a forward never
+            // picks up a connection the peer's load balancer already closed.
+            // No request timeout here: the RequestTimeout middleware already
+            // bounds the whole request, forward included.
+            forward_client: reqwest::Client::builder()
+                .pool_max_idle_per_host(10)
+                .pool_idle_timeout(std::time::Duration::from_secs(30))
+                .build()
+                .unwrap_or_default(),
         }
     }
 
