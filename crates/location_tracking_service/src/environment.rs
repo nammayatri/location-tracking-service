@@ -266,6 +266,11 @@ pub struct AppState {
     pub special_location_entry_ts_ttl_sec: u64,
     pub cloud_type: CloudType,
     pub cloud_lts_url_mapping: HashMap<CloudType, Url>,
+    /// Long-lived HTTP client for cross-cloud forwards. Built once at startup
+    /// so forwards reuse pooled connections instead of paying a client build
+    /// plus TCP/TLS handshake on every driver ping (reqwest::Client is a
+    /// cheap Arc handle to clone).
+    pub forward_client: reqwest::Client,
 }
 
 impl AppState {
@@ -593,6 +598,16 @@ impl AppState {
             special_location_entry_ts_ttl_sec: app_config.special_location_entry_ts_ttl_sec,
             cloud_type,
             cloud_lts_url_mapping,
+            // Pool settings mirror the ERSS provider client. pool_idle_timeout
+            // stays below typical LB idle timeouts (~60s) so a forward never
+            // picks up a connection the peer's load balancer already closed.
+            // No request timeout here: the RequestTimeout middleware already
+            // bounds the whole request, forward included.
+            forward_client: reqwest::Client::builder()
+                .pool_max_idle_per_host(10)
+                .pool_idle_timeout(std::time::Duration::from_secs(30))
+                .build()
+                .unwrap_or_default(),
         }
     }
 
