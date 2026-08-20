@@ -5,7 +5,9 @@
     or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more details. You should have received a copy of
     the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-use serde::{Deserialize, Serialize};
+use serde::{de, Deserialize, Deserializer, Serialize};
+use shared::tools::logger::*;
+use std::str::FromStr;
 
 use crate::common::types::*;
 
@@ -14,11 +16,53 @@ use crate::common::types::*;
 pub struct NearbyDriversRequest {
     pub lat: Latitude,
     pub lon: Longitude,
+    #[serde(default, deserialize_with = "deserialize_known_vehicle_types")]
     pub vehicle_type: Option<Vec<VehicleType>>,
     pub radius: Radius,
     pub merchant_id: MerchantId,
     pub group_id: Option<String>,
     pub group_id2: Option<String>,
+}
+
+/// Deserializes `vehicleType`, skipping entries this build does not know about. The caller's
+/// vehicle variant enum is extended independently of ours, so a single new variant must not
+/// fail the whole driver search -- unknown entries are logged and dropped. A list whose entries
+/// are *all* unknown is an error instead, since `None` here means "search every vehicle type"
+/// and silently widening the search would return the wrong driver pool.
+fn deserialize_known_vehicle_types<'de, D>(
+    deserializer: D,
+) -> Result<Option<Vec<VehicleType>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let Some(raw) = Option::<Vec<String>>::deserialize(deserializer)? else {
+        return Ok(None);
+    };
+
+    let mut known = Vec::with_capacity(raw.len());
+    let mut unknown = Vec::new();
+    for vehicle_type in &raw {
+        match VehicleType::from_str(vehicle_type) {
+            Ok(vehicle_type) => known.push(vehicle_type),
+            Err(_) => unknown.push(vehicle_type.as_str()),
+        }
+    }
+
+    if !unknown.is_empty() {
+        warn!(
+            "Ignoring unknown vehicleType in nearby request : {:?}",
+            unknown
+        );
+    }
+
+    if known.is_empty() && !raw.is_empty() {
+        return Err(de::Error::custom(format!(
+            "unknown variant(s) {:?}, no known vehicleType left in request",
+            unknown
+        )));
+    }
+
+    Ok(Some(known))
 }
 
 pub type NearbyDriverResponse = Vec<DriverLocationDetail>;
