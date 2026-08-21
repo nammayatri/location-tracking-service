@@ -207,6 +207,15 @@ pub enum VehicleType {
     #[strum(serialize = "PINK_AUTO")]
     #[serde(rename = "PINK_AUTO")]
     PinkAuto,
+    #[strum(serialize = "EV_HATCHBACK")]
+    #[serde(rename = "EV_HATCHBACK")]
+    EvHatchback,
+    #[strum(serialize = "EV_SEDAN")]
+    #[serde(rename = "EV_SEDAN")]
+    EvSedan,
+    #[strum(serialize = "EV_SUV")]
+    #[serde(rename = "EV_SUV")]
+    EvSuv,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug, Display, PartialEq)]
