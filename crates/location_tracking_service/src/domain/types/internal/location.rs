@@ -22,6 +22,7 @@ pub struct NearbyDriversRequest {
     pub merchant_id: MerchantId,
     pub group_id: Option<String>,
     pub group_id2: Option<String>,
+    pub search_try_id: Option<String>,
 }
 
 /// Deserializes `vehicleType`, skipping entries this build does not know about. The caller's

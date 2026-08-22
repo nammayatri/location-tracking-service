@@ -492,6 +492,7 @@ in {
     location_update_limit = 6000000000,
     location_update_interval = 60,
     driver_location_update_topic = "location-updates",
+    driver_nearby_debug_topic = Some "driver_nearby_debug",
     -- Per-fleet Kafka topic mapping for conductor location forwarding.
     -- Conductor pings hitting /ui/driver/location with person_type=conductor
     -- and a gtfs_id look up the destination topic here and are forwarded
