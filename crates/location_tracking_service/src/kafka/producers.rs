@@ -7,7 +7,7 @@
 */
 use super::types::*;
 use crate::{
-    common::{kafka::push_to_kafka, types::*},
+    common::{kafka::push_to_kafka, types::*, utils::get_bucket_from_timestamp},
     domain::types::ui::location::UpdateDriverLocationRequest,
 };
 use log::*;
@@ -38,6 +38,7 @@ pub async fn kafka_stream_updates(
     producer: &Option<FutureProducer>,
     secondary_producer: &Option<FutureProducer>,
     topic: &str,
+    bucket_size: u64,
     locations: Vec<(UpdateDriverLocationRequest, LocationType)>,
     server_timestamp: TimeStamp,
     merchant_id: MerchantId,
@@ -64,6 +65,7 @@ pub async fn kafka_stream_updates(
     };
 
     for (loc, location_type) in locations {
+        let bucket = get_bucket_from_timestamp(&bucket_size, loc.ts);
         let message = LocationUpdate {
             r_id: ride_id.to_owned(),
             m_id: merchant_id.to_owned(),
@@ -91,11 +93,28 @@ pub async fn kafka_stream_updates(
             stop_lon,
             location_type,
             next_upcoming_stop_eta, // travelled_distance: travelled_distance.to_owned(),
+            bucket,
         };
         if let Err(err) =
             push_to_kafka(producer, secondary_producer, topic, key.as_str(), message).await
         {
             error!("Error occured in push_to_kafka => {}", err.message())
         }
+    }
+}
+
+pub async fn kafka_stream_nearby_debug(
+    producer: &Option<FutureProducer>,
+    secondary_producer: &Option<FutureProducer>,
+    topic: &str,
+    event: DriverNearbyDebugUpdate,
+) {
+    let key = event.search_try_id.clone();
+    if let Err(err) = push_to_kafka(producer, secondary_producer, topic, key.as_str(), event).await
+    {
+        error!(
+            "Error occured in push_to_kafka (nearby debug) => {}",
+            err.message()
+        )
     }
 }

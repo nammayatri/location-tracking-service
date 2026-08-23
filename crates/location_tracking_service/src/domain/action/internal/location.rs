@@ -16,6 +16,10 @@ use crate::{
     },
     domain::types::internal::location::*,
     environment::AppState,
+    kafka::{
+        producers::kafka_stream_nearby_debug,
+        types::{DriverNearbyDebugEntry, DriverNearbyDebugUpdate},
+    },
     redis::commands::*,
     tools::prometheus::{MEASURE_DURATION, NEARBY_DRIVERS_RETURNED, QUEUE_EVICTIONS},
 };
@@ -373,6 +377,7 @@ pub async fn get_nearby_drivers(
         merchant_id,
         group_id,
         group_id2,
+        search_try_id,
     }: NearbyDriversRequest,
 ) -> Result<NearbyDriverResponse, AppError> {
     let city = get_city(&lat, &lon, &data.polygon)?;
@@ -399,6 +404,15 @@ pub async fn get_nearby_drivers(
                 .await;
                 match nearby_drivers {
                     Ok(nearby_drivers) => {
+                        maybe_emit_nearby_debug(
+                            &data,
+                            search_try_id.as_deref(),
+                            &vehicle,
+                            current_bucket,
+                            lat,
+                            lon,
+                            &nearby_drivers,
+                        );
                         resp.extend(nearby_drivers);
                     }
                     Err(err) => {
@@ -427,6 +441,15 @@ pub async fn get_nearby_drivers(
                 .await;
                 match nearby_drivers {
                     Ok(nearby_drivers) => {
+                        maybe_emit_nearby_debug(
+                            &data,
+                            search_try_id.as_deref(),
+                            &vehicle,
+                            current_bucket,
+                            lat,
+                            lon,
+                            &nearby_drivers,
+                        );
                         resp.extend(nearby_drivers);
                     }
                     Err(err) => {
@@ -441,6 +464,51 @@ pub async fn get_nearby_drivers(
     NEARBY_DRIVERS_RETURNED.observe(resp.len() as f64);
 
     Ok(resp)
+}
+
+fn maybe_emit_nearby_debug(
+    data: &Data<AppState>,
+    search_try_id: Option<&str>,
+    vehicle: &VehicleType,
+    current_bucket: u64,
+    lat: Latitude,
+    lon: Longitude,
+    matched_drivers: &[DriverLocationDetail],
+) {
+    let Some(search_try_id) = search_try_id else {
+        return;
+    };
+    let Some(topic) = data.driver_nearby_debug_topic.clone() else {
+        return;
+    };
+    if matched_drivers.is_empty() {
+        return;
+    }
+    let producer = data.producer.clone();
+    let secondary_producer = data.secondary_producer.clone();
+    let buckets: Vec<u64> = (0..data.nearby_bucket_threshold)
+        .map(|i| current_bucket - i)
+        .collect();
+    let drivers: Vec<DriverNearbyDebugEntry> = matched_drivers
+        .iter()
+        .map(|d| DriverNearbyDebugEntry {
+            driver_id: d.driver_id.to_owned(),
+            driver_lat: d.lat,
+            driver_lon: d.lon,
+        })
+        .collect();
+    let event = DriverNearbyDebugUpdate {
+        search_try_id: search_try_id.to_owned(),
+        vehicle_variant: vehicle.to_owned(),
+        buckets,
+        origin_lat: lat,
+        origin_lon: lon,
+        drivers,
+    };
+
+    tokio::spawn(async move {
+        kafka_stream_nearby_debug(&producer, &secondary_producer, &topic, event).await;
+    });
 }
 
 /// Searches the dedicated per-tag GEO buckets for an ops-assigned cohort tag

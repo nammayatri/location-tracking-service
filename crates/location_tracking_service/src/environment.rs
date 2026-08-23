@@ -52,6 +52,8 @@ pub struct AppConfig {
     pub secondary_kafka_cfg: Option<KafkaConfig>,
     pub driver_location_update_topic: String,
     #[serde(default)]
+    pub driver_nearby_debug_topic: Option<String>,
+    #[serde(default)]
     pub gtfs_id_to_topic: HashMap<String, String>,
     pub batch_size: i64,
     pub bucket_size: u64,
@@ -221,6 +223,7 @@ pub struct AppState {
     pub enqueue_producer: Option<Arc<BaseProducer>>,
     pub enqueue_secondary_producer: Option<Arc<BaseProducer>>,
     pub driver_location_update_topic: String,
+    pub driver_nearby_debug_topic: Option<String>,
     pub gtfs_id_to_topic: HashMap<String, String>,
     pub batch_size: i64,
     pub bucket_size: u64,
@@ -543,6 +546,7 @@ impl AppState {
             enqueue_producer,
             enqueue_secondary_producer,
             driver_location_update_topic: app_config.driver_location_update_topic,
+            driver_nearby_debug_topic: app_config.driver_nearby_debug_topic,
             gtfs_id_to_topic: app_config.gtfs_id_to_topic,
             batch_size: app_config.batch_size,
             bucket_size: app_config.bucket_size,

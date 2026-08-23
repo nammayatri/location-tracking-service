@@ -1523,6 +1523,7 @@ async fn process_driver_locations(
             &data.producer,
             &data.secondary_producer,
             &data.driver_location_update_topic,
+            data.bucket_size,
             locations,
             current_ts,
             merchant_id,

@@ -43,4 +43,24 @@ pub struct LocationUpdate {
     pub location_type: LocationType,
     pub next_upcoming_stop_eta: Option<TimeStamp>,
     // pub travelled_distance: Meters,
+    pub bucket: u64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DriverNearbyDebugEntry {
+    pub driver_id: DriverId,
+    pub driver_lat: Latitude,
+    pub driver_lon: Longitude,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DriverNearbyDebugUpdate {
+    pub search_try_id: String,
+    pub vehicle_variant: VehicleType,
+    pub buckets: Vec<u64>,
+    pub origin_lat: Latitude,
+    pub origin_lon: Longitude,
+    pub drivers: Vec<DriverNearbyDebugEntry>,
 }
