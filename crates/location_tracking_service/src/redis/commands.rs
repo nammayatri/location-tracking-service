@@ -169,6 +169,7 @@ pub async fn ride_cleanup(
             &on_ride_details_key(merchant_id, driver_id),
             &on_ride_driver_details_key(ride_id),
             &on_ride_loc_key(merchant_id, driver_id),
+            &on_pickup_loc_key(merchant_id, driver_id),
         ])
         .await
         .map_err(|err| AppError::InternalError(err.to_string()))?;
