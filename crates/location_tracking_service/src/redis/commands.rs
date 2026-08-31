@@ -696,6 +696,65 @@ pub async fn get_on_ride_driver_locations(
         .map_err(|err| AppError::InternalError(err.to_string()))
 }
 
+/// Appends a batch of pickup-leg location points (ride status `NEW`) to the
+/// driver's pickup list in Redis.
+pub async fn push_on_pickup_driver_locations(
+    redis: &RedisConnectionPool,
+    driver_id: &DriverId,
+    merchant_id: &MerchantId,
+    geo_entries: Vec<LocationUpdate>,
+    rpush_expiry: &u32,
+) -> Result<i64, AppError> {
+    redis
+        .rpush_with_expiry(
+            &on_pickup_loc_key(merchant_id, driver_id),
+            geo_entries,
+            *rpush_expiry,
+        )
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
+pub async fn get_on_pickup_driver_locations_count(
+    redis: &RedisConnectionPool,
+    driver_id: &DriverId,
+    merchant_id: &MerchantId,
+) -> Result<i64, AppError> {
+    redis
+        .llen(&on_pickup_loc_key(merchant_id, driver_id))
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
+/// Pops (and deletes) up to `len` buffered pickup-leg location points.
+pub async fn get_on_pickup_driver_locations_and_delete(
+    redis: &RedisConnectionPool,
+    driver_id: &DriverId,
+    merchant_id: &MerchantId,
+    len: i64,
+) -> Result<Vec<LocationUpdate>, AppError> {
+    redis
+        .lpop::<LocationUpdate>(
+            &on_pickup_loc_key(merchant_id, driver_id),
+            Some(len as usize),
+        )
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
+/// Reads (without deleting) up to `len` buffered pickup-leg location points.
+pub async fn get_on_pickup_driver_locations(
+    redis: &RedisConnectionPool,
+    driver_id: &DriverId,
+    merchant_id: &MerchantId,
+    len: i64,
+) -> Result<Vec<LocationUpdate>, AppError> {
+    redis
+        .lrange::<LocationUpdate>(&on_pickup_loc_key(merchant_id, driver_id), 0, len)
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
 /// Caches a driver's unique identifier (driverId) with a given authentication token in Redis.
 ///
 /// Stores the driver's identifier associated with an authentication token for a specified expiry period.

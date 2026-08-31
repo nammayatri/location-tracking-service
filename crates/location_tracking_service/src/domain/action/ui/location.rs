@@ -24,7 +24,8 @@ use crate::outbound::external::driver_source_departed;
 use crate::outbound::external::get_distance_matrix;
 use crate::outbound::external::trigger_detection_alert;
 use crate::outbound::external::{
-    authenticate_bap, authenticate_dobpp, bulk_location_update_dobpp, driver_reached_destination,
+    authenticate_bap, authenticate_dobpp, bulk_location_update_dobpp,
+    bulk_location_update_pickup_dobpp, driver_reached_destination,
     forward_driver_location_to_cloud, trigger_fcm_bap, trigger_fcm_dobpp,
     trigger_stop_detection_event,
 };
@@ -1200,39 +1201,41 @@ async fn process_driver_locations(
                 _ => data.driver_location_accuracy_buffer,
             };
 
-            let (locations, any_location_unfiltered) =
-                if let Some(RideStatus::INPROGRESS) = driver_ride_status.as_ref() {
-                    let (locations, any_location_unfiltered) = get_filtered_driver_locations(
-                        driver_last_known_location.as_ref(),
-                        locations,
-                        data.min_location_accuracy,
-                        driver_location_accuracy_buffer_to_use,
-                    );
-                    if !locations.is_empty() {
-                        if locations.len() > data.batch_size as usize {
-                            warn!(
+            let (locations, any_location_unfiltered) = if let Some(RideStatus::INPROGRESS)
+            | Some(RideStatus::NEW) =
+                driver_ride_status.as_ref()
+            {
+                let (locations, any_location_unfiltered) = get_filtered_driver_locations(
+                    driver_last_known_location.as_ref(),
+                    locations,
+                    data.min_location_accuracy,
+                    driver_location_accuracy_buffer_to_use,
+                );
+                if !locations.is_empty() {
+                    if locations.len() > data.batch_size as usize {
+                        warn!(
                             "On Ride Way points more than {} points after filtering => {} points",
                             data.batch_size,
                             locations.len()
                         );
-                        }
-                    } else {
-                        warn!(
+                    }
+                } else {
+                    warn!(
                         "All On Ride Way Points got filtered, batch size: {}, location_len: {} ",
                         data.batch_size,
                         locations.len()
                     );
-                    }
-                    (locations, any_location_unfiltered)
-                } else {
-                    (
-                        locations
-                            .into_iter()
-                            .map(|loc| (loc, LocationType::UNFILTERED))
-                            .collect(),
-                        true,
-                    )
-                };
+                }
+                (locations, any_location_unfiltered)
+            } else {
+                (
+                    locations
+                        .into_iter()
+                        .map(|loc| (loc, LocationType::UNFILTERED))
+                        .collect(),
+                    true,
+                )
+            };
 
             let (driver_location, driver_location_timestamp) = if any_location_unfiltered {
                 // When few unfiltered locations are present
@@ -1276,75 +1279,138 @@ async fn process_driver_locations(
             all_tasks.push(Box::pin(set_driver_last_location_update));
 
             if any_location_unfiltered {
-                if let (Some(RideStatus::INPROGRESS), Some(ride_id)) =
-                    (driver_ride_status.as_ref(), driver_ride_id.as_ref())
-                {
-                    let geo_entries = locations
-                        .iter()
-                        .filter_map(|(loc, location_type)| match location_type {
-                            LocationType::UNFILTERED => Some(LocationUpdate {
-                                lat: loc.pt.lat,
-                                lon: loc.pt.lon,
-                                ts: Some(loc.ts.0.timestamp()),
-                                acc: loc.acc,
-                            }),
-                            LocationType::FILTERED => None,
-                        })
-                        .collect::<Vec<LocationUpdate>>();
+                let geo_entries = locations
+                    .iter()
+                    .filter_map(|(loc, location_type)| match location_type {
+                        LocationType::UNFILTERED => Some(LocationUpdate {
+                            lat: loc.pt.lat,
+                            lon: loc.pt.lon,
+                            ts: Some(loc.ts.0.timestamp()),
+                            acc: loc.acc,
+                        }),
+                        LocationType::FILTERED => None,
+                    })
+                    .collect::<Vec<LocationUpdate>>();
 
-                    let on_ride_driver_locations_count = get_on_ride_driver_locations_count(
-                        &data.redis,
-                        &driver_id.clone(),
-                        &merchant_id,
-                    )
-                    .await?;
-
-                    if on_ride_driver_locations_count + geo_entries.len() as i64 > data.batch_size {
-                        let mut on_ride_driver_locations = get_on_ride_driver_locations_and_delete(
+                match (driver_ride_status.as_ref(), driver_ride_id.as_ref()) {
+                    (Some(RideStatus::INPROGRESS), Some(ride_id)) => {
+                        let on_ride_driver_locations_count = get_on_ride_driver_locations_count(
                             &data.redis,
-                            &driver_id,
+                            &driver_id.clone(),
                             &merchant_id,
-                            on_ride_driver_locations_count,
                         )
                         .await?;
-                        on_ride_driver_locations.extend(geo_entries);
 
-                        let bulk_location_update_dobpp = async {
-                            bulk_location_update_dobpp(
-                                &data.bulk_location_callback_url,
-                                ride_id.to_owned(),
-                                driver_id.to_owned(),
-                                on_ride_driver_locations
-                                    .into_iter()
-                                    .map(|dl| LocationUpdate {
-                                        lat: dl.lat,
-                                        lon: dl.lon,
-                                        ts: dl.ts,
-                                        acc: dl.acc,
-                                    })
-                                    .collect(),
-                            )
-                            .await
-                            .map_err(|err| {
-                                AppError::DriverBulkLocationUpdateFailed(err.message())
-                            })?;
-                            Ok(())
-                        };
-                        all_tasks.push(Box::pin(bulk_location_update_dobpp));
-                    } else {
-                        let push_on_ride_driver_locations = async {
-                            push_on_ride_driver_locations(
+                        if on_ride_driver_locations_count + geo_entries.len() as i64
+                            > data.batch_size
+                        {
+                            let mut on_ride_driver_locations =
+                                get_on_ride_driver_locations_and_delete(
+                                    &data.redis,
+                                    &driver_id,
+                                    &merchant_id,
+                                    on_ride_driver_locations_count,
+                                )
+                                .await?;
+                            on_ride_driver_locations.extend(geo_entries);
+
+                            let bulk_location_update_dobpp = async {
+                                bulk_location_update_dobpp(
+                                    &data.bulk_location_callback_url,
+                                    ride_id.to_owned(),
+                                    driver_id.to_owned(),
+                                    on_ride_driver_locations
+                                        .into_iter()
+                                        .map(|dl| LocationUpdate {
+                                            lat: dl.lat,
+                                            lon: dl.lon,
+                                            ts: dl.ts,
+                                            acc: dl.acc,
+                                        })
+                                        .collect(),
+                                )
+                                .await
+                                .map_err(|err| {
+                                    AppError::DriverBulkLocationUpdateFailed(err.message())
+                                })?;
+                                Ok(())
+                            };
+                            all_tasks.push(Box::pin(bulk_location_update_dobpp));
+                        } else {
+                            let push_on_ride_driver_locations = async {
+                                push_on_ride_driver_locations(
+                                    &data.redis,
+                                    &driver_id,
+                                    &merchant_id,
+                                    geo_entries,
+                                    &data.redis_expiry,
+                                )
+                                .await?;
+                                Ok(())
+                            };
+                            all_tasks.push(Box::pin(push_on_ride_driver_locations));
+                        }
+                    }
+                    (Some(RideStatus::NEW), Some(ride_id)) => {
+                        let on_pickup_driver_locations_count =
+                            get_on_pickup_driver_locations_count(
                                 &data.redis,
-                                &driver_id,
+                                &driver_id.clone(),
                                 &merchant_id,
-                                geo_entries,
-                                &data.redis_expiry,
                             )
                             .await?;
-                            Ok(())
-                        };
-                        all_tasks.push(Box::pin(push_on_ride_driver_locations));
+
+                        if on_pickup_driver_locations_count + geo_entries.len() as i64
+                            > data.batch_size
+                        {
+                            let mut on_pickup_driver_locations =
+                                get_on_pickup_driver_locations_and_delete(
+                                    &data.redis,
+                                    &driver_id,
+                                    &merchant_id,
+                                    on_pickup_driver_locations_count,
+                                )
+                                .await?;
+                            on_pickup_driver_locations.extend(geo_entries);
+
+                            let bulk_location_update_pickup_dobpp = async {
+                                bulk_location_update_pickup_dobpp(
+                                    &data.bulk_location_pickup_callback_url,
+                                    ride_id.to_owned(),
+                                    driver_id.to_owned(),
+                                    on_pickup_driver_locations
+                                        .into_iter()
+                                        .map(|dl| LocationUpdate {
+                                            lat: dl.lat,
+                                            lon: dl.lon,
+                                            ts: dl.ts,
+                                            acc: dl.acc,
+                                        })
+                                        .collect(),
+                                )
+                                .await
+                                .map_err(|err| {
+                                    AppError::DriverBulkLocationUpdateFailed(err.message())
+                                })?;
+                                Ok(())
+                            };
+                            all_tasks.push(Box::pin(bulk_location_update_pickup_dobpp));
+                        } else {
+                            let push_on_pickup_driver_locations = async {
+                                push_on_pickup_driver_locations(
+                                    &data.redis,
+                                    &driver_id,
+                                    &merchant_id,
+                                    geo_entries,
+                                    &data.redis_expiry,
+                                )
+                                .await?;
+                                Ok(())
+                            };
+                            all_tasks.push(Box::pin(push_on_pickup_driver_locations));
+                        }
                     }
+                    _ => {}
                 }
             }
 

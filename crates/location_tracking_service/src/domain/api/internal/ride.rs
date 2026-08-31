@@ -67,6 +67,20 @@ async fn get_driver_locations(
     ))
 }
 
+#[get("/internal/ride/{rideId}/driver/pickup/locations")]
+async fn get_pickup_driver_locations(
+    data: Data<AppState>,
+    param_obj: Json<DriverLocationRequest>,
+    path: Path<String>,
+) -> Result<Json<DriverLocationResponse>, AppError> {
+    let request_body = param_obj.into_inner();
+    let ride_id = RideId(path.into_inner());
+
+    Ok(Json(
+        ride::get_pickup_driver_locations(ride_id, data, request_body).await?,
+    ))
+}
+
 #[post("/internal/ride/rideDetails")]
 async fn ride_details(
     data: Data<AppState>,

@@ -108,6 +108,25 @@ pub fn on_ride_loc_key(
     format!("lts:dl:on_ride:loc:{merchant_id}:{driver_id}")
 }
 
+/// Constructs a Redis key to store the driver's location points collected while
+/// the ride is in the PICKUP phase (ride status `NEW`).
+///
+/// # Arguments
+///
+/// * `merchant_id` - The merchant ID.
+/// * `driver_id` - The unique driver ID.
+///
+/// # Returns
+///
+/// A string formatted Redis key.
+///
+pub fn on_pickup_loc_key(
+    MerchantId(merchant_id): &MerchantId,
+    DriverId(driver_id): &DriverId,
+) -> String {
+    format!("lts:dl:on_pickup:loc:{merchant_id}:{driver_id}")
+}
+
 /// Constructs a Redis key to retrieve details based on ride ID.
 ///
 /// The resulting key is intended to be stored in persistent Redis storage.
