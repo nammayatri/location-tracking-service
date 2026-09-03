@@ -249,6 +249,42 @@ pub async fn bulk_location_update_dobpp(
     .map_err(|e| e.into())
 }
 
+/// Sends a bulk pickup-leg location update to the `dobpp` endpoint.
+///
+/// Pickup analogue of bulk_location_update_dobpp: forwards the points
+/// collected while the ride was in status `NEW` to `bulkLocPickupUpdate`.
+///
+/// # Parameters
+/// - `bulk_location_pickup_callback_url`: The endpoint URL for pickup location updates.
+/// - `ride_id`: The unique identifier for the ongoing ride.
+/// - `driver_id`: The unique identifier for the driver.
+/// - `on_pickup_driver_locations`: A list of location points on the pickup leg.
+///
+/// # Returns
+/// - `Ok(APISuccess)`: The pickup location update was successful.
+/// - `Err(AppError)`: An error occurred during the bulk pickup location update.
+pub async fn bulk_location_update_pickup_dobpp(
+    bulk_location_pickup_callback_url: &Url,
+    ride_id: RideId,
+    driver_id: DriverId,
+    on_pickup_driver_locations: Vec<LocationUpdate>,
+) -> Result<APISuccess, AppError> {
+    call_api::<APISuccess, BulkDataReq>(
+        Protocol::Http1,
+        Method::POST,
+        bulk_location_pickup_callback_url,
+        vec![("content-type", "application/json")],
+        Some(BulkDataReq {
+            ride_id,
+            driver_id,
+            loc: on_pickup_driver_locations.clone(),
+        }),
+        None,
+    )
+    .await
+    .map_err(|e| e.into())
+}
+
 pub async fn trigger_fcm_dobpp(
     trigger_fcm_callback_url: &Url,
     ride_id: RideId,

@@ -135,6 +135,29 @@ pub async fn get_driver_locations(
     })
 }
 
+pub async fn get_pickup_driver_locations(
+    _ride_id: RideId,
+    data: Data<AppState>,
+    request_body: DriverLocationRequest,
+) -> Result<DriverLocationResponse, AppError> {
+    let on_pickup_driver_locations = get_on_pickup_driver_locations(
+        &data.redis,
+        &request_body.driver_id,
+        &request_body.merchant_id,
+        data.batch_size,
+    )
+    .await?;
+
+    let driver_location_details = get_driver_location(&data.redis, &request_body.driver_id).await?;
+
+    Ok(DriverLocationResponse {
+        loc: on_pickup_driver_locations,
+        timestamp: driver_location_details.map(|driver_location_details| {
+            driver_location_details.driver_last_known_location.timestamp
+        }),
+    })
+}
+
 pub async fn ride_details(
     data: Data<AppState>,
     request_body: RideDetailsRequest,
