@@ -314,10 +314,13 @@ pub async fn get_drivers_within_radius(
 /// buckets (see `driver_loc_tag_bucket_key`) instead of the per-vehicle-type ones.
 /// Only drivers currently matched against the tag (see `get_matched_cohort_tags`,
 /// derived from `driver-pool-data`) are ever written into these buckets by the
-/// drainer, so no separate membership filter is needed here.
+/// drainer, so no separate membership filter is needed on write -- but a
+/// bucket entry can go stale (offline/on-ride/tier deselected since the last
+/// ping), so candidates are re-verified live via `filter_active_cohort_drivers`.
 #[allow(clippy::too_many_arguments)]
 pub async fn get_drivers_within_tag_radius(
     redis: &RedisConnectionPool,
+    secondary_redis: Option<&RedisConnectionPool>,
     nearby_bucket_threshold: &u64,
     merchant_id: &MerchantId,
     city: &CityName,
@@ -357,28 +360,45 @@ pub async fn get_drivers_within_tag_radius(
     info!("Get Nearby Drivers By Tag {:?}", nearby_drivers);
 
     let mut driver_ids: FxHashSet<DriverId> = FxHashSet::default();
-    let mut resp: Vec<DriverLocationPoint> = Vec::with_capacity(nearby_drivers.len());
+    let mut deduped: Vec<DriverLocationPoint> = Vec::with_capacity(nearby_drivers.len());
 
     for (driver_id, location) in nearby_drivers.into_iter() {
         if !(driver_ids.contains(&driver_id)) {
             driver_ids.insert(driver_id.to_owned());
-            resp.push(DriverLocationPoint {
+            deduped.push(DriverLocationPoint {
                 driver_id,
                 location,
             })
         }
     }
 
+    if deduped.is_empty() {
+        return Ok(deduped);
+    }
+
+    let candidate_ids: Vec<DriverId> = deduped.iter().map(|d| d.driver_id.clone()).collect();
+    let still_active: FxHashSet<DriverId> =
+        filter_active_cohort_drivers(redis, secondary_redis, tag, &candidate_ids)
+            .await?
+            .into_iter()
+            .collect();
+
+    let resp: Vec<DriverLocationPoint> = deduped
+        .into_iter()
+        .filter(|d| still_active.contains(&d.driver_id))
+        .collect();
+
     Ok(resp)
 }
 
 /// Partial view of the JSON the driver-app backend writes to
 /// `driver-pool-data:{driverId}` (`SharedLogic/DriverPool/DriverPoolData.hs`,
-/// ~45 fields total). Only the two fields cohort-tag eligibility needs are
-/// modeled here; every other field in the real payload is silently ignored by
-/// serde's default behavior (this codebase uses no `deny_unknown_fields`).
-/// Field names match Haskell's record fields verbatim (no prefix stripping on
-/// that side), hence `rename_all = "camelCase"` rather than any renaming.
+/// ~45 fields total). Models the fields cohort-tag eligibility (`driver_tag`,
+/// `selected_service_tiers`) and the live re-check (`active`/`mode`/`on_ride`,
+/// see `filter_active_cohort_drivers`) need; every other field is silently
+/// ignored by serde's default behavior (no `deny_unknown_fields` here).
+/// Field names match Haskell's record fields verbatim, hence
+/// `rename_all = "camelCase"` rather than any renaming.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DriverPoolDataForCohort {
@@ -386,6 +406,12 @@ pub struct DriverPoolDataForCohort {
     pub driver_tag: Option<Vec<String>>,
     #[serde(default)]
     pub selected_service_tiers: Option<Vec<String>>,
+    #[serde(default)]
+    pub active: Option<bool>,
+    #[serde(default)]
+    pub mode: Option<DriverMode>,
+    #[serde(default)]
+    pub on_ride: Option<bool>,
 }
 
 /// Fetches the cohort-relevant subset of a driver's `driver-pool-data` entry,
@@ -417,6 +443,68 @@ pub async fn get_driver_pool_data(
             None => Ok(None),
         },
     }
+}
+
+/// Re-verifies a cohort-tag bucket's candidates against their *current*
+/// `active`/`mode`/`on_ride` state and tier selection, closing the gap a
+/// stale bucket entry can't: a driver who went offline, started a ride, or
+/// deselected the tag's service tier since their last drained ping. Doesn't
+/// catch a silently-disconnected driver (app killed, no signal) -- those
+/// fields only change on an explicit write.
+///
+/// One `MGET` for all candidates, falling back to the secondary LTS Redis
+/// only for misses (mirrors `get_driver_pool_data`'s per-driver fallback).
+pub async fn filter_active_cohort_drivers(
+    redis: &RedisConnectionPool,
+    secondary_redis: Option<&RedisConnectionPool>,
+    tag: &str,
+    driver_ids: &[DriverId],
+) -> Result<Vec<DriverId>, AppError> {
+    if driver_ids.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let keys: Vec<String> = driver_ids.iter().map(driver_pool_data_key).collect();
+
+    let mut resolved: Vec<Option<DriverPoolDataForCohort>> = redis
+        .mget_keys(keys.clone())
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))?;
+
+    if let Some(sr) = secondary_redis {
+        let missing: Vec<(usize, String)> = resolved
+            .iter()
+            .enumerate()
+            .filter(|(_, v)| v.is_none())
+            .map(|(i, _)| (i, keys[i].clone()))
+            .collect();
+
+        if !missing.is_empty() {
+            let (idxs, sec_keys): (Vec<usize>, Vec<String>) = missing.into_iter().unzip();
+            let secondary: Vec<Option<DriverPoolDataForCohort>> = sr
+                .mget_keys(sec_keys)
+                .await
+                .map_err(|err| AppError::InternalError(err.to_string()))?;
+            for (idx, val) in idxs.into_iter().zip(secondary) {
+                resolved[idx] = val;
+            }
+        }
+    }
+
+    Ok(driver_ids
+        .iter()
+        .zip(resolved)
+        .filter(|(_, data)| {
+            matches!(
+                data,
+                Some(d) if d.active == Some(true)
+                    && d.mode == Some(DriverMode::ONLINE)
+                    && d.on_ride != Some(true)
+                    && d.selected_service_tiers.as_deref().unwrap_or(&[]).iter().any(|t| t == tag)
+            )
+        })
+        .map(|(id, _)| id.clone())
+        .collect())
 }
 
 /// Parses one raw `driverTag` entry as a cohort tag if it matches the
@@ -1994,6 +2082,11 @@ mod cohort_tag_tests {
                 "MAHILA_SHAKTI".to_string()
             ])
         );
+        // active/mode/onRide parse too: bare `true`/`"ONLINE"`/`false`,
+        // matching DriverMode's plain string encoding on the Haskell side.
+        assert_eq!(parsed.active, Some(true));
+        assert_eq!(parsed.mode, Some(DriverMode::ONLINE));
+        assert_eq!(parsed.on_ride, Some(false));
     }
 
     #[test]
@@ -2001,5 +2094,101 @@ mod cohort_tag_tests {
         let parsed: DriverPoolDataForCohort = serde_json::from_str("{}").unwrap();
         assert_eq!(parsed.driver_tag, None);
         assert_eq!(parsed.selected_service_tiers, None);
+        assert_eq!(parsed.active, None);
+        assert_eq!(parsed.mode, None);
+        assert_eq!(parsed.on_ride, None);
+    }
+
+    /// Mirrors filter_active_cohort_drivers's eligibility predicate as a pure
+    /// function over already-fetched data.
+    fn is_live_eligible(data: &DriverPoolDataForCohort, tag: &str) -> bool {
+        data.active == Some(true)
+            && data.mode == Some(DriverMode::ONLINE)
+            && data.on_ride != Some(true)
+            && data
+                .selected_service_tiers
+                .as_deref()
+                .unwrap_or(&[])
+                .iter()
+                .any(|t| t == tag)
+    }
+
+    #[test]
+    fn online_and_not_on_ride_is_eligible() {
+        let data = DriverPoolDataForCohort {
+            driver_tag: None,
+            selected_service_tiers: Some(vec!["MAHILA_SHAKTI".to_string()]),
+            active: Some(true),
+            mode: Some(DriverMode::ONLINE),
+            on_ride: Some(false),
+        };
+        assert!(is_live_eligible(&data, "MAHILA_SHAKTI"));
+    }
+
+    #[test]
+    fn explicitly_offline_is_excluded() {
+        // Driver was ONLINE at ping time but has since toggled off.
+        let data = DriverPoolDataForCohort {
+            driver_tag: None,
+            selected_service_tiers: Some(vec!["MAHILA_SHAKTI".to_string()]),
+            active: Some(false),
+            mode: Some(DriverMode::OFFLINE),
+            on_ride: Some(false),
+        };
+        assert!(!is_live_eligible(&data, "MAHILA_SHAKTI"));
+    }
+
+    #[test]
+    fn started_a_ride_since_last_ping_is_excluded() {
+        let data = DriverPoolDataForCohort {
+            driver_tag: None,
+            selected_service_tiers: Some(vec!["MAHILA_SHAKTI".to_string()]),
+            active: Some(true),
+            mode: Some(DriverMode::ONLINE),
+            on_ride: Some(true),
+        };
+        assert!(!is_live_eligible(&data, "MAHILA_SHAKTI"));
+    }
+
+    #[test]
+    fn silent_mode_is_excluded() {
+        // ONLINE specifically -- SILENT must not pass.
+        let data = DriverPoolDataForCohort {
+            driver_tag: None,
+            selected_service_tiers: Some(vec!["MAHILA_SHAKTI".to_string()]),
+            active: Some(true),
+            mode: Some(DriverMode::SILENT),
+            on_ride: Some(false),
+        };
+        assert!(!is_live_eligible(&data, "MAHILA_SHAKTI"));
+    }
+
+    #[test]
+    fn no_driver_pool_data_entry_is_excluded() {
+        // No pool-data entry at all -- fields all None, must not be eligible.
+        let data = DriverPoolDataForCohort {
+            driver_tag: None,
+            selected_service_tiers: None,
+            active: None,
+            mode: None,
+            on_ride: None,
+        };
+        assert!(!is_live_eligible(&data, "MAHILA_SHAKTI"));
+    }
+
+    #[test]
+    fn tier_no_longer_selected_is_excluded() {
+        // The gap this closes: driver was still eligible for the tier at
+        // ping time (that's how they landed in the tag bucket), but has
+        // since deselected it -- active/mode/onRide all still pass, only
+        // the tier check should exclude them.
+        let data = DriverPoolDataForCohort {
+            driver_tag: None,
+            selected_service_tiers: Some(vec!["COMFY".to_string()]),
+            active: Some(true),
+            mode: Some(DriverMode::ONLINE),
+            on_ride: Some(false),
+        };
+        assert!(!is_live_eligible(&data, "MAHILA_SHAKTI"));
     }
 }
