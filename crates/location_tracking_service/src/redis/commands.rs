@@ -507,45 +507,50 @@ pub async fn filter_active_cohort_drivers(
         .collect())
 }
 
-/// Parses one raw `driverTag` entry as a cohort tag if it matches the
-/// `Cohort#<tier>[#expiry]` convention, returning the tier name if present and
-/// (if an expiry segment exists) unexpired. `<tier>` is always the same string
-/// as the gated `ServiceTierType` itself (e.g. "MAHILA_SHAKTI") -- no separate
-/// short-code convention, so no mapping lookup is ever needed to know which
-/// tier a cohort tag corresponds to; the tag value already says so directly.
-/// No whitelist -- any tier name is recognized without a corresponding Rust
-/// source change, replicating `Lib/Yudhishthira/Tools/Utils.hs`'s
-/// `elemTagNameValue` + `filterExpiredTags'` semantics exactly (verified
-/// directly against that source).
+/// Parses one raw `driverTag` entry as a cohort tag, returning every tier it
+/// names. A `Cohort#<tier>[#expiry]` entry yields one tier; the multi-value
+/// `Cohort#<tierA>&<tierB>[#expiry]` encoding yields both. `<tier>` is always the
+/// same string as the gated `ServiceTierType` itself (e.g. "MAHILA_SHAKTI") -- no
+/// separate short-code convention, so no mapping lookup is ever needed. No
+/// whitelist -- any tier name is recognized without a corresponding Rust source
+/// change, replicating `Lib/Yudhishthira/Tools/Utils.hs`'s `elemTagValue` +
+/// `filterExpiredTags'` semantics exactly (verified directly against that
+/// source): the value between the 1st and 2nd `#` is split on `&`, and an expiry
+/// segment applies to the whole entry, so an expired tag yields nothing.
+/// Returns `[]` for a non-`Cohort` entry or a malformed one.
 ///
 /// Deliberately uses `split` (unbounded), not `splitn` -- Haskell's `T.splitOn`
 /// splits on every `#` and only inspects the first three segments, silently
 /// dropping anything beyond; a capped `splitn(3, ..)` would instead fold a 4th
 /// segment into the 3rd, corrupting the expiry-timestamp parse.
-fn parse_cohort_tier(raw: &str, now: DateTime<Utc>) -> Option<String> {
+fn parse_cohort_tiers(raw: &str, now: DateTime<Utc>) -> Vec<String> {
     let segments: Vec<&str> = raw.split('#').collect();
     if segments.first().copied() != Some("Cohort") {
-        return None;
+        return Vec::new();
     }
-    let tier = (*segments.get(1)?).to_string();
-    match segments.get(2) {
-        None => Some(tier), // no expiry segment: never expires
+    let Some(&values) = segments.get(1) else {
+        return Vec::new();
+    };
+    let unexpired = match segments.get(2) {
+        None => true, // no expiry segment: never expires
         Some(expiry_str) => match NaiveDateTime::parse_from_str(expiry_str, "%Y-%m-%dT%H:%M:%S") {
-            Ok(naive) => {
-                (DateTime::<Utc>::from_naive_utc_and_offset(naive, Utc) >= now).then_some(tier)
-            }
-            Err(_) => Some(tier), // unparsable expiry: fail open, matches Haskell's `Nothing -> True`
+            Ok(naive) => DateTime::<Utc>::from_naive_utc_and_offset(naive, Utc) >= now,
+            Err(_) => true, // unparsable expiry: fail open, matches Haskell's `Nothing -> True`
         },
+    };
+    if !unexpired {
+        return Vec::new();
     }
+    values.split('&').map(|tier| tier.to_string()).collect()
 }
 
-/// Checks membership across every cohort tag found in one driver's
-/// `driver-pool-data`, generically -- no whitelist, any `Cohort#X` tag is
-/// recognized without a corresponding Rust source change. For each cohort tag
-/// found, verifies the driver's `selectedServiceTiers` includes that same tier
-/// name before counting it as matched -- since the tag value and the tier name
-/// are always the same string by convention, this is a pure in-memory check
-/// against data already fetched in `pool_data`, with no further Redis I/O.
+/// Checks membership across every tier named by a cohort tag in one driver's
+/// `driver-pool-data`, generically -- no whitelist, any `Cohort#X` (or
+/// `Cohort#X&Y`) tag is recognized without a corresponding Rust source change.
+/// For each such tier, verifies the driver's `selectedServiceTiers` includes it
+/// before counting it as matched -- since the tag value and the tier name are
+/// always the same string by convention, this is a pure in-memory check against
+/// data already fetched in `pool_data`, with no further Redis I/O.
 /// Called once per location ping on the ingestion hot path; returns only the
 /// tags actually matched so the drainer only ever writes buckets a driver is
 /// really eligible for. Returns `Ok(vec![])`, not an error, if the driver has no
@@ -564,7 +569,7 @@ pub async fn get_matched_cohort_tags(
 
     let matched: Vec<String> = driver_tag
         .iter()
-        .filter_map(|raw| parse_cohort_tier(raw, now))
+        .flat_map(|raw| parse_cohort_tiers(raw, now))
         .filter(|tier| selected_service_tiers.contains(tier))
         .collect();
     Ok(matched)
@@ -1947,11 +1952,15 @@ mod cohort_tag_tests {
         Utc::now()
     }
 
+    fn no_tiers() -> Vec<String> {
+        Vec::new()
+    }
+
     #[test]
     fn parses_bare_tag_with_no_expiry() {
         assert_eq!(
-            parse_cohort_tier("Cohort#MAHILA_SHAKTI", now()),
-            Some("MAHILA_SHAKTI".to_string())
+            parse_cohort_tiers("Cohort#MAHILA_SHAKTI", now()),
+            vec!["MAHILA_SHAKTI".to_string()]
         );
     }
 
@@ -1960,15 +1969,25 @@ mod cohort_tag_tests {
         // No prior knowledge of "AUTO_PLUS" required -- this is the whole point
         // of generalizing away from a hardcoded cohort list.
         assert_eq!(
-            parse_cohort_tier("Cohort#AUTO_PLUS", now()),
-            Some("AUTO_PLUS".to_string())
+            parse_cohort_tiers("Cohort#AUTO_PLUS", now()),
+            vec!["AUTO_PLUS".to_string()]
         );
     }
 
     #[test]
     fn rejects_wrong_tag_name() {
-        assert_eq!(parse_cohort_tier("SafetyCohort#New", now()), None);
-        assert_eq!(parse_cohort_tier("TollCohort#None", now()), None);
+        assert_eq!(parse_cohort_tiers("SafetyCohort#New", now()), no_tiers());
+        assert_eq!(parse_cohort_tiers("TollCohort#None", now()), no_tiers());
+    }
+
+    #[test]
+    fn splits_multi_value_tag_on_ampersand() {
+        // The "Cohort#a&b" ArrayValue encoding: one driver in several cohorts at
+        // once. Mirrors Haskell's `elemTagValue` splitting the value on `&`.
+        assert_eq!(
+            parse_cohort_tiers("Cohort#MAHILA_SHAKTI&AUTO_PLUS", now()),
+            vec!["MAHILA_SHAKTI".to_string(), "AUTO_PLUS".to_string()]
+        );
     }
 
     #[test]
@@ -1976,8 +1995,18 @@ mod cohort_tag_tests {
         let future = "2099-01-01T00:00:00";
         let entry = format!("Cohort#MAHILA_SHAKTI#{future}");
         assert_eq!(
-            parse_cohort_tier(&entry, now()),
-            Some("MAHILA_SHAKTI".to_string())
+            parse_cohort_tiers(&entry, now()),
+            vec!["MAHILA_SHAKTI".to_string()]
+        );
+    }
+
+    #[test]
+    fn parses_unexpired_multi_value_tag() {
+        let future = "2099-01-01T00:00:00";
+        let entry = format!("Cohort#MAHILA_SHAKTI&AUTO_PLUS#{future}");
+        assert_eq!(
+            parse_cohort_tiers(&entry, now()),
+            vec!["MAHILA_SHAKTI".to_string(), "AUTO_PLUS".to_string()]
         );
     }
 
@@ -1985,7 +2014,15 @@ mod cohort_tag_tests {
     fn rejects_expired_tag() {
         let past = "2000-01-01T00:00:00";
         let entry = format!("Cohort#MAHILA_SHAKTI#{past}");
-        assert_eq!(parse_cohort_tier(&entry, now()), None);
+        assert_eq!(parse_cohort_tiers(&entry, now()), no_tiers());
+    }
+
+    #[test]
+    fn rejects_expired_multi_value_tag() {
+        // The expiry segment applies to the whole entry: every value goes.
+        let past = "2000-01-01T00:00:00";
+        let entry = format!("Cohort#MAHILA_SHAKTI&AUTO_PLUS#{past}");
+        assert_eq!(parse_cohort_tiers(&entry, now()), no_tiers());
     }
 
     #[test]
@@ -1995,8 +2032,8 @@ mod cohort_tag_tests {
         // rejection.
         let entry = "Cohort#MAHILA_SHAKTI#not-a-timestamp";
         assert_eq!(
-            parse_cohort_tier(entry, now()),
-            Some("MAHILA_SHAKTI".to_string())
+            parse_cohort_tiers(entry, now()),
+            vec!["MAHILA_SHAKTI".to_string()]
         );
     }
 
@@ -2010,8 +2047,8 @@ mod cohort_tag_tests {
         let future = "2099-01-01T00:00:00";
         let entry = format!("Cohort#MAHILA_SHAKTI#{future}#extra#segments");
         assert_eq!(
-            parse_cohort_tier(&entry, now()),
-            Some("MAHILA_SHAKTI".to_string())
+            parse_cohort_tiers(&entry, now()),
+            vec!["MAHILA_SHAKTI".to_string()]
         );
     }
 
@@ -2026,7 +2063,7 @@ mod cohort_tag_tests {
         let now = now();
         let matched: Vec<String> = tags
             .iter()
-            .filter_map(|raw| parse_cohort_tier(raw, now))
+            .flat_map(|raw| parse_cohort_tiers(raw, now))
             .collect();
         assert_eq!(
             matched,
@@ -2051,11 +2088,28 @@ mod cohort_tag_tests {
 
         let matched: Vec<String> = driver_tag
             .iter()
-            .filter_map(|raw| parse_cohort_tier(raw, now))
+            .flat_map(|raw| parse_cohort_tiers(raw, now))
             .filter(|tier| selected_service_tiers.contains(tier))
             .collect();
 
         // AUTO_PLUS is tagged but not selected -- correctly excluded.
+        assert_eq!(matched, vec!["MAHILA_SHAKTI".to_string()]);
+    }
+
+    #[test]
+    fn multi_value_tag_matched_per_value_against_selected_tiers() {
+        // One "Cohort#a&b" entry, only one of whose values the driver has
+        // selected -- only that value is counted as matched.
+        let driver_tag = ["Cohort#MAHILA_SHAKTI&AUTO_PLUS".to_string()];
+        let selected_service_tiers = ["AUTO_RICKSHAW".to_string(), "MAHILA_SHAKTI".to_string()];
+        let now = now();
+
+        let matched: Vec<String> = driver_tag
+            .iter()
+            .flat_map(|raw| parse_cohort_tiers(raw, now))
+            .filter(|tier| selected_service_tiers.contains(tier))
+            .collect();
+
         assert_eq!(matched, vec!["MAHILA_SHAKTI".to_string()]);
     }
 
