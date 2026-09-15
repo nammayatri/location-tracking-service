@@ -90,6 +90,72 @@ pub static NEARBY_DRIVERS_RETURNED: once_cell::sync::Lazy<Histogram> =
         .expect("Failed to register nearby drivers returned metrics")
     });
 
+/// Histogram of how long a single location update sat in the in-memory drainer
+/// before it was written to Redis, in seconds.
+///
+/// Observed once per buffered item at flush time as
+/// `flush_start - Dimensions.created_at`, where `created_at` is stamped in the
+/// ping handler immediately before the update is pushed onto the drainer.
+///
+/// This is distinct from `queue_drainer_latency`, which measures the timestamp
+/// *spread* within a batch (newest minus oldest) rather than any actual wait.
+///
+/// Labels:
+/// * `flush_reason` — `timer` (the `drainer_delay` tick fired),
+///   `capacity` (buffer hit `drainer_size`), or
+///   `shutdown` (force drain on SIGTERM/SIGINT)
+///
+pub static INMEM_QUEUE_DELAY: once_cell::sync::Lazy<HistogramVec> = once_cell::sync::Lazy::new(
+    || {
+        register_histogram_vec!(
+            histogram_opts!(
+                "inmem_queue_delay_seconds",
+                "Seconds a location update spent in the in-memory drainer before being flushed to Redis",
+                vec![
+                    0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 15.0, 20.0, 30.0, 45.0, 60.0, 120.0
+                ]
+            ),
+            &["flush_reason"]
+        )
+        .expect("Failed to register inmem queue delay metrics")
+    },
+);
+
+/// Histogram of the mpsc channel wait, in seconds — the time between the ping
+/// handler calling `sender.send(..)` and the drainer's `rx.recv()` returning
+/// that item.
+///
+/// Observed once per received item as `recv_time - Dimensions.created_at`. This
+/// is the backpressure half of `inmem_queue_delay_seconds`: it stays near zero
+/// while the drainer keeps up, and grows only when the channel
+///  is full and `send` is made to await.
+pub static INMEM_QUEUE_CHANNEL_WAIT: once_cell::sync::Lazy<Histogram> =
+    once_cell::sync::Lazy::new(|| {
+        register_histogram!(histogram_opts!(
+            "inmem_queue_channel_wait_seconds",
+            "Seconds a location update waited in the drainer mpsc channel before being buffered",
+            vec![0.001, 0.005, 0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0]
+        ))
+        .expect("Failed to register inmem queue channel wait metrics")
+    });
+
+/// Histogram of how long one flush took to write to Redis, in seconds —
+/// wall time around `drain_driver_locations`, covering the geo-bucket pipeline
+/// and the special-location ZADDs, but not the fire-and-forget queue actions.
+/// Labels: `flush_reason`, as for `inmem_queue_delay_seconds`.
+pub static INMEM_QUEUE_DRAIN_DURATION: once_cell::sync::Lazy<HistogramVec> =
+    once_cell::sync::Lazy::new(|| {
+        register_histogram_vec!(
+            histogram_opts!(
+                "inmem_queue_drain_duration_seconds",
+                "Seconds taken to flush one in-memory drainer batch to Redis",
+                vec![0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0]
+            ),
+            &["flush_reason"]
+        )
+        .expect("Failed to register inmem queue drain duration metrics")
+    });
+
 /// Macro that observes the latency of a queue drainer process.
 ///
 /// This macro measures the time taken for a queue drainer to process its items and updates the `QUEUE_DRAINER_LATENCY` histogram.
@@ -160,6 +226,21 @@ pub fn prometheus_metrics() -> PrometheusMetrics {
         .registry
         .register(Box::new(NEARBY_DRIVERS_RETURNED.to_owned()))
         .expect("Failed to register nearby drivers returned metrics");
+
+    prometheus
+        .registry
+        .register(Box::new(INMEM_QUEUE_DELAY.to_owned()))
+        .expect("Failed to register inmem queue delay metrics");
+
+    prometheus
+        .registry
+        .register(Box::new(INMEM_QUEUE_CHANNEL_WAIT.to_owned()))
+        .expect("Failed to register inmem queue channel wait metrics");
+
+    prometheus
+        .registry
+        .register(Box::new(INMEM_QUEUE_DRAIN_DURATION.to_owned()))
+        .expect("Failed to register inmem queue drain duration metrics");
 
     prometheus
 }
