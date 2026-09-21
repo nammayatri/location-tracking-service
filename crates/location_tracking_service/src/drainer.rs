@@ -9,7 +9,10 @@ use crate::queue_drainer_latency;
 use crate::special_location::{
     lookup_queue_enabled_special_location, lookup_special_location, SpecialLocationCache,
 };
-use crate::tools::prometheus::{QUEUE_DRAINER_LATENCY, QUEUE_EVICTIONS, TOTAL_LOCATION_UPDATES};
+use crate::tools::prometheus::{
+    INMEM_QUEUE_CHANNEL_WAIT, INMEM_QUEUE_DELAY, INMEM_QUEUE_DRAIN_DURATION, QUEUE_DRAINER_LATENCY,
+    QUEUE_EVICTIONS, TOTAL_LOCATION_UPDATES,
+};
 use crate::{
     common::{
         types::*,
@@ -673,14 +676,29 @@ async fn drain_driver_locations(
 /// This function is responsible for resetting counters, clearing driver locations,
 /// and updating the start time for the next batch of data.
 ///
+/// It also emits the in-memory queue metrics for the flush that just completed,
+/// which is why it must be called immediately after `drain_driver_locations`.
+///
 /// # Arguments
 ///
+/// * `flush_reason` - Why this flush happened: `timer`, `capacity` or `shutdown`.
+/// * `flush_started_at` - Wall-clock time the flush began, i.e. the point each
+///   buffered item stopped waiting. Captured before the Redis write so the write
+///   itself is excluded from the queue delay.
+/// * `drain_started_at` - Monotonic instant the flush began; its elapsed time is
+///   the Redis write duration.
 /// * `drainer_size` - A mutable reference to the current size of the drainer.
+/// * `enqueued_at` - A mutable reference to the per-item enqueue timestamps of the flushed batch.
 /// * `driver_locations` - A mutable reference to the map storing driver locations.
 /// * `drainer_queue_min_max_timestamp_range` - A mutable reference to the minimum and maximum durations for draining the current data batch.
 ///
+#[allow(clippy::too_many_arguments)]
 fn cleanup_drainer(
+    flush_reason: &str,
+    flush_started_at: DateTime<Utc>,
+    drain_started_at: Instant,
     drainer_size: &mut usize,
+    enqueued_at: &mut Vec<DateTime<Utc>>,
     driver_locations: &mut DriversLocationMap,
     special_location_zset_entries: &mut FxHashMap<String, Vec<(DriverId, u64, f64)>>,
     drainer_queue_min_max_timestamp_range: &mut Option<(DateTime<Utc>, DateTime<Utc>)>,
@@ -688,7 +706,17 @@ fn cleanup_drainer(
     if let Some((min_drainer_ts, max_drainer_ts)) = drainer_queue_min_max_timestamp_range {
         queue_drainer_latency!(*min_drainer_ts, *max_drainer_ts);
     };
+
+    let delay = INMEM_QUEUE_DELAY.with_label_values(&[flush_reason]);
+    for enqueued in enqueued_at.iter() {
+        delay.observe(abs_diff_utc_as_sec(*enqueued, flush_started_at));
+    }
+    INMEM_QUEUE_DRAIN_DURATION
+        .with_label_values(&[flush_reason])
+        .observe(drain_started_at.elapsed().as_secs_f64());
+
     *drainer_size = 0;
+    enqueued_at.clear();
     *driver_locations = FxHashMap::default();
     *special_location_zset_entries = FxHashMap::default();
     *drainer_queue_min_max_timestamp_range = None;
@@ -741,6 +769,11 @@ pub async fn run_drainer(
     let mut drainer_queue_min_max_timestamp_range = None;
 
     let mut drainer_size = 0;
+    // Enqueue timestamps of the currently buffered batch, used to emit
+    // `inmem_queue_delay_seconds` per item. Deliberately not pre-allocated:
+    // `drainer_size` can be large in prod, and `cleanup_drainer` clears without
+    // releasing capacity, so this settles at the true batch size in a few flushes.
+    let mut enqueued_at: Vec<DateTime<Utc>> = Vec::new();
 
     let bucket_expiry = (bucket_size * near_by_bucket_threshold) as i64;
 
@@ -751,6 +784,7 @@ pub async fn run_drainer(
             if drainer_size > 0 {
                 info!(tag = "[Force Draining Queue]", length = %drainer_size);
                 let actions = std::mem::take(&mut queue_actions);
+                let (flush_started_at, drain_started_at) = (Utc::now(), Instant::now());
                 drain_driver_locations(
                     &driver_locations,
                     &special_location_zset_entries,
@@ -764,7 +798,11 @@ pub async fn run_drainer(
                 )
                 .await;
                 cleanup_drainer(
+                    "shutdown",
+                    flush_started_at,
+                    drain_started_at,
                     &mut drainer_size,
+                    &mut enqueued_at,
                     &mut driver_locations,
                     &mut special_location_zset_entries,
                     &mut drainer_queue_min_max_timestamp_range,
@@ -778,6 +816,9 @@ pub async fn run_drainer(
                 info!(tag = "[Recieved Entries For Queuing]");
                 match item {
                     Some((Dimensions { merchant_id, city, vehicle_type, created_at, merchant_operating_city_id, matched_tags }, Latitude(latitude), Longitude(longitude), TimeStamp(server_timestamp), TimeStamp(timestamp), DriverId(driver_id))) => {
+
+                        INMEM_QUEUE_CHANNEL_WAIT.observe(abs_diff_utc_as_sec(created_at, Utc::now()));
+
                         let bucket = get_bucket_from_timestamp(&bucket_size, TimeStamp(timestamp));
 
                         let skip_normal_drain = if let Some(ref cache) = special_location_cache {
@@ -879,10 +920,12 @@ pub async fn run_drainer(
                         }
                         drainer_queue_min_max_timestamp_range = drainer_queue_min_max_timestamp_range.map_or(Some((created_at, created_at)), |(min_duration, max_duration)| Some((min(created_at, min_duration), max(created_at, max_duration))));
                         drainer_size += 1;
+                        enqueued_at.push(created_at);
 
                         if drainer_size >= drainer_capacity {
                             info!(tag = "[Force Draining Queue]", length = %drainer_size);
                             let actions = std::mem::take(&mut queue_actions);
+                            let (flush_started_at, drain_started_at) = (Utc::now(), Instant::now());
                             drain_driver_locations(
                                 &driver_locations,
                                 &special_location_zset_entries,
@@ -896,7 +939,11 @@ pub async fn run_drainer(
                             )
                             .await;
                             cleanup_drainer(
+                                "capacity",
+                                flush_started_at,
+                                drain_started_at,
                                 &mut drainer_size,
+                                &mut enqueued_at,
                                 &mut driver_locations,
                                 &mut special_location_zset_entries,
                                 &mut drainer_queue_min_max_timestamp_range
@@ -915,6 +962,7 @@ pub async fn run_drainer(
                 if drainer_size > 0 {
                     info!(tag = "[Draining Queue]", length = %drainer_size);
                     let actions = std::mem::take(&mut queue_actions);
+                    let (flush_started_at, drain_started_at) = (Utc::now(), Instant::now());
                     drain_driver_locations(
                         &driver_locations,
                         &special_location_zset_entries,
@@ -928,7 +976,11 @@ pub async fn run_drainer(
                     )
                     .await;
                     cleanup_drainer(
+                        "timer",
+                        flush_started_at,
+                        drain_started_at,
                         &mut drainer_size,
+                        &mut enqueued_at,
                         &mut driver_locations,
                         &mut special_location_zset_entries,
                         &mut drainer_queue_min_max_timestamp_range
