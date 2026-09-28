@@ -156,6 +156,17 @@ struct BusGpsUpdate {
     #[serde(rename = "serverTime")]
     server_time: i64,
     provider: &'static str,
+    /// Omitted, not defaulted to 0.0: 0 m/s reads as "stopped" downstream.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    speed: Option<SpeedInMeterPerSecond>,
+}
+
+/// Drops non-finite speeds so the topic only ever sees a number or no key.
+/// They are reachable despite JSON having no NaN literal: `v` also accepts a
+/// string, and `f64::from_str` parses "NaN"/"inf". serde_json then renders
+/// those as null, which `skip_serializing_if` cannot suppress.
+fn forwardable_speed(speed: Option<SpeedInMeterPerSecond>) -> Option<SpeedInMeterPerSecond> {
+    speed.filter(|v| v.inner().is_finite())
 }
 
 /// Forward bus-crew pings (`bus_conductor` / `bus_driver`) straight to the
@@ -232,6 +243,7 @@ pub async fn handle_driver_conductor_location_update(
             timestamp: entry.ts.0.timestamp(),
             server_time: now_secs,
             provider,
+            speed: forwardable_speed(entry.v),
         };
 
         crate::common::kafka::enqueue_to_kafka(
@@ -2084,5 +2096,107 @@ async fn refresh_token(
             );
             Err(())
         }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod bus_gps_update_tests {
+    use super::*;
+
+    fn payload(speed: Option<SpeedInMeterPerSecond>) -> serde_json::Value {
+        serde_json::to_value(BusGpsUpdate {
+            device_id: "kolkata_bus:WB01AB1234".to_string(),
+            vehicle_no: "WB01AB1234".to_string(),
+            person_type: "bus_conductor",
+            gtfs_id: "kolkata_bus".to_string(),
+            lat: 22.5726,
+            lon: 88.3639,
+            timestamp: 1_700_000_000,
+            server_time: 1_700_000_001,
+            provider: "lts-bus-conductor",
+            speed,
+        })
+        .unwrap()
+    }
+
+    /// Speed is forwarded as a bare number in m/s, exactly as received — the
+    /// newtype must not leak a wrapper object onto the shared GPS topic.
+    #[test]
+    fn speed_is_forwarded_as_bare_number() {
+        assert_eq!(
+            payload(Some(SpeedInMeterPerSecond(12.5)))["speed"],
+            serde_json::json!(12.5)
+        );
+    }
+
+    /// Absent speed omits the key rather than emitting null or a fabricated
+    /// 0.0, keeping the payload byte-identical to the pre-speed contract.
+    #[test]
+    fn absent_speed_omits_the_key() {
+        assert!(payload(None).get("speed").is_none());
+    }
+
+    /// A non-finite speed must be dropped before it reaches the payload:
+    /// serde_json renders it as `null`, which `skip_serializing_if` cannot
+    /// suppress, breaking the number-or-absent contract.
+    #[test]
+    fn non_finite_speed_is_dropped() {
+        for speed in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            assert_eq!(forwardable_speed(Some(SpeedInMeterPerSecond(speed))), None);
+        }
+    }
+
+    /// Finite speeds, zero included, survive the filter untouched.
+    #[test]
+    fn finite_speed_survives() {
+        for speed in [0.0, 12.5, -3.0, f64::MAX] {
+            assert_eq!(
+                forwardable_speed(Some(SpeedInMeterPerSecond(speed))),
+                Some(SpeedInMeterPerSecond(speed))
+            );
+        }
+        assert_eq!(forwardable_speed(None), None);
+    }
+
+    /// The string form of `v` is what makes non-finite reachable at all:
+    /// JSON has no NaN literal, but `f64::from_str` accepts these.
+    #[test]
+    fn non_finite_is_reachable_through_the_string_deserializer() {
+        for raw in ["\"NaN\"", "\"inf\"", "\"-inf\""] {
+            let parsed = serde_json::from_str::<SpeedInMeterPerSecond>(raw).unwrap();
+            assert!(!parsed.inner().is_finite(), "{raw} should parse non-finite");
+            assert_eq!(forwardable_speed(Some(parsed)), None);
+        }
+    }
+
+    /// Guards the regression that dropped speed: a typed payload silently
+    /// loses any field the struct forgets to declare.
+    #[test]
+    fn wire_contract_is_complete() {
+        let value = payload(Some(SpeedInMeterPerSecond(0.0)));
+        let keys: std::collections::BTreeSet<&str> = value
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(|k| k.as_str())
+            .collect();
+        assert_eq!(
+            keys,
+            [
+                "deviceId",
+                "vehicleNo",
+                "personType",
+                "gtfsId",
+                "lat",
+                "long",
+                "timestamp",
+                "serverTime",
+                "provider",
+                "speed",
+            ]
+            .into_iter()
+            .collect()
+        );
     }
 }
