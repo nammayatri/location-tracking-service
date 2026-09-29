@@ -107,6 +107,18 @@ impl<'de> Deserialize<'de> for SpeedInMeterPerSecond {
     }
 }
 
+/// Serialize-only: nothing inbound is expressed in km/h, it exists purely so
+/// the unit is explicit at the one boundary that converts away from m/s.
+#[derive(Serialize, Clone, Debug, PartialEq, PartialOrd, Copy)]
+#[macros::impl_getter]
+pub struct SpeedInKiloMeterPerHour(pub f64);
+
+impl From<SpeedInMeterPerSecond> for SpeedInKiloMeterPerHour {
+    fn from(SpeedInMeterPerSecond(mps): SpeedInMeterPerSecond) -> Self {
+        Self(mps * 3.6)
+    }
+}
+
 #[derive(Deserialize, Serialize, Clone, Debug, Eq, PartialEq)]
 #[macros::impl_getter]
 pub struct Token(pub String);
