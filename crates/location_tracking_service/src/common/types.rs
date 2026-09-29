@@ -107,6 +107,16 @@ impl<'de> Deserialize<'de> for SpeedInMeterPerSecond {
     }
 }
 
+#[derive(Serialize, Clone, Debug, PartialEq, PartialOrd, Copy)]
+#[macros::impl_getter]
+pub struct SpeedInKiloMeterPerHour(pub f64);
+
+impl From<SpeedInMeterPerSecond> for SpeedInKiloMeterPerHour {
+    fn from(SpeedInMeterPerSecond(mps): SpeedInMeterPerSecond) -> Self {
+        Self(mps * 3.6)
+    }
+}
+
 #[derive(Deserialize, Serialize, Clone, Debug, Eq, PartialEq)]
 #[macros::impl_getter]
 pub struct Token(pub String);
