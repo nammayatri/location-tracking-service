@@ -1,0 +1,132 @@
+{
+  "features": [
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            91.929042,
+            25.580389
+          ],
+          [
+            91.913995,
+            25.57225
+          ],
+          [
+            91.90446,
+            25.561051
+          ],
+          [
+            91.89835,
+            25.570225
+          ],
+          [
+            91.881922,
+            25.57705
+          ]
+        ],
+        "type": "LineString"
+      },
+      "properties": {
+        "Route Code": "SC-NONGRAH-R",
+        "Travel Mode": "DRIVE"
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          91.929042,
+          25.580389
+        ],
+        "type": "Point"
+      },
+      "properties": {
+        "Provider Id": 1,
+        "Stop Code": "SC_NONGRAH",
+        "Stop Name": "Nongrah",
+        "Stop Type": "NEW STOP",
+        "routes": [
+          "SC-NONGRAH-R"
+        ]
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          91.913995,
+          25.57225
+        ],
+        "type": "Point"
+      },
+      "properties": {
+        "Provider Id": 2,
+        "Stop Code": "SC_UMPLING",
+        "Stop Name": "Umpling",
+        "Stop Type": "NEW STOP",
+        "routes": [
+          "SC-NONGRAH-R"
+        ]
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          91.90446,
+          25.561051
+        ],
+        "type": "Point"
+      },
+      "properties": {
+        "Provider Id": 3,
+        "Stop Code": "SC_NONGTHYMMAI",
+        "Stop Name": "Nongthymmai",
+        "Stop Type": "NEW STOP",
+        "routes": [
+          "SC-NONGRAH-R"
+        ]
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          91.89835,
+          25.570225
+        ],
+        "type": "Point"
+      },
+      "properties": {
+        "Provider Id": 4,
+        "Stop Code": "SC_LAITUMKHRAH",
+        "Stop Name": "Laitumkhrah",
+        "Stop Type": "NEW STOP",
+        "routes": [
+          "SC-NONGRAH-R"
+        ]
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          91.881922,
+          25.57705
+        ],
+        "type": "Point"
+      },
+      "properties": {
+        "Provider Id": 5,
+        "Stop Code": "SC_POLICEBAZAR",
+        "Stop Name": "Police Bazar",
+        "Stop Type": "NEW STOP",
+        "routes": [
+          "SC-NONGRAH-R"
+        ]
+      },
+      "type": "Feature"
+    }
+  ],
+  "type": "FeatureCollection"
+}

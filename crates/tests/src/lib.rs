@@ -7,4 +7,5 @@
 */
 
 pub mod location_tracking_service;
+pub mod shared_cab;
 pub mod stop_detection;
