@@ -1,0 +1,155 @@
+{
+  "features": [
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            91.940282,
+            25.591393
+          ],
+          [
+            91.899962,
+            25.612039
+          ],
+          [
+            91.898121,
+            25.587883
+          ],
+          [
+            91.900724,
+            25.585519
+          ],
+          [
+            91.888827,
+            25.582728
+          ],
+          [
+            91.887608,
+            25.581373
+          ]
+        ],
+        "type": "LineString"
+      },
+      "properties": {
+        "Route Code": "SC-NEIGRIHMS-R",
+        "Travel Mode": "DRIVE"
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          91.940282,
+          25.591393
+        ],
+        "type": "Point"
+      },
+      "properties": {
+        "Provider Id": 1,
+        "Stop Code": "SC_NEIGRIHMS",
+        "Stop Name": "NEIGRIHMS",
+        "Stop Type": "NEW STOP",
+        "routes": [
+          "SC-NEIGRIHMS-R"
+        ]
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          91.899962,
+          25.612039
+        ],
+        "type": "Point"
+      },
+      "properties": {
+        "Provider Id": 2,
+        "Stop Code": "SC_NEHU",
+        "Stop Name": "NEHU",
+        "Stop Type": "NEW STOP",
+        "routes": [
+          "SC-NEIGRIHMS-R"
+        ]
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          91.898121,
+          25.587883
+        ],
+        "type": "Point"
+      },
+      "properties": {
+        "Provider Id": 3,
+        "Stop Code": "SC_MAWPAT",
+        "Stop Name": "Mawpat",
+        "Stop Type": "NEW STOP",
+        "routes": [
+          "SC-NEIGRIHMS-R"
+        ]
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          91.900724,
+          25.585519
+        ],
+        "type": "Point"
+      },
+      "properties": {
+        "Provider Id": 4,
+        "Stop Code": "SC_PYNTHORUMKHRAH",
+        "Stop Name": "Pynthorumkhrah",
+        "Stop Type": "NEW STOP",
+        "routes": [
+          "SC-NEIGRIHMS-R"
+        ]
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          91.888827,
+          25.582728
+        ],
+        "type": "Point"
+      },
+      "properties": {
+        "Provider Id": 5,
+        "Stop Code": "SC_GOLFLINK",
+        "Stop Name": "Golf Link",
+        "Stop Type": "NEW STOP",
+        "routes": [
+          "SC-NEIGRIHMS-R"
+        ]
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          91.887608,
+          25.581373
+        ],
+        "type": "Point"
+      },
+      "properties": {
+        "Provider Id": 6,
+        "Stop Code": "SC_POLOBAZAR",
+        "Stop Name": "Polo Bazar",
+        "Stop Type": "NEW STOP",
+        "routes": [
+          "SC-NEIGRIHMS-R"
+        ]
+      },
+      "type": "Feature"
+    }
+  ],
+  "type": "FeatureCollection"
+}

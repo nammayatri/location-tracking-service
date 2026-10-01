@@ -1,0 +1,63 @@
+{
+  "features": [
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            91.87545,
+            25.584865
+          ],
+          [
+            91.875385,
+            25.576651
+          ]
+        ],
+        "type": "LineString"
+      },
+      "properties": {
+        "Route Code": "SC-JAIAW-R",
+        "Travel Mode": "DRIVE"
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          91.87545,
+          25.584865
+        ],
+        "type": "Point"
+      },
+      "properties": {
+        "Provider Id": 1,
+        "Stop Code": "SC_ROBERTHOSPITAL",
+        "Stop Name": "Robert Hospital",
+        "Stop Type": "NEW STOP",
+        "routes": [
+          "SC-JAIAW-R"
+        ]
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          91.875385,
+          25.576651
+        ],
+        "type": "Point"
+      },
+      "properties": {
+        "Provider Id": 2,
+        "Stop Code": "SC_IEWDUH",
+        "Stop Name": "Iewduh",
+        "Stop Type": "NEW STOP",
+        "routes": [
+          "SC-JAIAW-R"
+        ]
+      },
+      "type": "Feature"
+    }
+  ],
+  "type": "FeatureCollection"
+}

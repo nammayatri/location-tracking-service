@@ -1,0 +1,132 @@
+{
+  "features": [
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            91.90446,
+            25.561051
+          ],
+          [
+            91.899959,
+            25.565648
+          ],
+          [
+            91.888761,
+            25.562697
+          ],
+          [
+            91.883372,
+            25.566428
+          ],
+          [
+            91.887122,
+            25.581675
+          ]
+        ],
+        "type": "LineString"
+      },
+      "properties": {
+        "Route Code": "SC-PRD-R",
+        "Travel Mode": "DRIVE"
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          91.90446,
+          25.561051
+        ],
+        "type": "Point"
+      },
+      "properties": {
+        "Provider Id": 1,
+        "Stop Code": "SC_NONGTHYMMAI",
+        "Stop Name": "Nongthymmai",
+        "Stop Type": "NEW STOP",
+        "routes": [
+          "SC-PRD-R"
+        ]
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          91.899959,
+          25.565648
+        ],
+        "type": "Point"
+      },
+      "properties": {
+        "Provider Id": 2,
+        "Stop Code": "SC_FIREBRIGADE",
+        "Stop Name": "Fire Brigade",
+        "Stop Type": "NEW STOP",
+        "routes": [
+          "SC-PRD-R"
+        ]
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          91.888761,
+          25.562697
+        ],
+        "type": "Point"
+      },
+      "properties": {
+        "Provider Id": 3,
+        "Stop Code": "SC_MALKI",
+        "Stop Name": "Malki",
+        "Stop Type": "NEW STOP",
+        "routes": [
+          "SC-PRD-R"
+        ]
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          91.883372,
+          25.566428
+        ],
+        "type": "Point"
+      },
+      "properties": {
+        "Provider Id": 4,
+        "Stop Code": "SC_BARIK",
+        "Stop Name": "Barik",
+        "Stop Type": "NEW STOP",
+        "routes": [
+          "SC-PRD-R"
+        ]
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          91.887122,
+          25.581675
+        ],
+        "type": "Point"
+      },
+      "properties": {
+        "Provider Id": 5,
+        "Stop Code": "SC_POLO",
+        "Stop Name": "Polo",
+        "Stop Type": "NEW STOP",
+        "routes": [
+          "SC-PRD-R"
+        ]
+      },
+      "type": "Feature"
+    }
+  ],
+  "type": "FeatureCollection"
+}
