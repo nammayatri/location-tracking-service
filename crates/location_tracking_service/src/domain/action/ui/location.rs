@@ -215,6 +215,11 @@ fn shared_cab_gps_update(
     }
 }
 
+/// gps-processor owns the SHARED_CAB `route:{code}` entry once this is set.
+fn skip_route_hash_write(vehicle_type: &VehicleType, skip_route_hash: bool) -> bool {
+    skip_route_hash && *vehicle_type == VehicleType::SharedCab
+}
+
 /// Best-effort dual-publish: never fails the location update.
 fn forward_shared_cab_pings(
     data: &AppState,
@@ -1139,9 +1144,11 @@ async fn process_driver_locations(
                     .await?;
                     Ok(())
                 };
-                all_tasks.push(Box::pin(set_route_location(
-                    upcoming_stops_with_eta.to_owned(),
-                )));
+                if !skip_route_hash_write(&vehicle_type, data.shared_cab_skip_route_hash) {
+                    all_tasks.push(Box::pin(set_route_location(
+                        upcoming_stops_with_eta.to_owned(),
+                    )));
+                }
 
                 upcoming_stops_with_eta
             } else {
@@ -2341,6 +2348,13 @@ mod shared_cab_forward_tests {
             shared_cab_forward_target(Some("g"), &VehicleType::SharedCab, None),
             None
         );
+    }
+
+    #[test]
+    fn route_hash_write_is_skipped_only_for_shared_cab_when_flagged() {
+        assert!(skip_route_hash_write(&VehicleType::SharedCab, true));
+        assert!(!skip_route_hash_write(&VehicleType::SharedCab, false));
+        assert!(!skip_route_hash_write(&VehicleType::SEDAN, true));
     }
 
     #[test]
