@@ -8,10 +8,7 @@
 
 use location_tracking_service::common::types::*;
 use location_tracking_service::common::utils::get_base_vehicle_type;
-use location_tracking_service::common::utils::read_dhall_config;
-use location_tracking_service::environment::AppState;
 use std::str::FromStr;
-use tokio::sync::mpsc;
 
 #[test]
 fn shared_cab_vt_header_parses() {
