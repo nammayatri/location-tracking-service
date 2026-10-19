@@ -1,0 +1,86 @@
+{
+  "features": [
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            91.869301,
+            25.585191
+          ],
+          [
+            91.873308,
+            25.579657
+          ],
+          [
+            91.875385,
+            25.576651
+          ]
+        ],
+        "type": "LineString"
+      },
+      "properties": {
+        "Route Code": "SC-LMAWPREM-R",
+        "Travel Mode": "DRIVE"
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          91.869301,
+          25.585191
+        ],
+        "type": "Point"
+      },
+      "properties": {
+        "Provider Id": 1,
+        "Stop Code": "SC_LUMKSHAID",
+        "Stop Name": "Lumkshaid",
+        "Stop Type": "NEW STOP",
+        "routes": [
+          "SC-LMAWPREM-R"
+        ]
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          91.873308,
+          25.579657
+        ],
+        "type": "Point"
+      },
+      "properties": {
+        "Provider Id": 2,
+        "Stop Code": "SC_DISTRICTCOUNCIL",
+        "Stop Name": "District Council",
+        "Stop Type": "NEW STOP",
+        "routes": [
+          "SC-LMAWPREM-R"
+        ]
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          91.875385,
+          25.576651
+        ],
+        "type": "Point"
+      },
+      "properties": {
+        "Provider Id": 3,
+        "Stop Code": "SC_IEWDUH",
+        "Stop Name": "Iewduh",
+        "Stop Type": "NEW STOP",
+        "routes": [
+          "SC-LMAWPREM-R"
+        ]
+      },
+      "type": "Feature"
+    }
+  ],
+  "type": "FeatureCollection"
+}

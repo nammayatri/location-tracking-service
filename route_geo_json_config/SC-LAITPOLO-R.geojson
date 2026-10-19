@@ -1,0 +1,155 @@
+{
+  "features": [
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            91.887122,
+            25.581675
+          ],
+          [
+            91.871487,
+            25.568411
+          ],
+          [
+            91.871261,
+            25.563426
+          ],
+          [
+            91.8766,
+            25.562998
+          ],
+          [
+            91.879675,
+            25.566754
+          ],
+          [
+            91.89835,
+            25.570225
+          ]
+        ],
+        "type": "LineString"
+      },
+      "properties": {
+        "Route Code": "SC-LAITPOLO-R",
+        "Travel Mode": "DRIVE"
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          91.887122,
+          25.581675
+        ],
+        "type": "Point"
+      },
+      "properties": {
+        "Provider Id": 1,
+        "Stop Code": "SC_POLO",
+        "Stop Name": "Polo",
+        "Stop Type": "NEW STOP",
+        "routes": [
+          "SC-LAITPOLO-R"
+        ]
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          91.871487,
+          25.568411
+        ],
+        "type": "Point"
+      },
+      "properties": {
+        "Provider Id": 2,
+        "Stop Code": "SC_RILBONG",
+        "Stop Name": "Rilbong",
+        "Stop Type": "NEW STOP",
+        "routes": [
+          "SC-LAITPOLO-R"
+        ]
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          91.871261,
+          25.563426
+        ],
+        "type": "Point"
+      },
+      "properties": {
+        "Provider Id": 3,
+        "Stop Code": "SC_BISHNUPUR",
+        "Stop Name": "Bishnupur",
+        "Stop Type": "NEW STOP",
+        "routes": [
+          "SC-LAITPOLO-R"
+        ]
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          91.8766,
+          25.562998
+        ],
+        "type": "Point"
+      },
+      "properties": {
+        "Provider Id": 4,
+        "Stop Code": "SC_LABAN",
+        "Stop Name": "Laban",
+        "Stop Type": "NEW STOP",
+        "routes": [
+          "SC-LAITPOLO-R"
+        ]
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          91.879675,
+          25.566754
+        ],
+        "type": "Point"
+      },
+      "properties": {
+        "Provider Id": 5,
+        "Stop Code": "SC_REDCROSS",
+        "Stop Name": "Red Cross",
+        "Stop Type": "NEW STOP",
+        "routes": [
+          "SC-LAITPOLO-R"
+        ]
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          91.89835,
+          25.570225
+        ],
+        "type": "Point"
+      },
+      "properties": {
+        "Provider Id": 6,
+        "Stop Code": "SC_LAITUMKHRAH",
+        "Stop Name": "Laitumkhrah",
+        "Stop Type": "NEW STOP",
+        "routes": [
+          "SC-LAITPOLO-R"
+        ]
+      },
+      "type": "Feature"
+    }
+  ],
+  "type": "FeatureCollection"
+}

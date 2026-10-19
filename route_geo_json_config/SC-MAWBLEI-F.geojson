@@ -1,0 +1,109 @@
+{
+  "features": [
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            91.881922,
+            25.57705
+          ],
+          [
+            91.8766,
+            25.562998
+          ],
+          [
+            91.871261,
+            25.563426
+          ],
+          [
+            91.871487,
+            25.568411
+          ]
+        ],
+        "type": "LineString"
+      },
+      "properties": {
+        "Route Code": "SC-MAWBLEI-F",
+        "Travel Mode": "DRIVE"
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          91.881922,
+          25.57705
+        ],
+        "type": "Point"
+      },
+      "properties": {
+        "Provider Id": 1,
+        "Stop Code": "SC_POLICEBAZAR",
+        "Stop Name": "Police Bazar",
+        "Stop Type": "NEW STOP",
+        "routes": [
+          "SC-MAWBLEI-F"
+        ]
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          91.8766,
+          25.562998
+        ],
+        "type": "Point"
+      },
+      "properties": {
+        "Provider Id": 2,
+        "Stop Code": "SC_LABAN",
+        "Stop Name": "Laban",
+        "Stop Type": "NEW STOP",
+        "routes": [
+          "SC-MAWBLEI-F"
+        ]
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          91.871261,
+          25.563426
+        ],
+        "type": "Point"
+      },
+      "properties": {
+        "Provider Id": 3,
+        "Stop Code": "SC_BISHNUPUR",
+        "Stop Name": "Bishnupur",
+        "Stop Type": "NEW STOP",
+        "routes": [
+          "SC-MAWBLEI-F"
+        ]
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          91.871487,
+          25.568411
+        ],
+        "type": "Point"
+      },
+      "properties": {
+        "Provider Id": 4,
+        "Stop Code": "SC_RILBONG",
+        "Stop Name": "Rilbong",
+        "Stop Type": "NEW STOP",
+        "routes": [
+          "SC-MAWBLEI-F"
+        ]
+      },
+      "type": "Feature"
+    }
+  ],
+  "type": "FeatureCollection"
+}

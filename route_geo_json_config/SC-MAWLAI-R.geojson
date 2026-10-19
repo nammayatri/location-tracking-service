@@ -1,0 +1,109 @@
+{
+  "features": [
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            91.873671,
+            25.588802
+          ],
+          [
+            91.878966,
+            25.594415
+          ],
+          [
+            91.87292,
+            25.580191
+          ],
+          [
+            91.875385,
+            25.576651
+          ]
+        ],
+        "type": "LineString"
+      },
+      "properties": {
+        "Route Code": "SC-MAWLAI-R",
+        "Travel Mode": "DRIVE"
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          91.873671,
+          25.588802
+        ],
+        "type": "Point"
+      },
+      "properties": {
+        "Provider Id": 1,
+        "Stop Code": "SC_MAWLAI",
+        "Stop Name": "Mawlai",
+        "Stop Type": "NEW STOP",
+        "routes": [
+          "SC-MAWLAI-R"
+        ]
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          91.878966,
+          25.594415
+        ],
+        "type": "Point"
+      },
+      "properties": {
+        "Provider Id": 2,
+        "Stop Code": "SC_NONGLUM",
+        "Stop Name": "Nonglum",
+        "Stop Type": "NEW STOP",
+        "routes": [
+          "SC-MAWLAI-R"
+        ]
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          91.87292,
+          25.580191
+        ],
+        "type": "Point"
+      },
+      "properties": {
+        "Provider Id": 3,
+        "Stop Code": "SC_LUMDIENGJRI",
+        "Stop Name": "Lumdiengjri",
+        "Stop Type": "NEW STOP",
+        "routes": [
+          "SC-MAWLAI-R"
+        ]
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          91.875385,
+          25.576651
+        ],
+        "type": "Point"
+      },
+      "properties": {
+        "Provider Id": 4,
+        "Stop Code": "SC_IEWDUH",
+        "Stop Name": "Iewduh",
+        "Stop Type": "NEW STOP",
+        "routes": [
+          "SC-MAWLAI-R"
+        ]
+      },
+      "type": "Feature"
+    }
+  ],
+  "type": "FeatureCollection"
+}

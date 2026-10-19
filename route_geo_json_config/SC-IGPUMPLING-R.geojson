@@ -1,0 +1,63 @@
+{
+  "features": [
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            91.920333,
+            25.569206
+          ],
+          [
+            91.911018,
+            25.565474
+          ]
+        ],
+        "type": "LineString"
+      },
+      "properties": {
+        "Route Code": "SC-IGPUMPLING-R",
+        "Travel Mode": "DRIVE"
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          91.920333,
+          25.569206
+        ],
+        "type": "Point"
+      },
+      "properties": {
+        "Provider Id": 1,
+        "Stop Code": "SC_LAPALANG",
+        "Stop Name": "Lapalang",
+        "Stop Type": "NEW STOP",
+        "routes": [
+          "SC-IGPUMPLING-R"
+        ]
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          91.911018,
+          25.565474
+        ],
+        "type": "Point"
+      },
+      "properties": {
+        "Provider Id": 2,
+        "Stop Code": "SC_POHKSEH",
+        "Stop Name": "Pohkseh",
+        "Stop Type": "NEW STOP",
+        "routes": [
+          "SC-IGPUMPLING-R"
+        ]
+      },
+      "type": "Feature"
+    }
+  ],
+  "type": "FeatureCollection"
+}

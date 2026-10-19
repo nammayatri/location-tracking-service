@@ -1,0 +1,63 @@
+{
+  "features": [
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            91.872198,
+            25.571326
+          ],
+          [
+            91.875385,
+            25.576651
+          ]
+        ],
+        "type": "LineString"
+      },
+      "properties": {
+        "Route Code": "SC-MAWPREM-R",
+        "Travel Mode": "DRIVE"
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          91.872198,
+          25.571326
+        ],
+        "type": "Point"
+      },
+      "properties": {
+        "Provider Id": 1,
+        "Stop Code": "SC_MILITARYHOSPITAL",
+        "Stop Name": "Military Hospital",
+        "Stop Type": "NEW STOP",
+        "routes": [
+          "SC-MAWPREM-R"
+        ]
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          91.875385,
+          25.576651
+        ],
+        "type": "Point"
+      },
+      "properties": {
+        "Provider Id": 2,
+        "Stop Code": "SC_IEWDUH",
+        "Stop Name": "Iewduh",
+        "Stop Type": "NEW STOP",
+        "routes": [
+          "SC-MAWPREM-R"
+        ]
+      },
+      "type": "Feature"
+    }
+  ],
+  "type": "FeatureCollection"
+}

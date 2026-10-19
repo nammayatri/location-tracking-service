@@ -1,0 +1,132 @@
+{
+  "features": [
+    {
+      "geometry": {
+        "coordinates": [
+          [
+            91.929042,
+            25.580389
+          ],
+          [
+            91.913995,
+            25.57225
+          ],
+          [
+            91.911948,
+            25.570657
+          ],
+          [
+            91.911018,
+            25.565474
+          ],
+          [
+            91.875385,
+            25.576651
+          ]
+        ],
+        "type": "LineString"
+      },
+      "properties": {
+        "Route Code": "SC-UMPLING-R",
+        "Travel Mode": "DRIVE"
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          91.929042,
+          25.580389
+        ],
+        "type": "Point"
+      },
+      "properties": {
+        "Provider Id": 1,
+        "Stop Code": "SC_NONGRAH",
+        "Stop Name": "Nongrah",
+        "Stop Type": "NEW STOP",
+        "routes": [
+          "SC-UMPLING-R"
+        ]
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          91.913995,
+          25.57225
+        ],
+        "type": "Point"
+      },
+      "properties": {
+        "Provider Id": 2,
+        "Stop Code": "SC_UMPLING",
+        "Stop Name": "Umpling",
+        "Stop Type": "NEW STOP",
+        "routes": [
+          "SC-UMPLING-R"
+        ]
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          91.911948,
+          25.570657
+        ],
+        "type": "Point"
+      },
+      "properties": {
+        "Provider Id": 3,
+        "Stop Code": "SC_RYNJAH",
+        "Stop Name": "Rynjah",
+        "Stop Type": "NEW STOP",
+        "routes": [
+          "SC-UMPLING-R"
+        ]
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          91.911018,
+          25.565474
+        ],
+        "type": "Point"
+      },
+      "properties": {
+        "Provider Id": 4,
+        "Stop Code": "SC_POHKSEH",
+        "Stop Name": "Pohkseh",
+        "Stop Type": "NEW STOP",
+        "routes": [
+          "SC-UMPLING-R"
+        ]
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          91.875385,
+          25.576651
+        ],
+        "type": "Point"
+      },
+      "properties": {
+        "Provider Id": 5,
+        "Stop Code": "SC_IEWDUH",
+        "Stop Name": "Iewduh",
+        "Stop Type": "NEW STOP",
+        "routes": [
+          "SC-UMPLING-R"
+        ]
+      },
+      "type": "Feature"
+    }
+  ],
+  "type": "FeatureCollection"
+}

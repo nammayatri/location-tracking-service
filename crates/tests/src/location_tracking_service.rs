@@ -356,10 +356,12 @@ pub async fn test_read_route_data() {
     std::env::set_var("BUS_DEPOT_GEO_CONFIG", "../../bus_depot_geo_config");
 
     let dhall_config_path = "../../dhall-configs/dev/location_tracking_service.dhall".to_string();
-    let app_config = read_dhall_config(&dhall_config_path).unwrap_or_else(|err| {
+    let mut app_config = read_dhall_config(&dhall_config_path).unwrap_or_else(|err| {
         println!("Dhall Config Reading Error : {}", err);
         std::process::exit(1);
     });
+    // Unreachable on purpose: stop-to-stop durations fall back to 0 instead of waiting on Google.
+    app_config.google_compute_route_url = "http://127.0.0.1:1/".parse().expect("url");
 
     #[allow(clippy::type_complexity)]
     let (sender, _): (
@@ -382,6 +384,27 @@ pub async fn test_read_route_data() {
     ) = mpsc::channel(app_config.drainer_size);
 
     let app_state = AppState::new(app_config.to_owned(), sender).await;
+
+    // Every shared-cab route geojson loads and yields upcoming stops for a point on the route.
+    {
+        let routes = app_state.routes.read().await;
+        let shared_cab_routes: Vec<_> = routes
+            .iter()
+            .filter(|(code, _)| code.starts_with("SC-"))
+            .collect();
+        assert!(shared_cab_routes.len() >= 28, "one geojson per SC route");
+        for (code, route) in shared_cab_routes {
+            let first = route.waypoints.first().expect("waypoints");
+            let upcoming =
+                location_tracking_service::common::utils::get_upcoming_stops_by_route_code(
+                    None,
+                    route,
+                    &first.coordinate,
+                )
+                .unwrap_or_else(|_| panic!("{code}: upcoming stops"));
+            assert!(!upcoming.is_empty(), "{code}: non-empty upcoming stops");
+        }
+    }
 
     // Convert routes HashMap to GeoJSON format
     let mut features = Vec::new();
