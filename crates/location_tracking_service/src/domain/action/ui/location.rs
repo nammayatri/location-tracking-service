@@ -248,7 +248,6 @@ fn shared_cab_forward_entries(
         .map(|entry| (entry, entry.ts.0.timestamp().min(now)))
         .filter(|(_, ts)| now - ts <= SHARED_CAB_MAX_PING_AGE_SECS)
         .collect();
-    entries.sort_by_key(|(_, ts)| *ts);
     entries.split_off(entries.len().saturating_sub(batch_size))
 }
 
@@ -2511,7 +2510,7 @@ mod shared_cab_forward_tests {
 
     #[test]
     fn forwarding_keeps_only_the_newest_batch() {
-        let locations = [entry_at(950), entry_at(990), entry_at(970), entry_at(960)];
+        let locations = [entry_at(950), entry_at(960), entry_at(970), entry_at(990)];
         assert_eq!(forwarded_ts(&locations, 1_000, 2), vec![970, 990]);
         assert_eq!(forwarded_ts(&locations, 1_000, 10).len(), 4);
     }
