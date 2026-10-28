@@ -392,7 +392,17 @@ pub async fn test_read_route_data() {
             .iter()
             .filter(|(code, _)| code.starts_with("SC-"))
             .collect();
-        assert!(shared_cab_routes.len() >= 28, "one geojson per SC route");
+        let mut expected: Vec<String> = (1..=25)
+            .filter(|n| !(19..=20).contains(n))
+            .flat_map(|n| [format!("SC-R{n}-F"), format!("SC-R{n}-R")])
+            .collect();
+        expected.sort();
+        let mut actual: Vec<String> = shared_cab_routes
+            .iter()
+            .map(|(code, _)| code.to_string())
+            .collect();
+        actual.sort();
+        assert_eq!(actual, expected, "one geojson per ops-feed SC route");
         for (code, route) in shared_cab_routes {
             let first = route.waypoints.first().expect("waypoints");
             let upcoming =
