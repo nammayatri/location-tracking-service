@@ -85,7 +85,7 @@ def main():
                 }
             )
         doc = {"features": features, "type": "FeatureCollection"}
-        (out_dir / f"{route_id}.geojson").write_text(json.dumps(doc, indent=2, sort_keys=True) + "\n")
+        (out_dir / f"{route_id}.geojson").write_text(json.dumps(doc, separators=(",", ":"), sort_keys=True) + "\n")
         print(f"{route_id}: {used}")
     print(f"{len(trips_by_route) - fallbacks} routes used shapes, {fallbacks} fell back to stop-to-stop")
 
