@@ -174,6 +174,8 @@ fn forwardable_speed_kmph(speed: Option<SpeedInMeterPerSecond>) -> Option<SpeedI
 
 const SHARED_CAB_PERSON_TYPE: &str = "shared_cab_driver";
 const SHARED_CAB_PROVIDER: &str = "lts-shared-cab";
+/// A shared-cab ping older than this is not forwarded.
+const SHARED_CAB_MAX_PING_AGE_SECS: i64 = 300;
 
 /// The shared-cab feed takes no bus-crew pings: one carrying a cab's plate would
 /// share the cab's device id in gps-processor.
@@ -207,12 +209,29 @@ fn shared_cab_forward_target<'a>(
     }
 }
 
+/// The pings to forward, each with its timestamp clamped to `now`: none older than
+/// SHARED_CAB_MAX_PING_AGE_SECS, and at most the newest `batch_size`.
+fn shared_cab_forward_entries(
+    locations: &[UpdateDriverLocationRequest],
+    now: i64,
+    batch_size: usize,
+) -> Vec<(&UpdateDriverLocationRequest, i64)> {
+    let mut entries: Vec<_> = locations
+        .iter()
+        .map(|entry| (entry, entry.ts.0.timestamp().min(now)))
+        .filter(|(_, ts)| now - ts <= SHARED_CAB_MAX_PING_AGE_SECS)
+        .collect();
+    entries.sort_by_key(|(_, ts)| *ts);
+    entries.split_off(entries.len().saturating_sub(batch_size))
+}
+
 fn shared_cab_gps_update(
     gtfs_id: &str,
     route_code: &str,
     bus_number: &str,
     trip_id: Option<&str>,
     entry: &UpdateDriverLocationRequest,
+    timestamp: i64,
     server_time: i64,
 ) -> BusGpsUpdate {
     BusGpsUpdate {
@@ -224,7 +243,7 @@ fn shared_cab_gps_update(
         trip_id: trip_id.map(str::to_string),
         lat: entry.pt.lat.0,
         lon: entry.pt.lon.0,
-        timestamp: entry.ts.0.timestamp(),
+        timestamp,
         server_time,
         provider: SHARED_CAB_PROVIDER,
         speed: forwardable_speed_kmph(entry.v),
@@ -254,7 +273,9 @@ fn forward_shared_cab_pings(
         return;
     };
     let now_secs = Utc::now().timestamp();
-    for entry in locations {
+    for (entry, timestamp) in
+        shared_cab_forward_entries(locations, now_secs, data.batch_size as usize)
+    {
         crate::common::kafka::enqueue_to_kafka(
             &data.enqueue_producer,
             &data.enqueue_secondary_producer,
@@ -266,6 +287,7 @@ fn forward_shared_cab_pings(
                 bus_number,
                 ride_id.map(|id| id.0.as_str()),
                 entry,
+                timestamp,
                 now_secs,
             ),
         );
@@ -2426,6 +2448,7 @@ mod shared_cab_forward_tests {
             "ML05A1234",
             Some("ride-1"),
             &entry(Some(10.0)),
+            1_700_000_000,
             1_700_000_001,
         ))
         .unwrap();
@@ -2448,10 +2471,58 @@ mod shared_cab_forward_tests {
         );
     }
 
+    fn entry_at(ts: i64) -> UpdateDriverLocationRequest {
+        UpdateDriverLocationRequest {
+            ts: TimeStamp(Utc.timestamp_opt(ts, 0).unwrap()),
+            ..entry(None)
+        }
+    }
+
+    fn forwarded_ts(locations: &[UpdateDriverLocationRequest], now: i64, batch: usize) -> Vec<i64> {
+        shared_cab_forward_entries(locations, now, batch)
+            .into_iter()
+            .map(|(_, ts)| ts)
+            .collect()
+    }
+
+    #[test]
+    fn forwarded_timestamp_is_clamped_to_now() {
+        assert_eq!(forwarded_ts(&[entry_at(2_000)], 1_000, 10), vec![1_000]);
+        assert_eq!(forwarded_ts(&[entry_at(900)], 1_000, 10), vec![900]);
+    }
+
+    #[test]
+    fn forwarding_drops_pings_older_than_the_max_age() {
+        let now = 10_000;
+        let locations = [
+            entry_at(now - SHARED_CAB_MAX_PING_AGE_SECS - 1),
+            entry_at(now - SHARED_CAB_MAX_PING_AGE_SECS),
+        ];
+        assert_eq!(
+            forwarded_ts(&locations, now, 10),
+            vec![now - SHARED_CAB_MAX_PING_AGE_SECS]
+        );
+    }
+
+    #[test]
+    fn forwarding_keeps_only_the_newest_batch() {
+        let locations = [entry_at(950), entry_at(990), entry_at(970), entry_at(960)];
+        assert_eq!(forwarded_ts(&locations, 1_000, 2), vec![970, 990]);
+        assert_eq!(forwarded_ts(&locations, 1_000, 10).len(), 4);
+    }
+
     #[test]
     fn absent_speed_is_omitted() {
-        let msg = serde_json::to_value(shared_cab_gps_update("g", "r", "p", None, &entry(None), 0))
-            .unwrap();
+        let msg = serde_json::to_value(shared_cab_gps_update(
+            "g",
+            "r",
+            "p",
+            None,
+            &entry(None),
+            0,
+            0,
+        ))
+        .unwrap();
         assert!(msg.get("speed").is_none());
     }
 }
