@@ -175,6 +175,12 @@ fn forwardable_speed_kmph(speed: Option<SpeedInMeterPerSecond>) -> Option<SpeedI
 const SHARED_CAB_PERSON_TYPE: &str = "shared_cab_driver";
 const SHARED_CAB_PROVIDER: &str = "lts-shared-cab";
 
+/// The shared-cab feed takes no bus-crew pings: one carrying a cab's plate would
+/// share the cab's device id in gps-processor.
+pub fn crew_gtfs_id_allowed(gtfs_id: &str, shared_cab_forward_gtfs_id: Option<&str>) -> bool {
+    shared_cab_forward_gtfs_id != Some(gtfs_id)
+}
+
 /// Plate and route of a SHARED_CAB ride whose pings should also reach gps-processor.
 /// The `vt` header is client-supplied, so the ride's route must also carry the
 /// server-configured shared-cab prefix.
@@ -2379,6 +2385,14 @@ mod shared_cab_forward_tests {
             shared_cab_forward_target(Some("g"), sc, &VehicleType::SharedCab, None),
             None
         );
+    }
+
+    #[test]
+    fn bus_crew_is_refused_only_on_the_shared_cab_feed() {
+        let cab_feed = Some("shillong_shared_cab");
+        assert!(!crew_gtfs_id_allowed("shillong_shared_cab", cab_feed));
+        assert!(crew_gtfs_id_allowed("kolkata_bus", cab_feed));
+        assert!(crew_gtfs_id_allowed("shillong_shared_cab", None));
     }
 
     #[test]
