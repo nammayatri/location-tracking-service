@@ -506,6 +506,8 @@ in {
     -- Set to a gtfs_id above to also forward SHARED_CAB pings to its topic.
     shared_cab_forward_gtfs_id = None Text,
     -- shared_cab_forward_gtfs_id = Some "shillong_shared_cab",
+    -- Only rides whose route_code starts with this are shared cabs. None => nothing forwarded.
+    shared_cab_route_prefix = Some "SC-",
     -- true: skip the route:{code} hash write for SHARED_CAB; gps-processor owns it.
     shared_cab_skip_route_hash = False,
     batch_size = 100,

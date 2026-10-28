@@ -176,21 +176,27 @@ const SHARED_CAB_PERSON_TYPE: &str = "shared_cab_driver";
 const SHARED_CAB_PROVIDER: &str = "lts-shared-cab";
 
 /// Plate and route of a SHARED_CAB ride whose pings should also reach gps-processor.
+/// The `vt` header is client-supplied, so the ride's route must also carry the
+/// server-configured shared-cab prefix.
 fn shared_cab_forward_target<'a>(
     forward_gtfs_id: Option<&'a str>,
+    route_prefix: Option<&str>,
     vehicle_type: &VehicleType,
     ride_info: Option<&'a RideInfo>,
 ) -> Option<(&'a str, &'a str, &'a str)> {
-    match (forward_gtfs_id, vehicle_type, ride_info) {
+    match (forward_gtfs_id, route_prefix, vehicle_type, ride_info) {
         (
             Some(gtfs_id),
+            Some(prefix),
             VehicleType::SharedCab,
             Some(RideInfo::Bus {
                 route_code,
                 bus_number,
                 ..
             }),
-        ) => Some((gtfs_id, route_code, bus_number)),
+        ) if !prefix.is_empty() && route_code.starts_with(prefix) => {
+            Some((gtfs_id, route_code, bus_number))
+        }
         _ => None,
     }
 }
@@ -219,24 +225,19 @@ fn shared_cab_gps_update(
     }
 }
 
-/// gps-processor owns the SHARED_CAB `route:{code}` entry once this is set.
-fn skip_route_hash_write(vehicle_type: &VehicleType, skip_route_hash: bool) -> bool {
-    skip_route_hash && *vehicle_type == VehicleType::SharedCab
+/// gps-processor owns the `route:{code}` entry of a forwarded shared cab once this is set.
+fn skip_route_hash_write(forwarded: bool, skip_route_hash: bool) -> bool {
+    skip_route_hash && forwarded
 }
 
 /// Best-effort dual-publish: never fails the location update.
 fn forward_shared_cab_pings(
     data: &AppState,
-    vehicle_type: &VehicleType,
-    ride_info: Option<&RideInfo>,
+    target: Option<(&str, &str, &str)>,
     ride_id: Option<&RideId>,
     locations: &[UpdateDriverLocationRequest],
 ) {
-    let Some((gtfs_id, route_code, bus_number)) = shared_cab_forward_target(
-        data.shared_cab_forward_gtfs_id.as_deref(),
-        vehicle_type,
-        ride_info,
-    ) else {
+    let Some((gtfs_id, route_code, bus_number)) = target else {
         return;
     };
     let Some(topic) = data.gtfs_id_to_topic.get(gtfs_id) else {
@@ -1094,10 +1095,15 @@ async fn process_driver_locations(
     }
     .await;
 
-    forward_shared_cab_pings(
-        &data,
+    let shared_cab_target = shared_cab_forward_target(
+        data.shared_cab_forward_gtfs_id.as_deref(),
+        data.shared_cab_route_prefix.as_deref(),
         &vehicle_type,
         driver_ride_info.as_ref(),
+    );
+    forward_shared_cab_pings(
+        &data,
+        shared_cab_target,
         driver_ride_id.as_ref(),
         &locations,
     );
@@ -1163,7 +1169,10 @@ async fn process_driver_locations(
                     .await?;
                     Ok(())
                 };
-                if !skip_route_hash_write(&vehicle_type, data.shared_cab_skip_route_hash) {
+                if !skip_route_hash_write(
+                    shared_cab_target.is_some(),
+                    data.shared_cab_skip_route_hash,
+                ) {
                     all_tasks.push(Box::pin(set_route_location(
                         upcoming_stops_with_eta.to_owned(),
                     )));
@@ -2348,33 +2357,51 @@ mod shared_cab_forward_tests {
     #[test]
     fn forwards_only_shared_cab_on_a_bus_ride_with_a_configured_gtfs_id() {
         let info = bus_ride_info();
+        let sc = Some("SC-");
         assert_eq!(
             shared_cab_forward_target(
                 Some("shillong_shared_cab"),
+                sc,
                 &VehicleType::SharedCab,
                 Some(&info)
             ),
             Some(("shillong_shared_cab", "SC-1", "ML05A1234"))
         );
         assert_eq!(
-            shared_cab_forward_target(None, &VehicleType::SharedCab, Some(&info)),
+            shared_cab_forward_target(None, sc, &VehicleType::SharedCab, Some(&info)),
             None
         );
         assert_eq!(
-            shared_cab_forward_target(Some("g"), &VehicleType::SEDAN, Some(&info)),
+            shared_cab_forward_target(Some("g"), sc, &VehicleType::SEDAN, Some(&info)),
             None
         );
         assert_eq!(
-            shared_cab_forward_target(Some("g"), &VehicleType::SharedCab, None),
+            shared_cab_forward_target(Some("g"), sc, &VehicleType::SharedCab, None),
             None
         );
     }
 
     #[test]
-    fn route_hash_write_is_skipped_only_for_shared_cab_when_flagged() {
-        assert!(skip_route_hash_write(&VehicleType::SharedCab, true));
-        assert!(!skip_route_hash_write(&VehicleType::SharedCab, false));
-        assert!(!skip_route_hash_write(&VehicleType::SEDAN, true));
+    fn shared_cab_header_forwards_only_a_prefixed_route() {
+        let mut bus = bus_ride_info();
+        if let RideInfo::Bus { route_code, .. } = &mut bus {
+            *route_code = "EB12".to_string();
+        }
+        let cab = bus_ride_info();
+        let target = |prefix, info| {
+            shared_cab_forward_target(Some("g"), prefix, &VehicleType::SharedCab, Some(info))
+        };
+        assert_eq!(target(Some("SC-"), &bus), None);
+        assert_eq!(target(Some("SC-"), &cab), Some(("g", "SC-1", "ML05A1234")));
+        assert_eq!(target(None, &cab), None);
+        assert_eq!(target(Some(""), &bus), None);
+    }
+
+    #[test]
+    fn route_hash_write_is_skipped_only_for_a_forwarded_cab_when_flagged() {
+        assert!(skip_route_hash_write(true, true));
+        assert!(!skip_route_hash_write(true, false));
+        assert!(!skip_route_hash_write(false, true));
     }
 
     #[test]
