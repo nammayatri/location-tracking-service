@@ -165,6 +165,33 @@ struct BusGpsUpdate {
     speed: Option<SpeedInKiloMeterPerHour>,
 }
 
+impl BusGpsUpdate {
+    fn ping(
+        gtfs_id: &str,
+        vehicle_no: &str,
+        person_type: &'static str,
+        provider: &'static str,
+        entry: &UpdateDriverLocationRequest,
+        timestamp: i64,
+        server_time: i64,
+    ) -> Self {
+        Self {
+            device_id: format!("{gtfs_id}:{vehicle_no}"),
+            vehicle_no: vehicle_no.to_string(),
+            person_type,
+            gtfs_id: gtfs_id.to_string(),
+            route_code: None,
+            trip_id: None,
+            lat: entry.pt.lat.0,
+            lon: entry.pt.lon.0,
+            timestamp,
+            server_time,
+            provider,
+            speed: forwardable_speed_kmph(entry.v),
+        }
+    }
+}
+
 /// Non-finite serializes as null, so filter — after converting, as scaling can overflow.
 fn forwardable_speed_kmph(speed: Option<SpeedInMeterPerSecond>) -> Option<SpeedInKiloMeterPerHour> {
     speed
@@ -225,31 +252,6 @@ fn shared_cab_forward_entries(
     entries.split_off(entries.len().saturating_sub(batch_size))
 }
 
-fn shared_cab_gps_update(
-    gtfs_id: &str,
-    route_code: &str,
-    bus_number: &str,
-    trip_id: Option<&str>,
-    entry: &UpdateDriverLocationRequest,
-    timestamp: i64,
-    server_time: i64,
-) -> BusGpsUpdate {
-    BusGpsUpdate {
-        device_id: format!("{gtfs_id}:{bus_number}"),
-        vehicle_no: bus_number.to_string(),
-        person_type: SHARED_CAB_PERSON_TYPE,
-        gtfs_id: gtfs_id.to_string(),
-        route_code: Some(route_code.to_string()),
-        trip_id: trip_id.map(str::to_string),
-        lat: entry.pt.lat.0,
-        lon: entry.pt.lon.0,
-        timestamp,
-        server_time,
-        provider: SHARED_CAB_PROVIDER,
-        speed: forwardable_speed_kmph(entry.v),
-    }
-}
-
 /// gps-processor owns the `route:{code}` entry of a forwarded shared cab once this is set.
 fn skip_route_hash_write(forwarded: bool, skip_route_hash: bool) -> bool {
     skip_route_hash && forwarded
@@ -281,15 +283,19 @@ fn forward_shared_cab_pings(
             &data.enqueue_secondary_producer,
             topic,
             bus_number,
-            &shared_cab_gps_update(
-                gtfs_id,
-                route_code,
-                bus_number,
-                ride_id.map(|id| id.0.as_str()),
-                entry,
-                timestamp,
-                now_secs,
-            ),
+            &BusGpsUpdate {
+                route_code: Some(route_code.to_string()),
+                trip_id: ride_id.map(|id| id.0.clone()),
+                ..BusGpsUpdate::ping(
+                    gtfs_id,
+                    bus_number,
+                    SHARED_CAB_PERSON_TYPE,
+                    SHARED_CAB_PROVIDER,
+                    entry,
+                    timestamp,
+                    now_secs,
+                )
+            },
         );
     }
 }
@@ -358,20 +364,15 @@ pub async fn handle_driver_conductor_location_update(
     .await?;
 
     for entry in request_body.into_iter() {
-        let payload = BusGpsUpdate {
-            device_id: format!("{gtfs_id}:{vehicle_no}"),
-            vehicle_no: vehicle_no.clone(),
-            person_type: person_type_tag,
-            gtfs_id: gtfs_id.clone(),
-            route_code: None,
-            trip_id: None,
-            lat: entry.pt.lat.0,
-            lon: entry.pt.lon.0,
-            timestamp: entry.ts.0.timestamp(),
-            server_time: now_secs,
+        let payload = BusGpsUpdate::ping(
+            &gtfs_id,
+            &vehicle_no,
+            person_type_tag,
             provider,
-            speed: forwardable_speed_kmph(entry.v),
-        };
+            &entry,
+            entry.ts.0.timestamp(),
+            now_secs,
+        );
 
         crate::common::kafka::enqueue_to_kafka(
             &data.enqueue_producer,
@@ -2442,15 +2443,19 @@ mod shared_cab_forward_tests {
 
     #[test]
     fn forwarded_message_matches_the_gps_processor_contract() {
-        let msg = serde_json::to_value(shared_cab_gps_update(
-            "shillong_shared_cab",
-            "SC-1",
-            "ML05A1234",
-            Some("ride-1"),
-            &entry(Some(10.0)),
-            1_700_000_000,
-            1_700_000_001,
-        ))
+        let msg = serde_json::to_value(BusGpsUpdate {
+            route_code: Some("SC-1".to_string()),
+            trip_id: Some("ride-1".to_string()),
+            ..BusGpsUpdate::ping(
+                "shillong_shared_cab",
+                "ML05A1234",
+                SHARED_CAB_PERSON_TYPE,
+                SHARED_CAB_PROVIDER,
+                &entry(Some(10.0)),
+                1_700_000_000,
+                1_700_000_001,
+            )
+        })
         .unwrap();
         assert_eq!(
             msg,
@@ -2513,11 +2518,11 @@ mod shared_cab_forward_tests {
 
     #[test]
     fn absent_speed_is_omitted() {
-        let msg = serde_json::to_value(shared_cab_gps_update(
+        let msg = serde_json::to_value(BusGpsUpdate::ping(
             "g",
-            "r",
             "p",
-            None,
+            SHARED_CAB_PERSON_TYPE,
+            SHARED_CAB_PROVIDER,
             &entry(None),
             0,
             0,
