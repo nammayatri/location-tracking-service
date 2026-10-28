@@ -51,12 +51,18 @@ def main():
     for st in read_table(src, "stop_times.txt"):
         times.setdefault(st["trip_id"], []).append(st)
 
+    fallbacks = 0
     for route_id, trip_id in sorted(trips_by_route.items()):
         seq = sorted(times[trip_id], key=lambda r: int(r["stop_sequence"]))
         points = [stops[r["stop_id"]] for r in seq]
         coords = [[float(p["stop_lon"]), float(p["stop_lat"])] for p in points]
         shape = sorted(shapes.get(shape_by_trip[trip_id], []), key=lambda r: int(r["shape_pt_sequence"]))
         line = [[float(p["shape_pt_lon"]), float(p["shape_pt_lat"])] for p in shape] or coords
+        if shape:
+            used = f"shape {shape_by_trip[trip_id]}, {len(line)} points"
+        else:
+            used = f"stop-to-stop FALLBACK, {len(points)} stops"
+            fallbacks += 1
         features = [
             {
                 "geometry": {"coordinates": line, "type": "LineString"},
@@ -80,7 +86,8 @@ def main():
             )
         doc = {"features": features, "type": "FeatureCollection"}
         (out_dir / f"{route_id}.geojson").write_text(json.dumps(doc, indent=2, sort_keys=True) + "\n")
-        print(f"{route_id}: {len(points)} stops, {len(line)} line points")
+        print(f"{route_id}: {used}")
+    print(f"{len(trips_by_route) - fallbacks} routes used shapes, {fallbacks} fell back to stop-to-stop")
 
 
 if __name__ == "__main__":
