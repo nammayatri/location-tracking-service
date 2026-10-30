@@ -247,6 +247,7 @@ pub enum RideInfo {
         pickup_location: Point,
         min_distance_between_two_points: Option<i32>,
         ride_stops: Option<Vec<Point>>,
+        is_manual_arrival: Option<bool>,
     },
     #[serde(rename_all = "camelCase")]
     Pilot {
@@ -873,4 +874,46 @@ pub struct BroadcastTraceConfig {
     pub last_trace_ts: Option<i64>,
     pub expires_at: Option<i64>,
     pub provider: TraceProvider,
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod ride_info_tests {
+    use super::*;
+
+    // pickupLocation is required, so the payload needs one, but its value is irrelevant here.
+    fn parse_car_ride_info(is_manual_arrival: Option<bool>) -> RideInfo {
+        let mut car = serde_json::json!({
+            "pickupLocation": { "lat": 0.0, "lon": 0.0 },
+            "minDistanceBetweenTwoPoints": null,
+            "rideStops": []
+        });
+        if let Some(is_manual_arrival) = is_manual_arrival {
+            car["isManualArrival"] = is_manual_arrival.into();
+        }
+        serde_json::from_value(serde_json::json!({ "car": car })).unwrap()
+    }
+
+    #[test]
+    fn car_ride_info_without_is_manual_arrival_keeps_auto_arrival() {
+        // Shape sent by BPPs, and already stored in Redis, from before isManualArrival existed.
+        assert!(matches!(
+            parse_car_ride_info(None),
+            RideInfo::Car {
+                is_manual_arrival: None,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn car_ride_info_reads_is_manual_arrival() {
+        assert!(matches!(
+            parse_car_ride_info(Some(true)),
+            RideInfo::Car {
+                is_manual_arrival: Some(true),
+                ..
+            }
+        ));
+    }
 }
