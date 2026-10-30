@@ -901,8 +901,10 @@ async fn process_driver_locations(
             pickup_location,
             min_distance_between_two_points: _,
             ride_stops: _,
+            is_manual_arrival,
         }) = driver_ride_info.as_ref()
         {
+            let is_manual_arrival = is_manual_arrival.unwrap_or(false);
             let pickup_distance =
                 distance_between_in_meters(pickup_location, &latest_driver_location.pt);
             if let Some(ride_notification_status) = driver_ride_notification_status {
@@ -919,7 +921,8 @@ async fn process_driver_locations(
                     ) as f64
                         > pickup_distance
                     {
-                        if pickup_distance <= data.pickup_notification_threshold
+                        if !is_manual_arrival
+                            && pickup_distance <= data.pickup_notification_threshold
                             && RideNotificationStatus::DriverReached > ride_notification_status
                             && get_distance_matrix(
                                 &[pickup_location.to_owned()],
@@ -1508,6 +1511,7 @@ async fn process_driver_locations(
                 pickup_location: _,
                 min_distance_between_two_points: _,
                 ride_stops: _,
+                is_manual_arrival: _,
             }) => {
                 if let (Some(location), Some(ride_id)) =
                     (stop_detected.as_ref(), driver_ride_id.as_ref())
