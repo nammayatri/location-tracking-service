@@ -7,4 +7,6 @@
 */
 
 pub mod location_tracking_service;
+#[cfg(test)]
+pub mod shared_cab;
 pub mod stop_detection;

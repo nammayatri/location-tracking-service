@@ -57,6 +57,11 @@ pub async fn update_driver_location(
             .ok_or(AppError::InvalidRequest(
                 "gtfs-id (Header) required for bus crew".to_string(),
             ))?;
+        if !location::crew_gtfs_id_allowed(&gtfs_id, data.shared_cab_forward_gtfs_id.as_deref()) {
+            return Err(AppError::InvalidRequest(
+                "gtfs-id (Header) is the shared-cab feed, not open to bus crew".to_string(),
+            ));
+        }
         let vehicle_no = req
             .headers()
             .get("vehicle-no")

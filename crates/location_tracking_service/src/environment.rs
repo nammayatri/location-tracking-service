@@ -56,6 +56,12 @@ pub struct AppConfig {
     pub driver_nearby_debug_topic: Option<String>,
     #[serde(default)]
     pub gtfs_id_to_topic: HashMap<String, String>,
+    #[serde(default)]
+    pub shared_cab_forward_gtfs_id: Option<String>,
+    #[serde(default)]
+    pub shared_cab_route_prefix: Option<String>,
+    #[serde(default)]
+    pub shared_cab_skip_route_hash: bool,
     pub batch_size: i64,
     pub bucket_size: u64,
     pub nearby_bucket_threshold: u64,
@@ -227,6 +233,9 @@ pub struct AppState {
     pub driver_location_update_topic: String,
     pub driver_nearby_debug_topic: Option<String>,
     pub gtfs_id_to_topic: HashMap<String, String>,
+    pub shared_cab_forward_gtfs_id: Option<String>,
+    pub shared_cab_route_prefix: Option<String>,
+    pub shared_cab_skip_route_hash: bool,
     pub batch_size: i64,
     pub bucket_size: u64,
     pub nearby_bucket_threshold: u64,
@@ -554,6 +563,9 @@ impl AppState {
             driver_location_update_topic: app_config.driver_location_update_topic,
             driver_nearby_debug_topic: app_config.driver_nearby_debug_topic,
             gtfs_id_to_topic: app_config.gtfs_id_to_topic,
+            shared_cab_forward_gtfs_id: app_config.shared_cab_forward_gtfs_id,
+            shared_cab_route_prefix: app_config.shared_cab_route_prefix,
+            shared_cab_skip_route_hash: app_config.shared_cab_skip_route_hash,
             batch_size: app_config.batch_size,
             bucket_size: app_config.bucket_size,
             nearby_bucket_threshold: app_config.nearby_bucket_threshold,

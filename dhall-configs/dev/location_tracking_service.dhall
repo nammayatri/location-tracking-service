@@ -501,7 +501,15 @@ in {
     gtfs_id_to_topic = toMap {
       chennai_bus = "gps_live_data_master",
       kolkata_bus = "gps_live_data_master"
+      -- , shillong_shared_cab = "gps_live_data_master"
     },
+    -- Set to a gtfs_id above to also forward SHARED_CAB pings to its topic.
+    shared_cab_forward_gtfs_id = None Text,
+    -- shared_cab_forward_gtfs_id = Some "shillong_shared_cab",
+    -- Only rides whose route_code starts with this are shared cabs. None => nothing forwarded.
+    shared_cab_route_prefix = Some "SC-",
+    -- true: skip the route:{code} hash write for SHARED_CAB; gps-processor owns it.
+    shared_cab_skip_route_hash = False,
     batch_size = 100,
     bucket_size = 300,
     nearby_bucket_threshold = 4,

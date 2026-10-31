@@ -226,6 +226,9 @@ pub enum VehicleType {
     #[strum(serialize = "EV_SUV")]
     #[serde(rename = "EV_SUV")]
     EvSuv,
+    #[strum(serialize = "SHARED_CAB")]
+    #[serde(rename = "SHARED_CAB")]
+    SharedCab,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug, Display, PartialEq)]

@@ -149,6 +149,10 @@ struct BusGpsUpdate {
     person_type: &'static str,
     #[serde(rename = "gtfsId")]
     gtfs_id: String,
+    #[serde(rename = "routeCode", skip_serializing_if = "Option::is_none")]
+    route_code: Option<String>,
+    #[serde(rename = "tripId", skip_serializing_if = "Option::is_none")]
+    trip_id: Option<String>,
     lat: f64,
     #[serde(rename = "long")]
     lon: f64,
@@ -161,11 +165,138 @@ struct BusGpsUpdate {
     speed: Option<SpeedInKiloMeterPerHour>,
 }
 
+impl BusGpsUpdate {
+    fn ping(
+        gtfs_id: &str,
+        vehicle_no: &str,
+        person_type: &'static str,
+        provider: &'static str,
+        entry: &UpdateDriverLocationRequest,
+        timestamp: i64,
+        server_time: i64,
+    ) -> Self {
+        Self {
+            device_id: format!("{gtfs_id}:{vehicle_no}"),
+            vehicle_no: vehicle_no.to_string(),
+            person_type,
+            gtfs_id: gtfs_id.to_string(),
+            route_code: None,
+            trip_id: None,
+            lat: entry.pt.lat.0,
+            lon: entry.pt.lon.0,
+            timestamp,
+            server_time,
+            provider,
+            speed: forwardable_speed_kmph(entry.v),
+        }
+    }
+}
+
 /// Non-finite serializes as null, so filter — after converting, as scaling can overflow.
 fn forwardable_speed_kmph(speed: Option<SpeedInMeterPerSecond>) -> Option<SpeedInKiloMeterPerHour> {
     speed
         .map(SpeedInKiloMeterPerHour::from)
         .filter(|kmph| kmph.inner().is_finite())
+}
+
+const SHARED_CAB_PERSON_TYPE: &str = "shared_cab_driver";
+const SHARED_CAB_PROVIDER: &str = "lts-shared-cab";
+/// A shared-cab ping older than this is not forwarded.
+const SHARED_CAB_MAX_PING_AGE_SECS: i64 = 300;
+
+/// The shared-cab feed takes no bus-crew pings: one carrying a cab's plate would
+/// share the cab's device id in gps-processor.
+pub fn crew_gtfs_id_allowed(gtfs_id: &str, shared_cab_forward_gtfs_id: Option<&str>) -> bool {
+    shared_cab_forward_gtfs_id != Some(gtfs_id)
+}
+
+/// Plate and route of a SHARED_CAB ride whose pings should also reach gps-processor.
+/// The `vt` header is client-supplied, so the ride's route must also carry the
+/// server-configured shared-cab prefix.
+fn shared_cab_forward_target<'a>(
+    forward_gtfs_id: Option<&'a str>,
+    route_prefix: Option<&str>,
+    vehicle_type: &VehicleType,
+    ride_info: Option<&'a RideInfo>,
+) -> Option<(&'a str, &'a str, &'a str)> {
+    match (forward_gtfs_id, route_prefix, vehicle_type, ride_info) {
+        (
+            Some(gtfs_id),
+            Some(prefix),
+            VehicleType::SharedCab,
+            Some(RideInfo::Bus {
+                route_code,
+                bus_number,
+                ..
+            }),
+        ) if !prefix.is_empty() && route_code.starts_with(prefix) => {
+            Some((gtfs_id, route_code, bus_number))
+        }
+        _ => None,
+    }
+}
+
+/// The pings to forward, each with its timestamp clamped to `now`: none older than
+/// SHARED_CAB_MAX_PING_AGE_SECS, and at most the newest `batch_size`.
+fn shared_cab_forward_entries(
+    locations: &[UpdateDriverLocationRequest],
+    now: i64,
+    batch_size: usize,
+) -> Vec<(&UpdateDriverLocationRequest, i64)> {
+    let mut entries: Vec<_> = locations
+        .iter()
+        .map(|entry| (entry, entry.ts.0.timestamp().min(now)))
+        .filter(|(_, ts)| now - ts <= SHARED_CAB_MAX_PING_AGE_SECS)
+        .collect();
+    entries.split_off(entries.len().saturating_sub(batch_size))
+}
+
+/// gps-processor owns the `route:{code}` entry of a forwarded shared cab once this is set.
+fn skip_route_hash_write(forwarded: bool, skip_route_hash: bool) -> bool {
+    skip_route_hash && forwarded
+}
+
+/// Best-effort dual-publish: never fails the location update.
+fn forward_shared_cab_pings(
+    data: &AppState,
+    target: Option<(&str, &str, &str)>,
+    ride_id: Option<&RideId>,
+    locations: &[UpdateDriverLocationRequest],
+) {
+    let Some((gtfs_id, route_code, bus_number)) = target else {
+        return;
+    };
+    let Some(topic) = data.gtfs_id_to_topic.get(gtfs_id) else {
+        error!(
+            tag = "[Shared Cab Forward]",
+            "no kafka topic configured for gtfs_id={gtfs_id}"
+        );
+        return;
+    };
+    let now_secs = Utc::now().timestamp();
+    for (entry, timestamp) in
+        shared_cab_forward_entries(locations, now_secs, data.batch_size as usize)
+    {
+        crate::common::kafka::enqueue_to_kafka(
+            &data.enqueue_producer,
+            &data.enqueue_secondary_producer,
+            topic,
+            bus_number,
+            &BusGpsUpdate {
+                route_code: Some(route_code.to_string()),
+                trip_id: ride_id.map(|id| id.0.clone()),
+                ..BusGpsUpdate::ping(
+                    gtfs_id,
+                    bus_number,
+                    SHARED_CAB_PERSON_TYPE,
+                    SHARED_CAB_PROVIDER,
+                    entry,
+                    timestamp,
+                    now_secs,
+                )
+            },
+        );
+    }
 }
 
 /// Forward bus-crew pings (`bus_conductor` / `bus_driver`) straight to the
@@ -232,18 +363,15 @@ pub async fn handle_driver_conductor_location_update(
     .await?;
 
     for entry in request_body.into_iter() {
-        let payload = BusGpsUpdate {
-            device_id: format!("{gtfs_id}:{vehicle_no}"),
-            vehicle_no: vehicle_no.clone(),
-            person_type: person_type_tag,
-            gtfs_id: gtfs_id.clone(),
-            lat: entry.pt.lat.0,
-            lon: entry.pt.lon.0,
-            timestamp: entry.ts.0.timestamp(),
-            server_time: now_secs,
+        let payload = BusGpsUpdate::ping(
+            &gtfs_id,
+            &vehicle_no,
+            person_type_tag,
             provider,
-            speed: forwardable_speed_kmph(entry.v),
-        };
+            &entry,
+            entry.ts.0.timestamp(),
+            now_secs,
+        );
 
         crate::common::kafka::enqueue_to_kafka(
             &data.enqueue_producer,
@@ -995,6 +1123,19 @@ async fn process_driver_locations(
     }
     .await;
 
+    let shared_cab_target = shared_cab_forward_target(
+        data.shared_cab_forward_gtfs_id.as_deref(),
+        data.shared_cab_route_prefix.as_deref(),
+        &vehicle_type,
+        driver_ride_info.as_ref(),
+    );
+    forward_shared_cab_pings(
+        &data,
+        shared_cab_target,
+        driver_ride_id.as_ref(),
+        &locations,
+    );
+
     let (locations, upcoming_stops_with_eta) = match driver_ride_info.as_ref() {
         Some(RideInfo::Bus {
             route_code,
@@ -1056,9 +1197,14 @@ async fn process_driver_locations(
                     .await?;
                     Ok(())
                 };
-                all_tasks.push(Box::pin(set_route_location(
-                    upcoming_stops_with_eta.to_owned(),
-                )));
+                if !skip_route_hash_write(
+                    shared_cab_target.is_some(),
+                    data.shared_cab_skip_route_hash,
+                ) {
+                    all_tasks.push(Box::pin(set_route_location(
+                        upcoming_stops_with_eta.to_owned(),
+                    )));
+                }
 
                 upcoming_stops_with_eta
             } else {
@@ -2109,6 +2255,8 @@ mod bus_gps_update_tests {
             vehicle_no: "WB01AB1234".to_string(),
             person_type: "bus_conductor",
             gtfs_id: "kolkata_bus".to_string(),
+            route_code: None,
+            trip_id: None,
             lat: 22.5726,
             lon: 88.3639,
             timestamp: 1_700_000_000,
@@ -2196,5 +2344,189 @@ mod bus_gps_update_tests {
             .into_iter()
             .collect()
         );
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod shared_cab_forward_tests {
+    use super::*;
+    use chrono::TimeZone;
+
+    fn bus_ride_info() -> RideInfo {
+        RideInfo::Bus {
+            started_at: None,
+            route_code: "SC-1".to_string(),
+            route_long_name: None,
+            driver_name: None,
+            group_id: None,
+            bus_number: "ML05A1234".to_string(),
+            source: None,
+            destination: Point {
+                lat: Latitude(25.57),
+                lon: Longitude(91.88),
+            },
+        }
+    }
+
+    fn entry(v: Option<f64>) -> UpdateDriverLocationRequest {
+        UpdateDriverLocationRequest {
+            pt: Point {
+                lat: Latitude(25.5788),
+                lon: Longitude(91.8933),
+            },
+            ts: TimeStamp(Utc.timestamp_opt(1_700_000_000, 0).unwrap()),
+            acc: None,
+            v: v.map(SpeedInMeterPerSecond),
+            bear: None,
+        }
+    }
+
+    #[test]
+    fn forwards_only_shared_cab_on_a_bus_ride_with_a_configured_gtfs_id() {
+        let info = bus_ride_info();
+        let sc = Some("SC-");
+        assert_eq!(
+            shared_cab_forward_target(
+                Some("shillong_shared_cab"),
+                sc,
+                &VehicleType::SharedCab,
+                Some(&info)
+            ),
+            Some(("shillong_shared_cab", "SC-1", "ML05A1234"))
+        );
+        assert_eq!(
+            shared_cab_forward_target(None, sc, &VehicleType::SharedCab, Some(&info)),
+            None
+        );
+        assert_eq!(
+            shared_cab_forward_target(Some("g"), sc, &VehicleType::SEDAN, Some(&info)),
+            None
+        );
+        assert_eq!(
+            shared_cab_forward_target(Some("g"), sc, &VehicleType::SharedCab, None),
+            None
+        );
+    }
+
+    #[test]
+    fn bus_crew_is_refused_only_on_the_shared_cab_feed() {
+        let cab_feed = Some("shillong_shared_cab");
+        assert!(!crew_gtfs_id_allowed("shillong_shared_cab", cab_feed));
+        assert!(crew_gtfs_id_allowed("kolkata_bus", cab_feed));
+        assert!(crew_gtfs_id_allowed("shillong_shared_cab", None));
+    }
+
+    #[test]
+    fn shared_cab_header_forwards_only_a_prefixed_route() {
+        let mut bus = bus_ride_info();
+        if let RideInfo::Bus { route_code, .. } = &mut bus {
+            *route_code = "EB12".to_string();
+        }
+        let cab = bus_ride_info();
+        let target = |prefix, info| {
+            shared_cab_forward_target(Some("g"), prefix, &VehicleType::SharedCab, Some(info))
+        };
+        assert_eq!(target(Some("SC-"), &bus), None);
+        assert_eq!(target(Some("SC-"), &cab), Some(("g", "SC-1", "ML05A1234")));
+        assert_eq!(target(None, &cab), None);
+        assert_eq!(target(Some(""), &bus), None);
+    }
+
+    #[test]
+    fn route_hash_write_is_skipped_only_for_a_forwarded_cab_when_flagged() {
+        assert!(skip_route_hash_write(true, true));
+        assert!(!skip_route_hash_write(true, false));
+        assert!(!skip_route_hash_write(false, true));
+    }
+
+    #[test]
+    fn forwarded_message_matches_the_gps_processor_contract() {
+        let msg = serde_json::to_value(BusGpsUpdate {
+            route_code: Some("SC-1".to_string()),
+            trip_id: Some("ride-1".to_string()),
+            ..BusGpsUpdate::ping(
+                "shillong_shared_cab",
+                "ML05A1234",
+                SHARED_CAB_PERSON_TYPE,
+                SHARED_CAB_PROVIDER,
+                &entry(Some(10.0)),
+                1_700_000_000,
+                1_700_000_001,
+            )
+        })
+        .unwrap();
+        assert_eq!(
+            msg,
+            serde_json::json!({
+                "deviceId": "shillong_shared_cab:ML05A1234",
+                "vehicleNo": "ML05A1234",
+                "personType": "shared_cab_driver",
+                "gtfsId": "shillong_shared_cab",
+                "routeCode": "SC-1",
+                "tripId": "ride-1",
+                "lat": 25.5788,
+                "long": 91.8933,
+                "timestamp": 1_700_000_000,
+                "serverTime": 1_700_000_001,
+                "provider": "lts-shared-cab",
+                "speed": 36.0,
+            })
+        );
+    }
+
+    fn entry_at(ts: i64) -> UpdateDriverLocationRequest {
+        UpdateDriverLocationRequest {
+            ts: TimeStamp(Utc.timestamp_opt(ts, 0).unwrap()),
+            ..entry(None)
+        }
+    }
+
+    fn forwarded_ts(locations: &[UpdateDriverLocationRequest], now: i64, batch: usize) -> Vec<i64> {
+        shared_cab_forward_entries(locations, now, batch)
+            .into_iter()
+            .map(|(_, ts)| ts)
+            .collect()
+    }
+
+    #[test]
+    fn forwarded_timestamp_is_clamped_to_now() {
+        assert_eq!(forwarded_ts(&[entry_at(2_000)], 1_000, 10), vec![1_000]);
+        assert_eq!(forwarded_ts(&[entry_at(900)], 1_000, 10), vec![900]);
+    }
+
+    #[test]
+    fn forwarding_drops_pings_older_than_the_max_age() {
+        let now = 10_000;
+        let locations = [
+            entry_at(now - SHARED_CAB_MAX_PING_AGE_SECS - 1),
+            entry_at(now - SHARED_CAB_MAX_PING_AGE_SECS),
+        ];
+        assert_eq!(
+            forwarded_ts(&locations, now, 10),
+            vec![now - SHARED_CAB_MAX_PING_AGE_SECS]
+        );
+    }
+
+    #[test]
+    fn forwarding_keeps_only_the_newest_batch() {
+        let locations = [entry_at(950), entry_at(960), entry_at(970), entry_at(990)];
+        assert_eq!(forwarded_ts(&locations, 1_000, 2), vec![970, 990]);
+        assert_eq!(forwarded_ts(&locations, 1_000, 10).len(), 4);
+    }
+
+    #[test]
+    fn absent_speed_is_omitted() {
+        let msg = serde_json::to_value(BusGpsUpdate::ping(
+            "g",
+            "p",
+            SHARED_CAB_PERSON_TYPE,
+            SHARED_CAB_PROVIDER,
+            &entry(None),
+            0,
+            0,
+        ))
+        .unwrap();
+        assert!(msg.get("speed").is_none());
     }
 }
