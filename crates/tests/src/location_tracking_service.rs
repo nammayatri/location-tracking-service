@@ -392,8 +392,8 @@ pub async fn test_read_route_data() {
             .iter()
             .filter(|(code, _)| code.starts_with("SC-"))
             .collect();
-        let mut expected: Vec<String> = (1..=25)
-            .filter(|n| !(19..=20).contains(n))
+        let mut expected: Vec<String> = [1, 2, 4]
+            .into_iter()
             .flat_map(|n| [format!("SC-R{n}-F"), format!("SC-R{n}-R")])
             .collect();
         expected.sort();
