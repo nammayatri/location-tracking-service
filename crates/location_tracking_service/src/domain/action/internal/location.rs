@@ -747,6 +747,7 @@ pub async fn manual_queue_remove(
     merchant_id: String,
     driver_id: String,
     reason: Option<String>,
+    preserve_position: bool,
 ) -> Result<APISuccess, AppError> {
     let primary_redis = data.queue_redis();
     remove_driver_from_queue(
@@ -757,6 +758,24 @@ pub async fn manual_queue_remove(
     )
     .await?;
     delete_driver_queue_tracking(&primary_redis, &merchant_id, &driver_id).await?;
+    // Hard removal (preserve_position = false): also drop `last_ts` so a
+    // subsequent in-fence ping can't restore the driver's original rank via the
+    // drainer's stored-ts ZADD — the re-entry restarts fresh at the tail.
+    // Preserved by default to keep the grace re-entry window. Best-effort — a
+    // failure here only weakens position-reset, so it shouldn't fail the
+    // removal that already succeeded above.
+    if !preserve_position {
+        if let Err(err) = delete_driver_queue_last_ts(
+            &primary_redis,
+            &special_location_id,
+            &vehicle_type,
+            &driver_id,
+        )
+        .await
+        {
+            error!(tag = "[Manual Queue Remove Reset Position]", error = %err);
+        }
+    }
     // Normalize once: empty/whitespace-only reasons collapse to None so the
     // rank-history event and the prometheus label stay in sync.
     let normalized_reason = reason.as_deref().map(str::trim).filter(|r| !r.is_empty());
