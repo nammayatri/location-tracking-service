@@ -17,6 +17,7 @@ pub enum PersonType {
     Driver,
     BusConductor,
     BusDriver,
+    SharedCabDriver,
 }
 
 impl FromStr for PersonType {
@@ -28,6 +29,7 @@ impl FromStr for PersonType {
             "driver" => Ok(PersonType::Driver),
             "bus_conductor" => Ok(PersonType::BusConductor),
             "bus_driver" => Ok(PersonType::BusDriver),
+            "shared_cab_driver" => Ok(PersonType::SharedCabDriver),
             _ => Err(()),
         }
     }
@@ -40,6 +42,7 @@ impl PersonType {
             PersonType::Driver => "driver",
             PersonType::BusConductor => "bus_conductor",
             PersonType::BusDriver => "bus_driver",
+            PersonType::SharedCabDriver => "shared_cab_driver",
         }
     }
 
@@ -47,7 +50,10 @@ impl PersonType {
     /// forwarded to the per-fleet Kafka topic instead of running the
     /// driver location pipeline.
     pub fn is_bus_crew(&self) -> bool {
-        matches!(self, PersonType::BusConductor | PersonType::BusDriver)
+        matches!(
+            self,
+            PersonType::BusConductor | PersonType::BusDriver | PersonType::SharedCabDriver
+        )
     }
 
     /// `(person_type, provider)` strings carried in the forwarded Kafka payload.
@@ -55,6 +61,7 @@ impl PersonType {
         match self {
             PersonType::BusConductor => Some(("bus_conductor", "lts-bus-conductor")),
             PersonType::BusDriver => Some(("bus_driver", "lts-bus-driver")),
+            PersonType::SharedCabDriver => Some(("shared_cab_driver", "lts-shared-cab")),
             _ => None,
         }
     }

@@ -500,7 +500,8 @@ in {
     -- as-is; missing gtfs_id -> 400. Absent map -> no conductor support.
     gtfs_id_to_topic = toMap {
       chennai_bus = "gps_live_data_master",
-      kolkata_bus = "gps_live_data_master"
+      kolkata_bus = "gps_live_data_master",
+      shillong_shared_cab = "gps_live_data_master"
     },
     batch_size = 100,
     bucket_size = 300,

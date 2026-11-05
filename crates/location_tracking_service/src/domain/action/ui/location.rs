@@ -149,6 +149,10 @@ struct BusGpsUpdate {
     person_type: &'static str,
     #[serde(rename = "gtfsId")]
     gtfs_id: String,
+    #[serde(rename = "routeCode", skip_serializing_if = "Option::is_none")]
+    route_code: Option<String>,
+    #[serde(rename = "tripId", skip_serializing_if = "Option::is_none")]
+    trip_id: Option<String>,
     lat: f64,
     #[serde(rename = "long")]
     lon: f64,
@@ -179,6 +183,7 @@ pub async fn handle_driver_conductor_location_update(
     person_type_value: PersonType,
     gtfs_id: String,
     vehicle_no: String,
+    route_code: Option<String>,
 ) -> Result<(), AppError> {
     // Bus-crew path always processes locally, so the cloud_type from auth is ignored.
     let (driver_id, merchant_id, _moc_id, _cloud_type) = if var("DEV").is_ok() {
@@ -197,6 +202,17 @@ pub async fn handle_driver_conductor_location_update(
             &token,
         )
         .await?
+    };
+
+    // A shared cab's run is the driver's LTS ride, which driver-app starts and ends: its id is the
+    // ping's trip, so the phone can't set it. No ride, no run: the ping is refused.
+    let trip_id = if person_type_value == PersonType::SharedCabDriver {
+        let ride = get_ride_details(&data.redis, &driver_id, &merchant_id)
+            .await?
+            .ok_or_else(|| AppError::InvalidRequest("no active shared-cab run".to_string()))?;
+        Some(ride.ride_id.0)
+    } else {
+        None
     };
 
     // Bus-crew identity reuses the driver auth path; the authenticated
@@ -237,6 +253,8 @@ pub async fn handle_driver_conductor_location_update(
             vehicle_no: vehicle_no.clone(),
             person_type: person_type_tag,
             gtfs_id: gtfs_id.clone(),
+            route_code: route_code.clone(),
+            trip_id: trip_id.clone(),
             lat: entry.pt.lat.0,
             lon: entry.pt.lon.0,
             timestamp: entry.ts.0.timestamp(),
@@ -1812,11 +1830,13 @@ pub async fn update_person_location(
             "Generic update_person_location does not support driver; use existing driver API"
                 .to_string(),
         )),
-        PersonType::BusConductor | PersonType::BusDriver => Err(AppError::InvalidRequest(
-            "Generic update_person_location does not support bus crew; \
+        PersonType::BusConductor | PersonType::BusDriver | PersonType::SharedCabDriver => {
+            Err(AppError::InvalidRequest(
+                "Generic update_person_location does not support bus crew; \
              use /ui/driver/location with person_type=bus_conductor or bus_driver"
-                .to_string(),
-        )),
+                    .to_string(),
+            ))
+        }
     }
 }
 
@@ -2113,6 +2133,8 @@ mod bus_gps_update_tests {
             vehicle_no: "WB01AB1234".to_string(),
             person_type: "bus_conductor",
             gtfs_id: "kolkata_bus".to_string(),
+            route_code: None,
+            trip_id: None,
             lat: 22.5726,
             lon: 88.3639,
             timestamp: 1_700_000_000,

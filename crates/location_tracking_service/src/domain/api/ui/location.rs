@@ -65,6 +65,12 @@ pub async fn update_driver_location(
             .ok_or(AppError::InvalidRequest(
                 "vehicle-no (Header) required for bus crew".to_string(),
             ))?;
+        // A shared cab has no waybill: its route comes on the ping.
+        let route_code = req
+            .headers()
+            .get("route-code")
+            .and_then(|v| v.to_str().ok())
+            .map(String::from);
         let req_merchant_id = req
             .headers()
             .get("mid")
@@ -78,6 +84,7 @@ pub async fn update_driver_location(
             person_type,
             gtfs_id,
             vehicle_no,
+            route_code,
         )
         .await
         .map(|_| HttpResponse::Ok().finish());
