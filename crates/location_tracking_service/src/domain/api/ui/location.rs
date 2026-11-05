@@ -57,14 +57,17 @@ pub async fn update_driver_location(
             .ok_or(AppError::InvalidRequest(
                 "gtfs-id (Header) required for bus crew".to_string(),
             ))?;
+        // A shared cab's plate comes from its LTS ride, not the phone.
         let vehicle_no = req
             .headers()
             .get("vehicle-no")
             .and_then(|v| v.to_str().ok())
-            .map(String::from)
-            .ok_or(AppError::InvalidRequest(
+            .map(String::from);
+        if vehicle_no.is_none() && person_type != PersonType::SharedCabDriver {
+            return Err(AppError::InvalidRequest(
                 "vehicle-no (Header) required for bus crew".to_string(),
-            ))?;
+            ));
+        }
         let req_merchant_id = req
             .headers()
             .get("mid")
