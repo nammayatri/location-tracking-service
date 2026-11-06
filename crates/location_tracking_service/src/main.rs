@@ -172,8 +172,9 @@ async fn start_server() -> std::io::Result<()> {
     if let Some(ref base_url) = data.special_location_list_base_url {
         let cache = data.special_location_cache.clone();
         let base_url = base_url.clone();
+        let api_key = data.auth_api_key.clone();
         tokio::spawn(async move {
-            match get_special_locations_list(&base_url).await {
+            match get_special_locations_list(&base_url, &api_key).await {
                 Ok(list) => {
                     info!(
                         tag = "[Special Location Cache]",
@@ -215,7 +216,7 @@ async fn start_server() -> std::io::Result<()> {
             let mut interval = tokio::time::interval(Duration::from_secs(300));
             loop {
                 interval.tick().await;
-                match get_special_locations_list(&base_url).await {
+                match get_special_locations_list(&base_url, &api_key).await {
                     Ok(list) => {
                         info!(
                             tag = "[Special Location Cache Refresh]",

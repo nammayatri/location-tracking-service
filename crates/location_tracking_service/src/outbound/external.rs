@@ -232,12 +232,13 @@ pub async fn bulk_location_update_dobpp(
     ride_id: RideId,
     driver_id: DriverId,
     on_ride_driver_locations: Vec<LocationUpdate>,
+    api_key: &str,
 ) -> Result<APISuccess, AppError> {
     call_api::<APISuccess, BulkDataReq>(
         Protocol::Http1,
         Method::POST,
         bulk_location_callback_url,
-        vec![("content-type", "application/json")],
+        vec![("content-type", "application/json"), ("api-key", api_key)],
         Some(BulkDataReq {
             ride_id,
             driver_id,
@@ -268,12 +269,13 @@ pub async fn bulk_location_update_pickup_dobpp(
     ride_id: RideId,
     driver_id: DriverId,
     on_pickup_driver_locations: Vec<LocationUpdate>,
+    api_key: &str,
 ) -> Result<APISuccess, AppError> {
     call_api::<APISuccess, BulkDataReq>(
         Protocol::Http1,
         Method::POST,
         bulk_location_pickup_callback_url,
-        vec![("content-type", "application/json")],
+        vec![("content-type", "application/json"), ("api-key", api_key)],
         Some(BulkDataReq {
             ride_id,
             driver_id,
@@ -307,12 +309,13 @@ pub async fn trigger_fcm_bap(
     ride_id: RideId,
     driver_id: DriverId,
     ride_notification_status: RideNotificationStatus,
+    api_key: &str,
 ) -> Result<APISuccess, AppError> {
     call_api::<APISuccess, TriggerStatusFcmReq>(
         Protocol::Http1,
         Method::POST,
         trigger_fcm_callback_url_bap,
-        vec![("content-type", "application/json")],
+        vec![("content-type", "application/json"), ("api-key", api_key)],
         Some(TriggerStatusFcmReq {
             ride_id,
             driver_id,
@@ -329,12 +332,13 @@ pub async fn trigger_stop_detection_event(
     location: &Point,
     ride_id: RideId,
     driver_id: DriverId,
+    api_key: &str,
 ) -> Result<APISuccess, AppError> {
     call_api::<APISuccess, StopDetectionReq>(
         Protocol::Http1,
         Method::POST,
         stop_detection_callback_url,
-        vec![("content-type", "application/json")],
+        vec![("content-type", "application/json"), ("api-key", api_key)],
         Some(StopDetectionReq {
             location: location.to_owned(),
             ride_id,
@@ -352,12 +356,13 @@ pub async fn driver_reached_destination(
     ride_id: RideId,
     driver_id: DriverId,
     vehicle_type: VehicleType,
+    api_key: &str,
 ) -> Result<APISuccess, AppError> {
     call_api::<APISuccess, DriverReachedDestinationReq>(
         Protocol::Http1,
         Method::POST,
         driver_reached_destination_callback_url,
-        vec![("content-type", "application/json")],
+        vec![("content-type", "application/json"), ("api-key", api_key)],
         Some(DriverReachedDestinationReq {
             location: location.to_owned(),
             ride_id,
@@ -376,12 +381,13 @@ pub async fn driver_source_departed(
     ride_id: RideId,
     driver_id: DriverId,
     vehicle_type: VehicleType,
+    api_key: &str,
 ) -> Result<APISuccess, AppError> {
     call_api::<APISuccess, DriverSourceDepartedReq>(
         Protocol::Http1,
         Method::POST,
         driver_source_departed_callback_url,
-        vec![("content-type", "application/json")],
+        vec![("content-type", "application/json"), ("api-key", api_key)],
         Some(DriverSourceDepartedReq {
             location: location.to_owned(),
             ride_id,
@@ -468,12 +474,13 @@ pub async fn trigger_liveactivity(
 pub async fn trigger_detection_alert(
     alert_url: &Url,
     unified_alert_req: ViolationDetectionReq,
+    api_key: &str,
 ) -> Result<APISuccess, AppError> {
     call_api::<APISuccess, ViolationDetectionReq>(
         Protocol::Http1,
         Method::POST,
         alert_url,
-        vec![("content-type", "application/json")],
+        vec![("content-type", "application/json"), ("api-key", api_key)],
         Some(unified_alert_req),
         None,
     )
@@ -642,6 +649,7 @@ pub async fn refresh_external_trace_token(
 /// Deserializes each entry individually so one bad entry doesn't break the entire list.
 pub async fn get_special_locations_list(
     base_url: &Url,
+    api_key: &str,
 ) -> Result<Vec<SpecialLocationFull>, AppError> {
     let base_str = base_url.as_str().trim_end_matches('/');
     let url = format!(
@@ -653,7 +661,7 @@ pub async fn get_special_locations_list(
         Protocol::Http1,
         Method::GET,
         &url,
-        vec![("content-type", "application/json")],
+        vec![("content-type", "application/json"), ("api-key", api_key)],
         None,
         Some("special-location-list"),
     )

@@ -622,6 +622,16 @@ async fn handle_driver_offline_queue_cleanup(
         .inc();
 }
 
+fn detection_callback_api_key<'a>(callback_url: &Url, data: &'a AppState) -> &'a str {
+    if callback_url.host_str() == data.rider_auth_url.host_str()
+        && callback_url.port_or_known_default() == data.rider_auth_url.port_or_known_default()
+    {
+        &data.rider_auth_api_key
+    } else {
+        &data.auth_api_key
+    }
+}
+
 #[macros::measure_duration]
 #[allow(clippy::type_complexity)]
 async fn process_driver_locations(
@@ -1360,6 +1370,7 @@ async fn process_driver_locations(
                                             acc: dl.acc,
                                         })
                                         .collect(),
+                                    &data.auth_api_key,
                                 )
                                 .await
                                 .map_err(|err| {
@@ -1419,6 +1430,7 @@ async fn process_driver_locations(
                                             acc: dl.acc,
                                         })
                                         .collect(),
+                                    &data.auth_api_key,
                                 )
                                 .await
                                 .map_err(|err| {
@@ -1489,6 +1501,7 @@ async fn process_driver_locations(
                                         ride_id.to_owned(),
                                         driver_id.to_owned(),
                                         vehicle_type.to_owned(),
+                                        &data.auth_api_key,
                                     )
                                     .await;
                                 }
@@ -1508,6 +1521,7 @@ async fn process_driver_locations(
                                     ride_id.to_owned(),
                                     driver_id.to_owned(),
                                     vehicle_type.to_owned(),
+                                    &data.auth_api_key,
                                 )
                                 .await;
                             }
@@ -1517,9 +1531,13 @@ async fn process_driver_locations(
                 }
 
                 for (callback_url, violation) in violation_detection_requests {
-                    if let Err(err) = trigger_detection_alert(&callback_url, violation)
-                        .await
-                        .map_err(|err| AppError::AlertRequestFailed(err.message()))
+                    if let Err(err) = trigger_detection_alert(
+                        &callback_url,
+                        violation,
+                        detection_callback_api_key(&callback_url, &data),
+                    )
+                    .await
+                    .map_err(|err| AppError::AlertRequestFailed(err.message()))
                     {
                         warn!("Violation Alert could not be sent. {} ", err);
                     }
@@ -1549,6 +1567,7 @@ async fn process_driver_locations(
                                 location,
                                 ride_id.to_owned(),
                                 driver_id.to_owned(),
+                                &data.auth_api_key,
                             )
                             .await;
                         }
@@ -1564,6 +1583,7 @@ async fn process_driver_locations(
                             driver_ride_id,
                             driver_id.clone(),
                             status,
+                            &data.rider_auth_api_key,
                         )
                         .await
                         .map_err(|err| AppError::DriverSendingFCMFailed(err.message()));
@@ -1571,9 +1591,13 @@ async fn process_driver_locations(
                 }
 
                 for (callback_url, violation) in violation_detection_requests {
-                    if let Err(err) = trigger_detection_alert(&callback_url, violation)
-                        .await
-                        .map_err(|err| AppError::AlertRequestFailed(err.message()))
+                    if let Err(err) = trigger_detection_alert(
+                        &callback_url,
+                        violation,
+                        detection_callback_api_key(&callback_url, &data),
+                    )
+                    .await
+                    .map_err(|err| AppError::AlertRequestFailed(err.message()))
                     {
                         warn!("Violation Alert could not be sent. {} ", err);
                     }
@@ -1598,6 +1622,7 @@ async fn process_driver_locations(
                                 location,
                                 ride_id.to_owned(),
                                 driver_id.to_owned(),
+                                &data.auth_api_key,
                             )
                             .await;
                         }
