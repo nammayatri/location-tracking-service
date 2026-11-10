@@ -95,6 +95,8 @@ pub struct AppConfig {
     pub rider_auth_token_expiry: u32,
     pub special_location_list_base_url: Option<String>,
     #[serde(default)]
+    pub vehicle_trip_owner_resolve_url: Option<String>,
+    #[serde(default)]
     pub enable_special_location_bucketing: bool,
     #[serde(default = "default_queue_expiry")]
     pub queue_expiry_seconds: u64,
@@ -262,6 +264,7 @@ pub struct AppState {
     pub rider_auth_api_key: String,
     pub rider_auth_token_expiry: u32,
     pub special_location_list_base_url: Option<Url>,
+    pub vehicle_trip_owner_resolve_url: Option<Url>,
     pub enable_special_location_bucketing: bool,
     pub special_location_cache: SpecialLocationCache,
     pub queue_expiry_seconds: u64,
@@ -597,6 +600,10 @@ impl AppState {
             rider_auth_token_expiry: app_config.rider_auth_token_expiry,
             special_location_list_base_url: app_config
                 .special_location_list_base_url
+                .as_ref()
+                .and_then(|s| Url::parse(s).ok()),
+            vehicle_trip_owner_resolve_url: app_config
+                .vehicle_trip_owner_resolve_url
                 .as_ref()
                 .and_then(|s| Url::parse(s).ok()),
             enable_special_location_bucketing: app_config.enable_special_location_bucketing,

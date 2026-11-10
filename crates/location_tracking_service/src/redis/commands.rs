@@ -12,7 +12,7 @@ use crate::redis::keys::*;
 use crate::tools::error::AppError;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use fred::prelude::{KeysInterface, ListInterface, SortedSetsInterface};
-use fred::types::{GeoPosition, GeoUnit, RedisValue, SetOptions, SortOrder};
+use fred::types::{Expiration, GeoPosition, GeoUnit, RedisValue, SetOptions, SortOrder};
 use futures::Future;
 use rustc_hash::FxHashSet;
 use serde::{Deserialize, Serialize};
@@ -1941,6 +1941,77 @@ pub async fn get_drivers_in_special_location(
         }
     }
     Ok(driver_ids.into_iter().collect())
+}
+
+pub async fn get_vehicle_trip_owner(
+    redis: &RedisConnectionPool,
+    gtfs_id: &str,
+    vehicle_no: &str,
+) -> Result<Option<VehicleTripOwner>, AppError> {
+    redis
+        .get_key::<VehicleTripOwner>(&vehicle_trip_owner_key(gtfs_id, vehicle_no))
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
+pub async fn acquire_vehicle_trip_owner_resolve_lock(
+    redis: &RedisConnectionPool,
+    gtfs_id: &str,
+    vehicle_no: &str,
+    value: &str,
+    expiry_secs: i64,
+) -> Result<bool, AppError> {
+    let reply: RedisValue = redis
+        .writer_pool
+        .set(
+            vehicle_trip_owner_resolve_lock_key(gtfs_id, vehicle_no),
+            value,
+            Some(Expiration::EX(expiry_secs)),
+            Some(SetOptions::NX),
+            false,
+        )
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))?;
+    Ok(!reply.is_null())
+}
+
+pub async fn get_vehicle_trip_owner_resolve_lock(
+    redis: &RedisConnectionPool,
+    gtfs_id: &str,
+    vehicle_no: &str,
+) -> Result<Option<String>, AppError> {
+    redis
+        .get_key_as_str(&vehicle_trip_owner_resolve_lock_key(gtfs_id, vehicle_no))
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
+pub async fn set_vehicle_trip_owner_resolve_lock(
+    redis: &RedisConnectionPool,
+    gtfs_id: &str,
+    vehicle_no: &str,
+    value: &str,
+    expiry_secs: u32,
+) -> Result<(), AppError> {
+    redis
+        .set_key_as_str(
+            &vehicle_trip_owner_resolve_lock_key(gtfs_id, vehicle_no),
+            value,
+            expiry_secs,
+        )
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
+pub async fn release_vehicle_trip_owner_resolve_lock(
+    redis: &RedisConnectionPool,
+    gtfs_id: &str,
+    vehicle_no: &str,
+) -> Result<(), AppError> {
+    redis
+        .delete_key(&vehicle_trip_owner_resolve_lock_key(gtfs_id, vehicle_no))
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
 }
 
 #[cfg(test)]

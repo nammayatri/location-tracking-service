@@ -13,6 +13,7 @@ use crate::common::utils::{
     distance_between_in_meters, estimated_upcoming_stops_eta, get_base_vehicle_type, get_city,
     get_upcoming_stops_by_route_code,
 };
+use crate::common::vehicle_trip_owner::owner_check;
 use crate::common::{sliding_window_rate_limiter::sliding_window_limiter, types::*};
 use crate::domain::types::ui::location::{
     DriverLocationResponse, PersonLocationResponse, PersonType, UpdateDriverLocationRequest,
@@ -32,7 +33,7 @@ use crate::outbound::external::{
 use crate::outbound::types::{LocationUpdate, ViolationDetectionReq};
 use crate::redis::{commands::*, keys::*};
 use crate::tools::error::AppError;
-use crate::tools::prometheus::{MEASURE_DURATION, QUEUE_EVICTIONS};
+use crate::tools::prometheus::{MEASURE_DURATION, QUEUE_EVICTIONS, VEHICLE_TRIP_OWNER_CHECKS};
 use actix::Arbiter;
 use actix_web::{web::Data, HttpResponse};
 use chrono::Utc;
@@ -186,7 +187,7 @@ pub async fn handle_driver_conductor_location_update(
     route_code: Option<String>,
 ) -> Result<(), AppError> {
     // Bus-crew path always processes locally, so the cloud_type from auth is ignored.
-    let (driver_id, merchant_id, _moc_id, _cloud_type) = if var("DEV").is_ok() {
+    let (driver_id, merchant_id, moc_id, _cloud_type) = if var("DEV").is_ok() {
         (
             DriverId(token.to_owned().inner()),
             req_merchant_id.unwrap_or_else(|| MerchantId("dev".to_string())),
@@ -246,6 +247,21 @@ pub async fn handle_driver_conductor_location_update(
         data.location_update_interval as u32,
     )
     .await?;
+
+    let check = owner_check(&data, &driver_id, &moc_id, &gtfs_id, &vehicle_no).await;
+    VEHICLE_TRIP_OWNER_CHECKS
+        .with_label_values(&[gtfs_id.as_str(), check.as_str()])
+        .inc();
+    if !check.allows_forward() {
+        debug!(
+            gtfs_id = gtfs_id.as_str(),
+            vehicle_no = vehicle_no.as_str(),
+            driver_id = driver_id.0.as_str(),
+            result = check.as_str(),
+            "bus crew ping dropped, sender is not the vehicle trip owner"
+        );
+        return Ok(());
+    }
 
     for entry in request_body.into_iter() {
         let payload = BusGpsUpdate {

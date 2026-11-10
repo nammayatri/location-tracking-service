@@ -879,6 +879,68 @@ pub struct BroadcastTraceConfig {
     pub provider: TraceProvider,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct VehicleTripOwner {
+    pub active_trip: bool,
+    #[serde(default)]
+    pub person_ids: Vec<String>,
+    #[serde(default)]
+    pub updated_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VehicleTripOwnerReq {
+    pub merchant_operating_city_id: String,
+    pub gtfs_id: String,
+    pub vehicle_number: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OwnerCheck {
+    Owner,
+    NotOwner,
+    NoActiveTrip,
+    Resolving,
+    Unknown,
+}
+
+impl OwnerCheck {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            OwnerCheck::Owner => "owner",
+            OwnerCheck::NotOwner => "not_owner",
+            OwnerCheck::NoActiveTrip => "no_active_trip",
+            OwnerCheck::Resolving => "resolving",
+            OwnerCheck::Unknown => "unknown",
+        }
+    }
+
+    pub fn allows_forward(&self) -> bool {
+        matches!(self, OwnerCheck::Owner | OwnerCheck::Unknown)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BackendQuestion {
+    pub on_failure: OwnerCheck,
+    pub while_resolving: OwnerCheck,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CachedCheck {
+    Decided(OwnerCheck),
+    AskBackend(BackendQuestion),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ResolveOutcome {
+    Resolved(VehicleTripOwner),
+    InProgress,
+    Failed,
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod ride_info_tests {

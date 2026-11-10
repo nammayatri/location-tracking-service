@@ -16,3 +16,4 @@ pub mod sliding_window_rate_limiter;
 pub mod stop_detection;
 pub mod types;
 pub mod utils;
+pub mod vehicle_trip_owner;

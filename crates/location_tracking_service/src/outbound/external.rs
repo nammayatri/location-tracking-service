@@ -686,3 +686,20 @@ pub async fn get_special_locations_list(
     }
     Ok(results)
 }
+
+pub async fn resolve_vehicle_trip_owner(
+    resolve_url: &Url,
+    api_key: &str,
+    request: VehicleTripOwnerReq,
+) -> Result<VehicleTripOwner, AppError> {
+    call_api::<VehicleTripOwner, VehicleTripOwnerReq>(
+        Protocol::Http1,
+        Method::POST,
+        resolve_url,
+        vec![("content-type", "application/json"), ("api-key", api_key)],
+        Some(request),
+        None,
+    )
+    .await
+    .map_err(|e| e.into())
+}
