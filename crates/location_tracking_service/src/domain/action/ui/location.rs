@@ -248,19 +248,21 @@ pub async fn handle_driver_conductor_location_update(
     )
     .await?;
 
-    let check = owner_check(&data, &driver_id, &moc_id, &gtfs_id, &vehicle_no).await;
-    VEHICLE_TRIP_OWNER_CHECKS
-        .with_label_values(&[gtfs_id.as_str(), check.as_str()])
-        .inc();
-    if !check.allows_forward() {
-        debug!(
-            gtfs_id = gtfs_id.as_str(),
-            vehicle_no = vehicle_no.as_str(),
-            driver_id = driver_id.0.as_str(),
-            result = check.as_str(),
-            "bus crew ping dropped, sender is not the vehicle trip owner"
-        );
-        return Ok(());
+    if person_type_value != PersonType::SharedCabDriver {
+        let check = owner_check(&data, &driver_id, &moc_id, &gtfs_id, &vehicle_no).await;
+        VEHICLE_TRIP_OWNER_CHECKS
+            .with_label_values(&[gtfs_id.as_str(), check.as_str()])
+            .inc();
+        if !check.allows_forward() {
+            debug!(
+                gtfs_id = gtfs_id.as_str(),
+                vehicle_no = vehicle_no.as_str(),
+                driver_id = driver_id.0.as_str(),
+                result = check.as_str(),
+                "bus crew ping dropped, sender is not the vehicle trip owner"
+            );
+            return Ok(());
+        }
     }
 
     for entry in request_body.into_iter() {

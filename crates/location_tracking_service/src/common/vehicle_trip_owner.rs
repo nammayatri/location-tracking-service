@@ -29,6 +29,9 @@
 //! forwards the ping.
 //!
 //! `NotOwner`, `NoActiveTrip` and `Resolving` are dropped; `Owner` and `Unknown` are forwarded.
+//!
+//! Only bus crew (`bus_driver`, `bus_conductor`) go through this gate. Shared-cab pings skip it:
+//! a shared cab has no waybill, and its run is already gated by the driver's LTS ride.
 
 use crate::common::types::*;
 use crate::environment::AppState;
