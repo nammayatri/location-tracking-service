@@ -930,11 +930,30 @@ async fn process_driver_locations(
             min_distance_between_two_points: _,
             ride_stops: _,
             is_manual_arrival,
+            drop_location,
         }) = driver_ride_info.as_ref()
         {
             let is_manual_arrival = is_manual_arrival.unwrap_or(false);
             let pickup_distance =
                 distance_between_in_meters(pickup_location, &latest_driver_location.pt);
+            if driver_ride_status == Some(RideStatus::INPROGRESS) {
+                if let (Some(drop_location), Some(drop_threshold)) = (
+                    drop_location.as_ref(),
+                    data.drop_arriving_notification_threshold,
+                ) {
+                    if RideNotificationStatus::DriverReachingDestination
+                        > driver_ride_notification_status.unwrap_or(RideNotificationStatus::Idle)
+                        && distance_between_in_meters(drop_location, &latest_driver_location.pt)
+                            <= drop_threshold
+                    {
+                        return (
+                            Some(RideNotificationStatus::DriverReachingDestination),
+                            true,
+                            driver_pickup_distance.or(Some(Meters(pickup_distance as u32))),
+                        );
+                    }
+                }
+            }
             if let Some(ride_notification_status) = driver_ride_notification_status {
                 if let Some(driver_pickup_distance) = driver_pickup_distance {
                     if std::cmp::max(
@@ -1548,6 +1567,7 @@ async fn process_driver_locations(
                 min_distance_between_two_points: _,
                 ride_stops: _,
                 is_manual_arrival: _,
+                drop_location: _,
             }) => {
                 if let (Some(location), Some(ride_id)) =
                     (stop_detected.as_ref(), driver_ride_id.as_ref())

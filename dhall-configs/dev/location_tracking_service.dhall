@@ -518,6 +518,7 @@ in {
     pickup_instruction_notification_threshold = 500.0,
     pickup_notification_threshold = 40.0,
     arriving_notification_threshold = 100.0,
+    drop_arriving_notification_threshold = Some 500.0,
     detection_callback_url = "http://127.0.0.1:8016/internal/violationDetection",
     detection_violation_config = detection_violation_config,
     detection_anti_violation_config = detection_anti_violation_config,
