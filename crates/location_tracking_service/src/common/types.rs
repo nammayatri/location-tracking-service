@@ -251,6 +251,7 @@ pub enum RideInfo {
         min_distance_between_two_points: Option<i32>,
         ride_stops: Option<Vec<Point>>,
         is_manual_arrival: Option<bool>,
+        drop_location: Option<Point>,
     },
     #[serde(rename_all = "camelCase")]
     Pilot {
@@ -449,6 +450,9 @@ pub enum RideNotificationStatus {
     #[strum(serialize = "DRIVER_REACHED")]
     #[serde(rename = "DRIVER_REACHED")]
     DriverReached = 4,
+    #[strum(serialize = "DRIVER_REACHING_DESTINATION")]
+    #[serde(rename = "DRIVER_REACHING_DESTINATION")]
+    DriverReachingDestination = 5,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -883,6 +887,7 @@ pub struct BroadcastTraceConfig {
 #[allow(clippy::unwrap_used)]
 mod ride_info_tests {
     use super::*;
+    use strum::IntoEnumIterator;
 
     // pickupLocation is required, so the payload needs one, but its value is irrelevant here.
     fn parse_car_ride_info(is_manual_arrival: Option<bool>) -> RideInfo {
@@ -907,6 +912,40 @@ mod ride_info_tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn car_ride_info_without_drop_location_parses() {
+        assert!(matches!(
+            parse_car_ride_info(None),
+            RideInfo::Car {
+                drop_location: None,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn car_ride_info_reads_drop_location() {
+        let ride_info: RideInfo = serde_json::from_value(serde_json::json!({ "car": {
+            "pickupLocation": { "lat": 0.0, "lon": 0.0 },
+            "dropLocation": { "lat": 12.9, "lon": 77.6 }
+        }}))
+        .unwrap();
+        assert!(matches!(
+            ride_info,
+            RideInfo::Car {
+                drop_location: Some(_),
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn reaching_destination_outranks_every_pickup_status() {
+        assert!(RideNotificationStatus::iter()
+            .filter(|status| *status != RideNotificationStatus::DriverReachingDestination)
+            .all(|status| RideNotificationStatus::DriverReachingDestination > status));
     }
 
     #[test]

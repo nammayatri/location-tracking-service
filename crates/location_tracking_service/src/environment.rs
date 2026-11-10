@@ -63,6 +63,8 @@ pub struct AppConfig {
     pub pickup_instruction_notification_threshold: f64,
     pub arriving_notification_threshold: f64,
     pub pickup_notification_threshold: f64,
+    #[serde(default)]
+    pub drop_arriving_notification_threshold: Option<f64>,
     pub driver_reached_destination_buffer: f64,
     #[serde(deserialize_with = "deserialize_url")]
     pub driver_reached_destination_callback_url: Url,
@@ -247,6 +249,7 @@ pub struct AppState {
     pub pickup_instruction_notification_threshold: f64,
     pub pickup_notification_threshold: f64,
     pub arriving_notification_threshold: f64,
+    pub drop_arriving_notification_threshold: Option<f64>,
     pub detection_violation_config:
         HashMap<VehicleType, HashMap<RideStatus, HashMap<DetectionType, ViolationDetectionConfig>>>,
     pub detection_anti_violation_config:
@@ -582,6 +585,7 @@ impl AppState {
                 .pickup_instruction_notification_threshold,
             pickup_notification_threshold: app_config.pickup_notification_threshold,
             arriving_notification_threshold: app_config.arriving_notification_threshold,
+            drop_arriving_notification_threshold: app_config.drop_arriving_notification_threshold,
             detection_violation_config,
             detection_anti_violation_config,
             routes: Arc::new(RwLock::new(routes)),
