@@ -316,7 +316,7 @@ impl Default for APISuccess {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AuthData {
     pub driver_id: DriverId,
     pub merchant_id: MerchantId,
@@ -325,6 +325,9 @@ pub struct AuthData {
     /// backward compatibility with Redis entries cached before this field existed.
     #[serde(default)]
     pub cloud_type: Option<CloudType>,
+    /// GIMS badge of bus crew. `#[serde(default)]` keeps entries cached before this field readable.
+    #[serde(default)]
+    pub operator_badge_token: Option<String>,
 }
 
 pub struct DriverLocationPoint {
@@ -881,6 +884,57 @@ pub struct BroadcastTraceConfig {
     pub last_trace_ts: Option<i64>,
     pub expires_at: Option<i64>,
     pub provider: TraceProvider,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct VehicleTripOwner {
+    pub online_waybill: bool,
+    #[serde(default)]
+    pub crew_badges: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum CachedTripOwner {
+    Resolved(VehicleTripOwner),
+    Unknown,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VehicleTripOwnerReq {
+    pub merchant_operating_city_id: String,
+    pub gtfs_id: String,
+    pub vehicle_number: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OwnerCheck {
+    Owner,
+    NotOwner,
+    NoOnlineWaybill,
+    NoBadge,
+    Unknown,
+}
+
+impl OwnerCheck {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            OwnerCheck::Owner => "owner",
+            OwnerCheck::NotOwner => "not_owner",
+            OwnerCheck::NoOnlineWaybill => "no_online_waybill",
+            OwnerCheck::NoBadge => "no_badge",
+            OwnerCheck::Unknown => "unknown",
+        }
+    }
+
+    pub fn allows_forward(&self) -> bool {
+        matches!(
+            self,
+            OwnerCheck::Owner | OwnerCheck::NoBadge | OwnerCheck::Unknown
+        )
+    }
 }
 
 #[cfg(test)]

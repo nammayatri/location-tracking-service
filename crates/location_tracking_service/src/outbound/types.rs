@@ -46,6 +46,9 @@ pub struct AuthResponseData {
     /// JSON key `cloudType`; optional so older driver-app responses still deserialize.
     #[serde(default)]
     pub cloud_type: Option<CloudType>,
+    /// JSON key `operatorBadgeToken`; the GIMS badge, set only for bus crew.
+    #[serde(default)]
+    pub operator_badge_token: Option<String>,
 }
 
 // BAP Authentication (rider). BAP sends "riderId" in JSON; we expose as person_id.

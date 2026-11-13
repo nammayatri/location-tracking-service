@@ -858,7 +858,7 @@ pub async fn get_on_pickup_driver_locations(
 /// * `redis` - A connection pool to the Redis datastore.
 /// * `auth_token_expiry` - Duration of time (in seconds) for which the driver ID should be associated with the token.
 /// * `token` - The authentication token.
-/// * `DriverId(driver_id)` - The unique driver identifier.
+/// * `auth_data` - The authenticated driver, merchant, city, cloud and bus-crew badge.
 ///
 /// # Returns
 ///
@@ -867,17 +867,8 @@ pub async fn set_driver_id(
     redis: &RedisConnectionPool,
     auth_token_expiry: &u32,
     token: &Token,
-    driver_id: DriverId,
-    merchant_id: MerchantId,
-    merchant_operating_city_id: MerchantOperatingCityId,
-    cloud_type: Option<CloudType>,
+    auth_data: AuthData,
 ) -> Result<(), AppError> {
-    let auth_data = AuthData {
-        driver_id,
-        merchant_id,
-        merchant_operating_city_id,
-        cloud_type,
-    };
     redis
         .set_key(&set_driver_id_key(token), auth_data, *auth_token_expiry)
         .await
@@ -1941,6 +1932,34 @@ pub async fn get_drivers_in_special_location(
         }
     }
     Ok(driver_ids.into_iter().collect())
+}
+
+pub async fn get_vehicle_trip_owner(
+    redis: &RedisConnectionPool,
+    gtfs_id: &str,
+    vehicle_no: &str,
+) -> Result<Option<CachedTripOwner>, AppError> {
+    redis
+        .get_key::<CachedTripOwner>(&vehicle_trip_owner_key(gtfs_id, vehicle_no))
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
+pub async fn set_vehicle_trip_owner(
+    redis: &RedisConnectionPool,
+    gtfs_id: &str,
+    vehicle_no: &str,
+    owner: &CachedTripOwner,
+    expiry_secs: u32,
+) -> Result<(), AppError> {
+    redis
+        .set_key(
+            &vehicle_trip_owner_key(gtfs_id, vehicle_no),
+            owner,
+            expiry_secs,
+        )
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
 }
 
 #[cfg(test)]
