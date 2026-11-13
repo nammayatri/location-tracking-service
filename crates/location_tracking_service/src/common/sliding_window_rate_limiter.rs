@@ -30,13 +30,27 @@ pub async fn sliding_window_limiter(
     frame_hits_lim: usize,
     frame_len: u32,
 ) -> Result<(), AppError> {
-    let curr_time = Utc::now().timestamp();
-
     let hits_frame = redis
         .get_key::<Vec<i64>>(key)
         .await
-        .map_err(|err| AppError::InternalError(err.to_string()))?
-        .unwrap_or(Vec::new());
+        .map_err(|err| AppError::InternalError(err.to_string()))?;
+
+    sliding_window_limiter_with_hits(redis, key, frame_hits_lim, frame_len, hits_frame).await
+}
+
+/// Same as [`sliding_window_limiter`], but takes the hits already read from Redis
+/// (e.g. fetched in a pipeline together with other per-request reads), so only
+/// the write goes to Redis here.
+pub async fn sliding_window_limiter_with_hits(
+    redis: &RedisConnectionPool,
+    key: &str,
+    frame_hits_lim: usize,
+    frame_len: u32,
+    hits_frame: Option<Vec<i64>>,
+) -> Result<(), AppError> {
+    let curr_time = Utc::now().timestamp();
+
+    let hits_frame = hits_frame.unwrap_or_default();
 
     let curr_frame = curr_time / frame_len as i64;
 

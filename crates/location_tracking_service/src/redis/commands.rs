@@ -12,11 +12,11 @@ use crate::redis::keys::*;
 use crate::tools::error::AppError;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use fred::prelude::{KeysInterface, ListInterface, SortedSetsInterface};
-use fred::types::{GeoPosition, GeoUnit, RedisValue, SetOptions, SortOrder};
+use fred::types::{Expiration, GeoPosition, GeoUnit, RedisValue, SetOptions, SortOrder};
 use futures::Future;
 use rustc_hash::FxHashSet;
 use serde::{Deserialize, Serialize};
-use shared::redis::types::{RedisConnectionPool, Ttl};
+use shared::redis::types::RedisConnectionPool;
 use std::collections::HashMap;
 use tracing::{error, info};
 
@@ -1188,40 +1188,92 @@ where
     Args: Send + 'static,
     Fut: Future<Output = Result<T, AppError>>,
 {
-    // TODO :: This lock can be made optimistic by using counter approach
-    match redis
-        .ttl(&key)
-        .await
-        .map_err(|err| AppError::InternalError(err.to_string()))?
-    {
-        Ttl::NoExpiry | Ttl::NoKeyFound => {
-            match redis
-                .setnx_with_expiry(&key, true, expiry)
+    // Acquire with a single atomic `SET key true NX EX expiry` (one command, one
+    // round trip). This replaces the old TTL check + MSETNX/EXPIRE pipeline,
+    // which cost three commands and two round trips per call, and whose EXPIRE
+    // also ran when MSETNX failed, extending the TTL of a lock held by someone else.
+    match try_acquire_lock(redis, &key, expiry).await {
+        Ok(true) => {
+            info!("Got lock : {}", &key);
+            let resp = callback(args).await;
+            redis
+                .delete_key(&key)
                 .await
-                .map_err(|err| AppError::InternalError(err.to_string()))
-            {
-                Ok(true) => {
-                    info!("Got lock : {}", &key);
-                    let resp = callback(args).await;
-                    redis
-                        .delete_key(&key)
-                        .await
-                        .map_err(|err| AppError::InternalError(err.to_string()))?;
-                    info!("Released lock : {}", &key);
-                    resp
-                }
-                Ok(false) => Err(AppError::UnderProcessing(key)),
-                Err(err) => {
-                    error!("[Error] setnx_with_expiry : {:?}", err);
-                    let _ = redis
-                        .delete_key(&key)
-                        .await
-                        .map_err(|err| AppError::InternalError(err.to_string()));
-                    Err(AppError::InternalError(err.to_string()))
-                }
-            }
+                .map_err(|err| AppError::InternalError(err.to_string()))?;
+            info!("Released lock : {}", &key);
+            resp
         }
-        Ttl::TtlValue(_) => Err(AppError::UnderProcessing(key)),
+        Ok(false) => Err(AppError::UnderProcessing(key)),
+        Err(err) => {
+            error!("[Error] try_acquire_lock : {:?}", err);
+            let _ = redis
+                .delete_key(&key)
+                .await
+                .map_err(|err| AppError::InternalError(err.to_string()));
+            Err(err)
+        }
+    }
+}
+
+/// Atomically sets `key` with an expiry only if it does not already exist
+/// (`SET key true NX EX expiry`). Returns `Ok(true)` when the lock was acquired,
+/// `Ok(false)` when the key is already held.
+async fn try_acquire_lock(
+    redis: &RedisConnectionPool,
+    key: &str,
+    expiry: i64,
+) -> Result<bool, AppError> {
+    let reply: RedisValue = redis
+        .writer_pool
+        .set(
+            key,
+            true,
+            Some(Expiration::EX(expiry)),
+            Some(SetOptions::NX),
+            false,
+        )
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))?;
+    Ok(!reply.is_null())
+}
+
+/// Reads the driver's stored details and the location-update rate limiter hits
+/// in one pipelined round trip on the reader pool, instead of two sequential GETs.
+pub async fn get_driver_location_and_rate_limit_hits(
+    redis: &RedisConnectionPool,
+    driver_id: &DriverId,
+    rate_limit_key: &str,
+) -> Result<(Option<DriverAllDetails>, Option<Vec<i64>>), AppError> {
+    let pipeline = redis.reader_pool.next().pipeline();
+    let _ = pipeline
+        .get::<RedisValue, _>(driver_details_key(driver_id))
+        .await;
+    let _ = pipeline.get::<RedisValue, _>(rate_limit_key).await;
+    let replies: Vec<RedisValue> = pipeline
+        .all()
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))?;
+
+    let mut replies = replies.into_iter();
+    let driver_details = decode_json_reply::<DriverAllDetails>(replies.next())?;
+    let rate_limit_hits = decode_json_reply::<Vec<i64>>(replies.next())?;
+    Ok((driver_details, rate_limit_hits))
+}
+
+/// Mirrors `RedisConnectionPool::get_key`: a string reply is JSON-decoded, a
+/// null (or missing) reply is `None`, anything else is an error.
+fn decode_json_reply<T: serde::de::DeserializeOwned>(
+    reply: Option<RedisValue>,
+) -> Result<Option<T>, AppError> {
+    match reply {
+        Some(RedisValue::String(val)) => serde_json::from_str(&val)
+            .map(Some)
+            .map_err(|err| AppError::InternalError(err.to_string())),
+        Some(RedisValue::Null) | None => Ok(None),
+        Some(case) => Err(AppError::InternalError(format!(
+            "Unexpected RedisValue encountered : {:?}",
+            case
+        ))),
     }
 }
 

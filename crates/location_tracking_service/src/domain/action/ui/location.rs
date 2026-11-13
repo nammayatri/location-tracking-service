@@ -13,7 +13,10 @@ use crate::common::utils::{
     distance_between_in_meters, estimated_upcoming_stops_eta, get_base_vehicle_type, get_city,
     get_upcoming_stops_by_route_code,
 };
-use crate::common::{sliding_window_rate_limiter::sliding_window_limiter, types::*};
+use crate::common::{
+    sliding_window_rate_limiter::{sliding_window_limiter, sliding_window_limiter_with_hits},
+    types::*,
+};
 use crate::domain::types::ui::location::{
     DriverLocationResponse, PersonLocationResponse, PersonType, UpdateDriverLocationRequest,
     UpdatePersonLocationRequest,
@@ -311,6 +314,75 @@ fn get_filtered_driver_locations(
     )
 }
 
+/// Rate-limiter hits read ahead of time, together with the city they were read for.
+type PrefetchedRateLimit = Option<(CityName, Option<Vec<i64>>)>;
+
+/// Reads the driver's stored details and, when possible, the location-update
+/// rate-limiter hits in a single pipelined round trip.
+///
+/// The rate-limiter key depends on the city of the newest ping. `locations` must
+/// already be sorted by timestamp: the newest ping is then also the ping that
+/// survives the staleness filter (if any does), so the city computed here is the
+/// city the limiter is later applied for. If the city cannot be resolved here,
+/// only the driver details are read and the limiter falls back to its own read.
+async fn read_driver_details_and_rate_limit_hits(
+    data: &Data<AppState>,
+    driver_id: &DriverId,
+    merchant_id: &MerchantId,
+    locations: &[UpdateDriverLocationRequest],
+) -> Result<(Option<DriverAllDetails>, PrefetchedRateLimit), AppError> {
+    let prefetch_city = locations
+        .last()
+        .and_then(|location| get_city(&location.pt.lat, &location.pt.lon, &data.polygon).ok());
+
+    match prefetch_city {
+        Some(city) => {
+            let (driver_details, hits) = get_driver_location_and_rate_limit_hits(
+                &data.redis,
+                driver_id,
+                &sliding_rate_limiter_key(driver_id, &city, merchant_id),
+            )
+            .await?;
+            Ok((driver_details, Some((city, hits))))
+        }
+        None => Ok((get_driver_location(&data.redis, driver_id).await?, None)),
+    }
+}
+
+/// Applies the location-update sliding-window limit for `city`, using the hits
+/// prefetched by [`read_driver_details_and_rate_limit_hits`] when they were read
+/// for the same city, and reading them from Redis otherwise.
+async fn apply_location_update_rate_limit(
+    data: &Data<AppState>,
+    driver_id: &DriverId,
+    merchant_id: &MerchantId,
+    city: &CityName,
+    prefetched: PrefetchedRateLimit,
+) -> Result<(), AppError> {
+    let key = sliding_rate_limiter_key(driver_id, city, merchant_id);
+    match prefetched {
+        Some((prefetch_city, hits)) if &prefetch_city == city => {
+            sliding_window_limiter_with_hits(
+                &data.redis,
+                &key,
+                data.location_update_limit,
+                data.location_update_interval as u32,
+                hits,
+            )
+            .await
+        }
+        _ => {
+            sliding_window_limiter(
+                &data.redis,
+                &key,
+                data.location_update_limit,
+                data.location_update_interval as u32,
+            )
+            .await
+        }
+    }
+}
+
 #[macros::measure_duration]
 pub async fn update_driver_location_by_token(
     token: Token,
@@ -394,7 +466,9 @@ pub async fn update_driver_location_by_token(
         (a_ts).cmp(&b_ts)
     });
 
-    let driver_location_details = get_driver_location(&data.redis, &driver_id).await?;
+    let (driver_location_details, prefetched_rate_limit) =
+        read_driver_details_and_rate_limit_hits(&data, &driver_id, &merchant_id, &locations)
+            .await?;
 
     if let Some(driver_location_details) = driver_location_details.as_ref() {
         let curr_time = TimeStamp(Utc::now());
@@ -433,11 +507,12 @@ pub async fn update_driver_location_by_token(
         &data.polygon,
     )?;
 
-    sliding_window_limiter(
-        &data.redis,
-        &sliding_rate_limiter_key(&driver_id, &city, &merchant_id),
-        data.location_update_limit,
-        data.location_update_interval as u32,
+    apply_location_update_rate_limit(
+        &data,
+        &driver_id,
+        &merchant_id,
+        &city,
+        prefetched_rate_limit,
     )
     .await?;
 
@@ -497,7 +572,9 @@ pub async fn update_driver_location(
         (a_ts).cmp(&b_ts)
     });
 
-    let driver_location_details = get_driver_location(&data.redis, &driver_id).await?;
+    let (driver_location_details, prefetched_rate_limit) =
+        read_driver_details_and_rate_limit_hits(&data, &driver_id, &merchant_id, &locations)
+            .await?;
 
     if let Some(driver_location_details) = driver_location_details.as_ref() {
         let curr_time = TimeStamp(Utc::now());
@@ -536,11 +613,12 @@ pub async fn update_driver_location(
         &data.polygon,
     )?;
 
-    sliding_window_limiter(
-        &data.redis,
-        &sliding_rate_limiter_key(&driver_id, &city, &merchant_id),
-        data.location_update_limit,
-        data.location_update_interval as u32,
+    apply_location_update_rate_limit(
+        &data,
+        &driver_id,
+        &merchant_id,
+        &city,
+        prefetched_rate_limit,
     )
     .await?;
 
