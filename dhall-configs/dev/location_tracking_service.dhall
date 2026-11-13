@@ -535,6 +535,7 @@ in {
     rider_auth_api_key = "ae288466-2add-11ee-be56-0242ac120002",
     rider_auth_token_expiry = 86400,
     special_location_list_base_url = Some "http://127.0.0.1:8016",
+    vehicle_trip_owner_resolve_url = Some "http://127.0.0.1:8016/internal/vehicleTripOwner/resolve",
     enable_special_location_bucketing = False,
     queue_position_range_offset = 2,
     queue_exit_hysteresis_threshold = 3,

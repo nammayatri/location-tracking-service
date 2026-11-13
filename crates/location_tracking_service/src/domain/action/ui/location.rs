@@ -26,13 +26,13 @@ use crate::outbound::external::trigger_detection_alert;
 use crate::outbound::external::{
     authenticate_bap, authenticate_dobpp, bulk_location_update_dobpp,
     bulk_location_update_pickup_dobpp, driver_reached_destination,
-    forward_driver_location_to_cloud, trigger_fcm_bap, trigger_fcm_dobpp,
-    trigger_stop_detection_event,
+    forward_driver_location_to_cloud, resolve_vehicle_trip_owner, trigger_fcm_bap,
+    trigger_fcm_dobpp, trigger_stop_detection_event,
 };
 use crate::outbound::types::{LocationUpdate, ViolationDetectionReq};
 use crate::redis::{commands::*, keys::*};
 use crate::tools::error::AppError;
-use crate::tools::prometheus::{MEASURE_DURATION, QUEUE_EVICTIONS};
+use crate::tools::prometheus::{MEASURE_DURATION, QUEUE_EVICTIONS, VEHICLE_TRIP_OWNER_CHECKS};
 use actix::Arbiter;
 use actix_web::{web::Data, HttpResponse};
 use chrono::Utc;
@@ -46,6 +46,7 @@ use std::env::var;
 use std::pin::Pin;
 use std::time::Duration;
 use strum::IntoEnumIterator;
+use tokio::time::timeout;
 use tracing::{debug, error, info, warn};
 
 #[macros::measure_duration]
@@ -61,6 +62,7 @@ async fn get_driver_id_from_authentication(
         MerchantId,
         MerchantOperatingCityId,
         Option<CloudType>,
+        Option<String>,
     ),
     AppError,
 > {
@@ -70,24 +72,24 @@ async fn get_driver_id_from_authentication(
             auth_data.merchant_id,
             auth_data.merchant_operating_city_id,
             auth_data.cloud_type,
+            auth_data.operator_badge_token,
         )),
         None => {
             let response = authenticate_dobpp(auth_url, token.0.as_str(), auth_api_key).await?;
-            set_driver_id(
-                redis,
-                auth_token_expiry,
-                token,
-                response.driver_id.to_owned(),
-                response.merchant_id.to_owned(),
-                response.merchant_operating_city_id.to_owned(),
-                response.cloud_type,
-            )
-            .await?;
+            let auth_data = AuthData {
+                driver_id: response.driver_id,
+                merchant_id: response.merchant_id,
+                merchant_operating_city_id: response.merchant_operating_city_id,
+                cloud_type: response.cloud_type,
+                operator_badge_token: response.operator_badge_token,
+            };
+            set_driver_id(redis, auth_token_expiry, token, auth_data.clone()).await?;
             Ok((
-                response.driver_id,
-                response.merchant_id,
-                response.merchant_operating_city_id,
-                response.cloud_type,
+                auth_data.driver_id,
+                auth_data.merchant_id,
+                auth_data.merchant_operating_city_id,
+                auth_data.cloud_type,
+                auth_data.operator_badge_token,
             ))
         }
     }
@@ -172,6 +174,85 @@ fn forwardable_speed_kmph(speed: Option<SpeedInMeterPerSecond>) -> Option<SpeedI
         .filter(|kmph| kmph.inner().is_finite())
 }
 
+fn check_owner(cached: &CachedTripOwner, badge: Option<&str>) -> OwnerCheck {
+    let CachedTripOwner::Resolved(owner) = cached else {
+        return OwnerCheck::Unknown;
+    };
+    if !owner.online_waybill {
+        return OwnerCheck::NoOnlineWaybill;
+    }
+    let Some(badge) = badge.map(str::trim).filter(|badge| !badge.is_empty()) else {
+        return OwnerCheck::NoBadge;
+    };
+    if owner.crew_badges.iter().any(|crew| crew.trim() == badge) {
+        OwnerCheck::Owner
+    } else {
+        OwnerCheck::NotOwner
+    }
+}
+
+async fn owner_check(
+    data: &AppState,
+    badge: Option<&str>,
+    merchant_operating_city_id: &MerchantOperatingCityId,
+    gtfs_id: &str,
+    vehicle_no: &str,
+) -> OwnerCheck {
+    let cached = match get_vehicle_trip_owner(&data.redis, gtfs_id, vehicle_no).await {
+        Ok(Some(cached)) => cached,
+        Ok(None) => resolve_owner(data, merchant_operating_city_id, gtfs_id, vehicle_no).await,
+        Err(err) => {
+            warn!(gtfs_id, vehicle_no, error = ?err, "vehicle trip owner read failed");
+            return OwnerCheck::Unknown;
+        }
+    };
+    check_owner(&cached, badge)
+}
+
+async fn resolve_owner(
+    data: &AppState,
+    merchant_operating_city_id: &MerchantOperatingCityId,
+    gtfs_id: &str,
+    vehicle_no: &str,
+) -> CachedTripOwner {
+    let Some(resolve_url) = data.vehicle_trip_owner_resolve_url.as_ref() else {
+        return CachedTripOwner::Unknown;
+    };
+    let request = VehicleTripOwnerReq {
+        merchant_operating_city_id: merchant_operating_city_id.0.clone(),
+        gtfs_id: gtfs_id.to_string(),
+        vehicle_number: vehicle_no.to_string(),
+    };
+    let resolved = match timeout(
+        Duration::from_millis(data.vehicle_trip_owner_resolve_timeout_ms),
+        resolve_vehicle_trip_owner(resolve_url, &data.auth_api_key, request),
+    )
+    .await
+    {
+        Ok(result) => result,
+        Err(_) => Err(AppError::RequestTimeout),
+    };
+    let (cached, expiry_secs) = match resolved {
+        Ok(owner) => (
+            CachedTripOwner::Resolved(owner),
+            data.vehicle_trip_owner_cache_secs,
+        ),
+        Err(err) => {
+            warn!(gtfs_id, vehicle_no, error = ?err, "vehicle trip owner resolve failed");
+            (
+                CachedTripOwner::Unknown,
+                data.vehicle_trip_owner_failure_cache_secs,
+            )
+        }
+    };
+    if let Err(err) =
+        set_vehicle_trip_owner(&data.redis, gtfs_id, vehicle_no, &cached, expiry_secs).await
+    {
+        warn!(gtfs_id, vehicle_no, error = ?err, "vehicle trip owner cache write failed");
+    }
+    cached
+}
+
 /// Forward bus-crew pings (`bus_conductor` / `bus_driver`) straight to the
 /// per-fleet Kafka topic keyed by `gtfs_id`, bypassing the driver location
 /// pipeline. `person_type`, `gtfs_id` and `vehicle_no` are passed as headers.
@@ -186,11 +267,13 @@ pub async fn handle_driver_conductor_location_update(
     route_code: Option<String>,
 ) -> Result<(), AppError> {
     // Bus-crew path always processes locally, so the cloud_type from auth is ignored.
-    let (driver_id, merchant_id, _moc_id, _cloud_type) = if var("DEV").is_ok() {
+    let (driver_id, merchant_id, moc_id, _cloud_type, operator_badge_token) = if var("DEV").is_ok()
+    {
         (
             DriverId(token.to_owned().inner()),
             req_merchant_id.unwrap_or_else(|| MerchantId("dev".to_string())),
             MerchantOperatingCityId("dev".to_string()),
+            None,
             None,
         )
     } else {
@@ -246,6 +329,30 @@ pub async fn handle_driver_conductor_location_update(
         data.location_update_interval as u32,
     )
     .await?;
+
+    if person_type_value != PersonType::SharedCabDriver {
+        let check = owner_check(
+            &data,
+            operator_badge_token.as_deref(),
+            &moc_id,
+            &gtfs_id,
+            &vehicle_no,
+        )
+        .await;
+        VEHICLE_TRIP_OWNER_CHECKS
+            .with_label_values(&[gtfs_id.as_str(), check.as_str()])
+            .inc();
+        if !check.allows_forward() {
+            debug!(
+                gtfs_id = gtfs_id.as_str(),
+                vehicle_no = vehicle_no.as_str(),
+                driver_id = driver_id.0.as_str(),
+                result = check.as_str(),
+                "bus crew ping dropped, sender is not the vehicle trip owner"
+            );
+            return Ok(());
+        }
+    }
 
     for entry in request_body.into_iter() {
         let payload = BusGpsUpdate {
@@ -329,13 +436,15 @@ pub async fn update_driver_location_by_token(
     let is_forwarded_request = req_headers.iter().any(|(name, value)| {
         name.eq_ignore_ascii_case("x-forwarded-from-cloud") && value == "true"
     });
-    let (driver_id, merchant_id, merchant_operating_city_id, cloud_type) = if var("DEV").is_ok() {
+    let (driver_id, merchant_id, merchant_operating_city_id, cloud_type, _) = if var("DEV").is_ok()
+    {
         (
             DriverId(token.to_owned().inner()),
             req_merchant_id
                 .clone()
                 .unwrap_or_else(|| MerchantId("dev".to_string())),
             MerchantOperatingCityId("dev".to_string()),
+            None,
             None,
         )
     } else {
@@ -2267,5 +2376,78 @@ mod bus_gps_update_tests {
             .into_iter()
             .collect()
         );
+    }
+}
+
+#[cfg(test)]
+mod vehicle_trip_owner_tests {
+    use super::*;
+
+    fn resolved(online_waybill: bool, crew_badges: &[&str]) -> CachedTripOwner {
+        CachedTripOwner::Resolved(VehicleTripOwner {
+            online_waybill,
+            crew_badges: crew_badges.iter().map(|badge| badge.to_string()).collect(),
+        })
+    }
+
+    #[test]
+    fn crew_badge_of_online_waybill_is_owner() {
+        let check = check_owner(&resolved(true, &["D1", "C1"]), Some("C1"));
+        assert_eq!(check, OwnerCheck::Owner);
+    }
+
+    #[test]
+    fn badge_outside_the_crew_is_dropped() {
+        let check = check_owner(&resolved(true, &["D1", "C1"]), Some("D9"));
+        assert_eq!(check, OwnerCheck::NotOwner);
+    }
+
+    #[test]
+    fn no_online_waybill_drops_even_former_crew() {
+        assert_eq!(
+            check_owner(&resolved(false, &[]), Some("D1")),
+            OwnerCheck::NoOnlineWaybill
+        );
+        assert_eq!(
+            check_owner(&resolved(false, &[]), None),
+            OwnerCheck::NoOnlineWaybill
+        );
+    }
+
+    #[test]
+    fn missing_badge_on_online_waybill_is_forwarded() {
+        assert_eq!(
+            check_owner(&resolved(true, &["D1"]), None),
+            OwnerCheck::NoBadge
+        );
+        assert_eq!(
+            check_owner(&resolved(true, &["D1"]), Some("  ")),
+            OwnerCheck::NoBadge
+        );
+    }
+
+    #[test]
+    fn badges_are_compared_trimmed() {
+        assert_eq!(
+            check_owner(&resolved(true, &[" D1 "]), Some("D1 ")),
+            OwnerCheck::Owner
+        );
+    }
+
+    #[test]
+    fn unknown_is_forwarded() {
+        assert_eq!(
+            check_owner(&CachedTripOwner::Unknown, Some("D1")),
+            OwnerCheck::Unknown
+        );
+    }
+
+    #[test]
+    fn only_owner_no_badge_and_unknown_are_forwarded() {
+        assert!(OwnerCheck::Owner.allows_forward());
+        assert!(OwnerCheck::NoBadge.allows_forward());
+        assert!(OwnerCheck::Unknown.allows_forward());
+        assert!(!OwnerCheck::NotOwner.allows_forward());
+        assert!(!OwnerCheck::NoOnlineWaybill.allows_forward());
     }
 }

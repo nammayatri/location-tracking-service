@@ -97,6 +97,14 @@ pub struct AppConfig {
     pub rider_auth_token_expiry: u32,
     pub special_location_list_base_url: Option<String>,
     #[serde(default)]
+    pub vehicle_trip_owner_resolve_url: Option<String>,
+    #[serde(default = "default_vehicle_trip_owner_cache_secs")]
+    pub vehicle_trip_owner_cache_secs: u32,
+    #[serde(default = "default_vehicle_trip_owner_failure_cache_secs")]
+    pub vehicle_trip_owner_failure_cache_secs: u32,
+    #[serde(default = "default_vehicle_trip_owner_resolve_timeout_ms")]
+    pub vehicle_trip_owner_resolve_timeout_ms: u64,
+    #[serde(default)]
     pub enable_special_location_bucketing: bool,
     #[serde(default = "default_queue_expiry")]
     pub queue_expiry_seconds: u64,
@@ -147,6 +155,18 @@ fn default_true() -> bool {
 
 fn default_special_location_entry_ts_ttl() -> u64 {
     1800 // 30 minutes
+}
+
+fn default_vehicle_trip_owner_cache_secs() -> u32 {
+    300
+}
+
+fn default_vehicle_trip_owner_failure_cache_secs() -> u32 {
+    180
+}
+
+fn default_vehicle_trip_owner_resolve_timeout_ms() -> u64 {
+    5000
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -265,6 +285,10 @@ pub struct AppState {
     pub rider_auth_api_key: String,
     pub rider_auth_token_expiry: u32,
     pub special_location_list_base_url: Option<Url>,
+    pub vehicle_trip_owner_resolve_url: Option<Url>,
+    pub vehicle_trip_owner_cache_secs: u32,
+    pub vehicle_trip_owner_failure_cache_secs: u32,
+    pub vehicle_trip_owner_resolve_timeout_ms: u64,
     pub enable_special_location_bucketing: bool,
     pub special_location_cache: SpecialLocationCache,
     pub queue_expiry_seconds: u64,
@@ -603,6 +627,13 @@ impl AppState {
                 .special_location_list_base_url
                 .as_ref()
                 .and_then(|s| Url::parse(s).ok()),
+            vehicle_trip_owner_resolve_url: app_config
+                .vehicle_trip_owner_resolve_url
+                .as_ref()
+                .and_then(|s| Url::parse(s).ok()),
+            vehicle_trip_owner_cache_secs: app_config.vehicle_trip_owner_cache_secs,
+            vehicle_trip_owner_failure_cache_secs: app_config.vehicle_trip_owner_failure_cache_secs,
+            vehicle_trip_owner_resolve_timeout_ms: app_config.vehicle_trip_owner_resolve_timeout_ms,
             enable_special_location_bucketing: app_config.enable_special_location_bucketing,
             special_location_cache: Arc::new(RwLock::new(FxHashMap::default())),
             queue_expiry_seconds: app_config.queue_expiry_seconds,
