@@ -1188,11 +1188,39 @@ where
     Args: Send + 'static,
     Fut: Future<Output = Result<T, AppError>>,
 {
+    with_lock_redis_after_set(redis, key, expiry, None, callback, args).await
+}
+
+/// A `SET key value EX expiry` to send in the same pipeline as a lock acquire.
+/// `value` is already serialized (JSON), like `RedisConnectionPool::set_key` stores it.
+pub struct PendingSet {
+    pub key: String,
+    pub value: String,
+    pub expiry: i64,
+}
+
+/// Same as [`with_lock_redis`], but first writes `pending_set` (if any) in the
+/// same pipeline as the lock acquire, so the write and the lock cost one round
+/// trip. The write is sent before the lock and is applied whether or not the
+/// lock is obtained, exactly as when it is issued as a separate command first.
+pub async fn with_lock_redis_after_set<F, Args, Fut, T>(
+    redis: &RedisConnectionPool,
+    key: String,
+    expiry: i64,
+    pending_set: Option<PendingSet>,
+    callback: F,
+    args: Args,
+) -> Result<T, AppError>
+where
+    F: Fn(Args) -> Fut,
+    Args: Send + 'static,
+    Fut: Future<Output = Result<T, AppError>>,
+{
     // Acquire with a single atomic `SET key true NX EX expiry` (one command, one
     // round trip). This replaces the old TTL check + MSETNX/EXPIRE pipeline,
     // which cost three commands and two round trips per call, and whose EXPIRE
     // also ran when MSETNX failed, extending the TTL of a lock held by someone else.
-    match try_acquire_lock(redis, &key, expiry).await {
+    match try_acquire_lock(redis, &key, expiry, pending_set).await {
         Ok(true) => {
             info!("Got lock : {}", &key);
             let resp = callback(args).await;
@@ -1218,37 +1246,90 @@ where
 /// Atomically sets `key` with an expiry only if it does not already exist
 /// (`SET key true NX EX expiry`). Returns `Ok(true)` when the lock was acquired,
 /// `Ok(false)` when the key is already held.
+///
+/// When `pending_set` is given, it is sent first in the same pipeline; a failure
+/// of that write is returned as an error.
 async fn try_acquire_lock(
     redis: &RedisConnectionPool,
     key: &str,
     expiry: i64,
+    pending_set: Option<PendingSet>,
 ) -> Result<bool, AppError> {
-    let reply: RedisValue = redis
-        .writer_pool
-        .set(
+    let Some(pending_set) = pending_set else {
+        let reply: RedisValue = redis
+            .writer_pool
+            .set(
+                key,
+                true,
+                Some(Expiration::EX(expiry)),
+                Some(SetOptions::NX),
+                false,
+            )
+            .await
+            .map_err(|err| AppError::InternalError(err.to_string()))?;
+        return Ok(!reply.is_null());
+    };
+
+    let pipeline = redis.writer_pool.next().pipeline();
+    let _ = pipeline
+        .set::<RedisValue, _, _>(
+            pending_set.key.as_str(),
+            pending_set.value,
+            Some(Expiration::EX(pending_set.expiry)),
+            None,
+            false,
+        )
+        .await;
+    let _ = pipeline
+        .set::<RedisValue, _, _>(
             key,
             true,
             Some(Expiration::EX(expiry)),
             Some(SetOptions::NX),
             false,
         )
+        .await;
+    let replies: Vec<RedisValue> = pipeline
+        .all()
         .await
         .map_err(|err| AppError::InternalError(err.to_string()))?;
-    Ok(!reply.is_null())
+
+    match replies.as_slice() {
+        [set_reply, lock_reply] if !set_reply.is_null() => Ok(!lock_reply.is_null()),
+        case => Err(AppError::InternalError(format!(
+            "Unexpected replies for SET {} + lock {} : {:?}",
+            pending_set.key, key, case
+        ))),
+    }
 }
 
-/// Reads the driver's stored details and the location-update rate limiter hits
-/// in one pipelined round trip on the reader pool, instead of two sequential GETs.
-pub async fn get_driver_location_and_rate_limit_hits(
+/// Per-ping state of a driver, read in one pipelined round trip.
+pub struct DriverPingState {
+    pub driver_details: Option<DriverAllDetails>,
+    pub ride_details: Option<RideDetails>,
+    /// `None` when no rate-limit key was given (nothing was read).
+    pub rate_limit_hits: Option<Option<Vec<i64>>>,
+}
+
+/// Reads the driver's stored details, ride details and (when `rate_limit_key`
+/// is given) the location-update rate limiter hits in one pipelined round trip
+/// on the reader pool, instead of up to three sequential GETs.
+pub async fn get_driver_ping_state(
     redis: &RedisConnectionPool,
     driver_id: &DriverId,
-    rate_limit_key: &str,
-) -> Result<(Option<DriverAllDetails>, Option<Vec<i64>>), AppError> {
+    merchant_id: &MerchantId,
+    rate_limit_key: Option<&str>,
+) -> Result<DriverPingState, AppError> {
     let pipeline = redis.reader_pool.next().pipeline();
     let _ = pipeline
         .get::<RedisValue, _>(driver_details_key(driver_id))
         .await;
-    let _ = pipeline.get::<RedisValue, _>(rate_limit_key).await;
+    let _ = pipeline
+        .get::<RedisValue, _>(on_ride_details_key(merchant_id, driver_id))
+        .await;
+    if let Some(rate_limit_key) = rate_limit_key {
+        let _ = pipeline.get::<RedisValue, _>(rate_limit_key).await;
+    }
     let replies: Vec<RedisValue> = pipeline
         .all()
         .await
@@ -1256,8 +1337,16 @@ pub async fn get_driver_location_and_rate_limit_hits(
 
     let mut replies = replies.into_iter();
     let driver_details = decode_json_reply::<DriverAllDetails>(replies.next())?;
-    let rate_limit_hits = decode_json_reply::<Vec<i64>>(replies.next())?;
-    Ok((driver_details, rate_limit_hits))
+    let ride_details = decode_json_reply::<RideDetails>(replies.next())?;
+    let rate_limit_hits = match rate_limit_key {
+        Some(_) => Some(decode_json_reply::<Vec<i64>>(replies.next())?),
+        None => None,
+    };
+    Ok(DriverPingState {
+        driver_details,
+        ride_details,
+        rate_limit_hits,
+    })
 }
 
 /// Mirrors `RedisConnectionPool::get_key`: a string reply is JSON-decoded, a

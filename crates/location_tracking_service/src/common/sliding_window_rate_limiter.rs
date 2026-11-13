@@ -35,19 +35,25 @@ pub async fn sliding_window_limiter(
         .await
         .map_err(|err| AppError::InternalError(err.to_string()))?;
 
-    sliding_window_limiter_with_hits(redis, key, frame_hits_lim, frame_len, hits_frame).await
+    let new_hits = sliding_window_next_hits(key, hits_frame, frame_hits_lim, frame_len)?;
+
+    redis
+        .set_key(key, new_hits, frame_len)
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
 }
 
-/// Same as [`sliding_window_limiter`], but takes the hits already read from Redis
-/// (e.g. fetched in a pipeline together with other per-request reads), so only
-/// the write goes to Redis here.
-pub async fn sliding_window_limiter_with_hits(
-    redis: &RedisConnectionPool,
+/// The pure decision step of [`sliding_window_limiter`]: given the hits already
+/// read from Redis, returns the hits to store if this hit is within the limit,
+/// or `HitsLimitExceeded` otherwise. Nothing is written; the caller stores the
+/// returned hits under `key` with an expiry of `frame_len` seconds (for example
+/// in the same pipeline as other writes).
+pub fn sliding_window_next_hits(
     key: &str,
+    hits_frame: Option<Vec<i64>>,
     frame_hits_lim: usize,
     frame_len: u32,
-    hits_frame: Option<Vec<i64>>,
-) -> Result<(), AppError> {
+) -> Result<Vec<i64>, AppError> {
     let curr_time = Utc::now().timestamp();
 
     let hits_frame = hits_frame.unwrap_or_default();
@@ -76,11 +82,7 @@ pub async fn sliding_window_limiter_with_hits(
         let mut new_hits = Vec::with_capacity(prev_and_curr_frame_hits.len() + 1);
         new_hits.push(curr_frame);
         new_hits.extend(prev_and_curr_frame_hits);
-
-        redis
-            .set_key(key, new_hits, frame_len)
-            .await
-            .map_err(|err| AppError::InternalError(err.to_string()))
+        Ok(new_hits)
     } else {
         Err(AppError::HitsLimitExceeded(key.to_string()))
     }
