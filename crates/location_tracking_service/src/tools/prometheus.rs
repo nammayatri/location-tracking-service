@@ -29,6 +29,18 @@ pub static TOTAL_LOCATION_UPDATES: once_cell::sync::Lazy<IntCounter> =
             .expect("Failed to register total location updates metrics")
     });
 
+pub static VEHICLE_TRIP_OWNER_CHECKS: once_cell::sync::Lazy<IntCounterVec> =
+    once_cell::sync::Lazy::new(|| {
+        register_int_counter_vec!(
+            opts!(
+                "vehicle_trip_owner_checks_total",
+                "Bus-crew pings checked against the vehicle trip owner, by fleet and result"
+            ),
+            &["gtfs_id", "result"]
+        )
+        .expect("Failed to register vehicle trip owner check metrics")
+    });
+
 pub static GPS_UPDATES_IGNORED_NO_ACTIVE_RIDE: once_cell::sync::Lazy<IntCounter> =
     once_cell::sync::Lazy::new(|| {
         register_int_counter!(
@@ -221,6 +233,11 @@ pub fn prometheus_metrics() -> PrometheusMetrics {
         .registry
         .register(Box::new(QUEUE_EVICTIONS.to_owned()))
         .expect("Failed to register queue evictions metrics");
+
+    prometheus
+        .registry
+        .register(Box::new(VEHICLE_TRIP_OWNER_CHECKS.to_owned()))
+        .expect("Failed to register vehicle trip owner check metrics");
 
     prometheus
         .registry

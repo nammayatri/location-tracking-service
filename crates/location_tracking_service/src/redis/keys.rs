@@ -251,6 +251,14 @@ pub fn driver_info_by_plate_key(plate_number: &str) -> String {
     format!("lts:driver_info:plate:{}", plate_number)
 }
 
+pub fn vehicle_trip_owner_key(gtfs_id: &str, vehicle_no: &str) -> String {
+    format!(
+        "lts:vehicle_trip_owner:{}:{}",
+        gtfs_id.trim(),
+        vehicle_no.trim()
+    )
+}
+
 // --- Generic person/entity keys (for unified rider flow and future driver unification) ---
 
 /// Token → person identifier.
