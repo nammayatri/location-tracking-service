@@ -275,6 +275,17 @@ pub enum RideStatus {
     CANCELLED, // TODO :: To be removed
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+pub enum NudgeStatus {
+    ACTIVE,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NudgeDetails {
+    pub nudge_id: String,
+    pub nudge_status: NudgeStatus,
+}
+
 #[derive(Debug, Clone, EnumString, Display, Serialize, Deserialize, Eq, Hash, PartialEq)]
 pub enum LocationType {
     UNFILTERED,

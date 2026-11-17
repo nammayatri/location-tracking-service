@@ -375,3 +375,17 @@ pub fn driver_queue_tracking_key(merchant_id: &str, driver_id: &str) -> String {
 pub fn driver_queue_rank_history_key(merchant_id: &str, driver_id: &str) -> String {
     format!("lts:driver_queue_rank_hist:{}:{}", merchant_id, driver_id)
 }
+
+pub fn nudge_details_key(
+    MerchantId(merchant_id): &MerchantId,
+    DriverId(driver_id): &DriverId,
+) -> String {
+    format!("lts:nudge_details:{merchant_id}:{driver_id}")
+}
+
+pub fn nudge_loc_key(
+    MerchantId(merchant_id): &MerchantId,
+    DriverId(driver_id): &DriverId,
+) -> String {
+    format!("lts:dl:nudge:loc:{merchant_id}:{driver_id}")
+}

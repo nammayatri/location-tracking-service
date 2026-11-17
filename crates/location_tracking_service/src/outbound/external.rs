@@ -250,6 +250,35 @@ pub async fn bulk_location_update_dobpp(
     .map_err(|e| e.into())
 }
 
+/// Sends a bulk nudge location update to the BPP nudge endpoint.
+///
+/// Builds the URL as `{base_url}/{nudge_id}/bulkLocUpdate` and sends
+/// `{ driverId, loc }` — nudgeId is in the path, not the body.
+pub async fn nudge_bulk_location_update(
+    base_url: &Url,
+    nudge_id: &str,
+    driver_id: DriverId,
+    locations: Vec<LocationUpdate>,
+    api_key: &str,
+) -> Result<APISuccess, AppError> {
+    let url = base_url
+        .join(&format!("{}/bulkLocUpdate", nudge_id))
+        .map_err(|e| AppError::InternalError(e.to_string()))?;
+    call_api::<APISuccess, NudgeBulkDataReq>(
+        Protocol::Http1,
+        Method::POST,
+        &url,
+        vec![("content-type", "application/json"), ("api-key", api_key)],
+        Some(NudgeBulkDataReq {
+            driver_id,
+            loc: locations,
+        }),
+        None,
+    )
+    .await
+    .map_err(|e| e.into())
+}
+
 /// Sends a bulk pickup-leg location update to the `dobpp` endpoint.
 ///
 /// Pickup analogue of bulk_location_update_dobpp: forwards the points

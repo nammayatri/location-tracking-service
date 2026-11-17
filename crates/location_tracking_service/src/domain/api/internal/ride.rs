@@ -91,6 +91,30 @@ async fn ride_details(
     Ok(Json(ride::ride_details(data, request_body).await?))
 }
 
+#[post("/internal/nudge/{nudgeId}/start")]
+async fn nudge_start(
+    data: Data<AppState>,
+    param_obj: Json<NudgeStartRequest>,
+    path: Path<String>,
+) -> Result<Json<APISuccess>, AppError> {
+    let nudge_id = path.into_inner();
+    Ok(Json(
+        ride::nudge_start(nudge_id, data, param_obj.into_inner()).await?,
+    ))
+}
+
+#[post("/internal/nudge/{nudgeId}/end")]
+async fn nudge_end(
+    data: Data<AppState>,
+    param_obj: Json<NudgeEndRequest>,
+    path: Path<String>,
+) -> Result<Json<APISuccess>, AppError> {
+    let nudge_id = path.into_inner();
+    Ok(Json(
+        ride::nudge_end(nudge_id, data, param_obj.into_inner()).await?,
+    ))
+}
+
 #[post("/internal/entity/{person_type}/{entity_type}/{entity_id}/upsert")]
 async fn entity_upsert(
     data: Data<AppState>,

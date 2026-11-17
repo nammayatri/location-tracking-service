@@ -76,6 +76,14 @@ pub struct BulkDataReq {
     pub driver_id: DriverId,
 }
 
+// Bulk location update during a nudge (nudgeId is in the URL path, not the body)
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct NudgeBulkDataReq {
+    pub driver_id: DriverId,
+    pub loc: Vec<LocationUpdate>,
+}
+
 // Trigger FCM to start location pings if not sent for a while
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]

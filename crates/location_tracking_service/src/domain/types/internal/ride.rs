@@ -81,6 +81,20 @@ pub struct RideDetailsRequest {
     pub ride_info: Option<RideInfo>,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct NudgeStartRequest {
+    pub driver_id: DriverId,
+    pub merchant_id: MerchantId,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct NudgeEndRequest {
+    pub driver_id: DriverId,
+    pub merchant_id: MerchantId,
+}
+
 // --- Generic entity upsert (rider/driver) types ---
 
 /// Union type: entity create (optional, not for SOS), start tracking, or end tracking.
