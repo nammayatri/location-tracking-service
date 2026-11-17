@@ -42,6 +42,7 @@ pub struct AppConfig {
     pub auth_api_key: String,
     pub bulk_location_callback_url: String,
     pub bulk_location_pickup_callback_url: String,
+    pub nudge_location_callback_url: String,
     pub auth_token_expiry: u32,
     pub redis_expiry: u32,
     pub min_location_accuracy: f64,
@@ -215,6 +216,7 @@ pub struct AppState {
     pub auth_api_key: String,
     pub bulk_location_callback_url: Url,
     pub bulk_location_pickup_callback_url: Url,
+    pub nudge_location_callback_url: Url,
     pub auth_token_expiry: u32,
     pub redis_expiry: u32,
     pub min_location_accuracy: Accuracy,
@@ -544,6 +546,10 @@ impl AppState {
                 app_config.bulk_location_pickup_callback_url.as_str(),
             )
             .expect("Failed to parse bulk_location_pickup_callback_url."),
+            nudge_location_callback_url: Url::parse(
+                app_config.nudge_location_callback_url.as_str(),
+            )
+            .expect("Failed to parse nudge_location_callback_url."),
             auth_token_expiry: app_config.auth_token_expiry,
             min_location_accuracy: Accuracy(app_config.min_location_accuracy),
             redis_expiry: app_config.redis_expiry,

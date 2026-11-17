@@ -849,6 +849,96 @@ pub async fn get_on_pickup_driver_locations(
         .map_err(|err| AppError::InternalError(err.to_string()))
 }
 
+pub async fn set_nudge_details_for_driver(
+    redis: &RedisConnectionPool,
+    redis_expiry: &u32,
+    merchant_id: &MerchantId,
+    driver_id: &DriverId,
+    nudge_id: String,
+) -> Result<(), AppError> {
+    redis
+        .delete_keys(vec![&nudge_loc_key(merchant_id, driver_id)])
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))?;
+    let details = NudgeDetails {
+        nudge_id,
+        nudge_status: NudgeStatus::ACTIVE,
+    };
+    redis
+        .set_key(
+            &nudge_details_key(merchant_id, driver_id),
+            details,
+            *redis_expiry,
+        )
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
+pub async fn get_nudge_details(
+    redis: &RedisConnectionPool,
+    merchant_id: &MerchantId,
+    driver_id: &DriverId,
+) -> Result<Option<NudgeDetails>, AppError> {
+    redis
+        .get_key::<NudgeDetails>(&nudge_details_key(merchant_id, driver_id))
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
+pub async fn nudge_cleanup(
+    redis: &RedisConnectionPool,
+    merchant_id: &MerchantId,
+    driver_id: &DriverId,
+) -> Result<(), AppError> {
+    redis
+        .delete_keys(vec![
+            &nudge_details_key(merchant_id, driver_id),
+            &nudge_loc_key(merchant_id, driver_id),
+        ])
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
+pub async fn push_nudge_driver_locations(
+    redis: &RedisConnectionPool,
+    driver_id: &DriverId,
+    merchant_id: &MerchantId,
+    geo_entries: Vec<LocationUpdate>,
+    rpush_expiry: &u32,
+) -> Result<i64, AppError> {
+    redis
+        .rpush_with_expiry(
+            &nudge_loc_key(merchant_id, driver_id),
+            geo_entries,
+            *rpush_expiry,
+        )
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
+pub async fn get_nudge_driver_locations_count(
+    redis: &RedisConnectionPool,
+    driver_id: &DriverId,
+    merchant_id: &MerchantId,
+) -> Result<i64, AppError> {
+    redis
+        .llen(&nudge_loc_key(merchant_id, driver_id))
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
+pub async fn get_nudge_driver_locations_and_delete(
+    redis: &RedisConnectionPool,
+    driver_id: &DriverId,
+    merchant_id: &MerchantId,
+    len: i64,
+) -> Result<Vec<LocationUpdate>, AppError> {
+    redis
+        .lpop::<LocationUpdate>(&nudge_loc_key(merchant_id, driver_id), Some(len as usize))
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
 /// Caches a driver's unique identifier (driverId) with a given authentication token in Redis.
 ///
 /// Stores the driver's identifier associated with an authentication token for a specified expiry period.

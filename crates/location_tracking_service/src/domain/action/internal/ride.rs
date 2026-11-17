@@ -16,6 +16,46 @@ use actix_web::web::Data;
 use chrono::Utc;
 use std::str::FromStr;
 
+pub async fn nudge_start(
+    nudge_id: String,
+    data: Data<AppState>,
+    request_body: NudgeStartRequest,
+) -> Result<APISuccess, AppError> {
+    set_nudge_details_for_driver(
+        &data.redis,
+        &data.redis_expiry,
+        &request_body.merchant_id,
+        &request_body.driver_id,
+        nudge_id,
+    )
+    .await?;
+    Ok(APISuccess::default())
+}
+
+pub async fn nudge_end(
+    nudge_id: String,
+    data: Data<AppState>,
+    request_body: NudgeEndRequest,
+) -> Result<APISuccess, AppError> {
+    let active = get_nudge_details(
+        &data.redis,
+        &request_body.merchant_id,
+        &request_body.driver_id,
+    )
+    .await?;
+    if let Some(details) = active {
+        if details.nudge_status == NudgeStatus::ACTIVE && details.nudge_id == nudge_id {
+            nudge_cleanup(
+                &data.redis,
+                &request_body.merchant_id,
+                &request_body.driver_id,
+            )
+            .await?;
+        }
+    }
+    Ok(APISuccess::default())
+}
+
 pub async fn ride_create(
     ride_id: RideId,
     data: Data<AppState>,

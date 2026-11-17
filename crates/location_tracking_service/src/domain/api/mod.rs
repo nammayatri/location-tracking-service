@@ -37,5 +37,7 @@ pub fn handler(config: &mut ServiceConfig) {
         .service(external::gps::external_gps_location)
         .service(ui::location::track_person_entity_location)
         .service(ui::location::update_person_location)
-        .service(internal::ride::entity_upsert);
+        .service(internal::ride::entity_upsert)
+        .service(internal::ride::nudge_start)
+        .service(internal::ride::nudge_end);
 }

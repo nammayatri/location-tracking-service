@@ -26,8 +26,8 @@ use crate::outbound::external::trigger_detection_alert;
 use crate::outbound::external::{
     authenticate_bap, authenticate_dobpp, bulk_location_update_dobpp,
     bulk_location_update_pickup_dobpp, driver_reached_destination,
-    forward_driver_location_to_cloud, trigger_fcm_bap, trigger_fcm_dobpp,
-    trigger_stop_detection_event,
+    forward_driver_location_to_cloud, nudge_bulk_location_update, trigger_fcm_bap,
+    trigger_fcm_dobpp, trigger_stop_detection_event,
 };
 use crate::outbound::types::{LocationUpdate, ViolationDetectionReq};
 use crate::redis::{commands::*, keys::*};
@@ -466,6 +466,68 @@ pub async fn update_driver_location_by_token(
     Ok(HttpResponse::Ok().finish())
 }
 
+enum DriverTrackingContext {
+    Ride { ride_id: RideId, callback_url: Url },
+    Nudge { nudge_id: String, callback_url: Url },
+}
+
+impl DriverTrackingContext {
+    async fn get_count(
+        &self,
+        redis: &shared::redis::types::RedisConnectionPool,
+        driver_id: &DriverId,
+        merchant_id: &MerchantId,
+    ) -> Result<i64, AppError> {
+        match self {
+            Self::Ride { .. } => {
+                get_on_ride_driver_locations_count(redis, driver_id, merchant_id).await
+            }
+            Self::Nudge { .. } => {
+                get_nudge_driver_locations_count(redis, driver_id, merchant_id).await
+            }
+        }
+    }
+
+    async fn drain(
+        &self,
+        redis: &shared::redis::types::RedisConnectionPool,
+        driver_id: &DriverId,
+        merchant_id: &MerchantId,
+        len: i64,
+    ) -> Result<Vec<LocationUpdate>, AppError> {
+        match self {
+            Self::Ride { .. } => {
+                get_on_ride_driver_locations_and_delete(redis, driver_id, merchant_id, len).await
+            }
+            Self::Nudge { .. } => {
+                get_nudge_driver_locations_and_delete(redis, driver_id, merchant_id, len).await
+            }
+        }
+    }
+
+    async fn push(
+        &self,
+        redis: &shared::redis::types::RedisConnectionPool,
+        driver_id: &DriverId,
+        merchant_id: &MerchantId,
+        entries: Vec<LocationUpdate>,
+        expiry: &u32,
+    ) -> Result<(), AppError> {
+        match self {
+            Self::Ride { .. } => {
+                push_on_ride_driver_locations(redis, driver_id, merchant_id, entries, expiry)
+                    .await
+                    .map(|_| ())
+            }
+            Self::Nudge { .. } => {
+                push_nudge_driver_locations(redis, driver_id, merchant_id, entries, expiry)
+                    .await
+                    .map(|_| ())
+            }
+        }
+    }
+}
+
 /// Simplified version for external GPS providers that already have driver_id
 /// No token authentication needed
 #[macros::measure_duration]
@@ -691,6 +753,8 @@ async fn process_driver_locations(
         .as_ref()
         .map(|ride_details| ride_details.ride_info.to_owned())
         .flatten();
+
+    let driver_nudge_details = get_nudge_details(&data.redis, &merchant_id, &driver_id).await?;
 
     let driver_ride_notification_status = driver_location_details
         .as_ref()
@@ -1353,127 +1417,145 @@ async fn process_driver_locations(
                     })
                     .collect::<Vec<LocationUpdate>>();
 
-                match (driver_ride_status.as_ref(), driver_ride_id.as_ref()) {
-                    (Some(RideStatus::INPROGRESS), Some(ride_id)) => {
-                        let on_ride_driver_locations_count = get_on_ride_driver_locations_count(
-                            &data.redis,
-                            &driver_id.clone(),
-                            &merchant_id,
-                        )
-                        .await?;
+                let tracking_ctx: Option<DriverTrackingContext> =
+                    if let (Some(RideStatus::INPROGRESS), Some(ride_id)) =
+                        (driver_ride_status.as_ref(), driver_ride_id.as_ref())
+                    {
+                        Some(DriverTrackingContext::Ride {
+                            ride_id: ride_id.clone(),
+                            callback_url: data.bulk_location_callback_url.clone(),
+                        })
+                    } else if let Some(nudge_details) = driver_nudge_details
+                        .as_ref()
+                        .filter(|d| d.nudge_status == NudgeStatus::ACTIVE)
+                    {
+                        Some(DriverTrackingContext::Nudge {
+                            nudge_id: nudge_details.nudge_id.clone(),
+                            callback_url: data.nudge_location_callback_url.clone(),
+                        })
+                    } else {
+                        None
+                    };
 
-                        if on_ride_driver_locations_count + geo_entries.len() as i64
-                            > data.batch_size
-                        {
-                            let mut on_ride_driver_locations =
-                                get_on_ride_driver_locations_and_delete(
-                                    &data.redis,
-                                    &driver_id,
-                                    &merchant_id,
-                                    on_ride_driver_locations_count,
-                                )
-                                .await?;
-                            on_ride_driver_locations.extend(geo_entries);
+                if let Some(ctx) = tracking_ctx {
+                    let count = ctx.get_count(&data.redis, &driver_id, &merchant_id).await?;
 
-                            let bulk_location_update_dobpp = async {
-                                bulk_location_update_dobpp(
-                                    &data.bulk_location_callback_url,
-                                    ride_id.to_owned(),
-                                    driver_id.to_owned(),
-                                    on_ride_driver_locations
-                                        .into_iter()
-                                        .map(|dl| LocationUpdate {
-                                            lat: dl.lat,
-                                            lon: dl.lon,
-                                            ts: dl.ts,
-                                            acc: dl.acc,
-                                        })
-                                        .collect(),
-                                    &data.auth_api_key,
-                                )
-                                .await
-                                .map_err(|err| {
-                                    AppError::DriverBulkLocationUpdateFailed(err.message())
-                                })?;
-                                Ok(())
-                            };
-                            all_tasks.push(Box::pin(bulk_location_update_dobpp));
-                        } else {
-                            let push_on_ride_driver_locations = async {
-                                push_on_ride_driver_locations(
-                                    &data.redis,
-                                    &driver_id,
-                                    &merchant_id,
-                                    geo_entries,
-                                    &data.redis_expiry,
-                                )
+                    if count + geo_entries.len() as i64 > data.batch_size {
+                        let mut buffered = ctx
+                            .drain(&data.redis, &driver_id, &merchant_id, count)
+                            .await?;
+                        buffered.extend(geo_entries);
+                        let driver_id = driver_id.to_owned();
+                        let auth_api_key = data.auth_api_key.clone();
+                        let callback_task = async move {
+                            match ctx {
+                                DriverTrackingContext::Ride {
+                                    ride_id,
+                                    callback_url,
+                                } => {
+                                    bulk_location_update_dobpp(
+                                        &callback_url,
+                                        ride_id,
+                                        driver_id,
+                                        buffered,
+                                        &auth_api_key,
+                                    )
+                                    .await
+                                    .map_err(|err| {
+                                        AppError::DriverBulkLocationUpdateFailed(err.message())
+                                    })?;
+                                }
+                                DriverTrackingContext::Nudge {
+                                    nudge_id,
+                                    callback_url,
+                                } => {
+                                    nudge_bulk_location_update(
+                                        &callback_url,
+                                        &nudge_id,
+                                        driver_id,
+                                        buffered,
+                                        &auth_api_key,
+                                    )
+                                    .await
+                                    .map_err(|err| {
+                                        AppError::DriverBulkLocationUpdateFailed(err.message())
+                                    })?;
+                                }
+                            }
+                            Ok(())
+                        };
+                        all_tasks.push(Box::pin(callback_task));
+                    } else {
+                        let redis = data.redis.clone();
+                        let merchant_id = merchant_id.clone();
+                        let driver_id = driver_id.clone();
+                        let expiry = data.redis_expiry;
+                        let push_task = async move {
+                            ctx.push(&redis, &driver_id, &merchant_id, geo_entries, &expiry)
                                 .await?;
-                                Ok(())
-                            };
-                            all_tasks.push(Box::pin(push_on_ride_driver_locations));
-                        }
+                            Ok(())
+                        };
+                        all_tasks.push(Box::pin(push_task));
                     }
-                    (Some(RideStatus::NEW), Some(ride_id)) => {
-                        let on_pickup_driver_locations_count =
-                            get_on_pickup_driver_locations_count(
+                } else if let (Some(RideStatus::NEW), Some(ride_id)) =
+                    (driver_ride_status.as_ref(), driver_ride_id.as_ref())
+                {
+                    let on_pickup_driver_locations_count = get_on_pickup_driver_locations_count(
+                        &data.redis,
+                        &driver_id.clone(),
+                        &merchant_id,
+                    )
+                    .await?;
+
+                    if on_pickup_driver_locations_count + geo_entries.len() as i64 > data.batch_size
+                    {
+                        let mut on_pickup_driver_locations =
+                            get_on_pickup_driver_locations_and_delete(
                                 &data.redis,
-                                &driver_id.clone(),
+                                &driver_id,
                                 &merchant_id,
+                                on_pickup_driver_locations_count,
                             )
                             .await?;
+                        on_pickup_driver_locations.extend(geo_entries);
 
-                        if on_pickup_driver_locations_count + geo_entries.len() as i64
-                            > data.batch_size
-                        {
-                            let mut on_pickup_driver_locations =
-                                get_on_pickup_driver_locations_and_delete(
-                                    &data.redis,
-                                    &driver_id,
-                                    &merchant_id,
-                                    on_pickup_driver_locations_count,
-                                )
-                                .await?;
-                            on_pickup_driver_locations.extend(geo_entries);
-
-                            let bulk_location_update_pickup_dobpp = async {
-                                bulk_location_update_pickup_dobpp(
-                                    &data.bulk_location_pickup_callback_url,
-                                    ride_id.to_owned(),
-                                    driver_id.to_owned(),
-                                    on_pickup_driver_locations
-                                        .into_iter()
-                                        .map(|dl| LocationUpdate {
-                                            lat: dl.lat,
-                                            lon: dl.lon,
-                                            ts: dl.ts,
-                                            acc: dl.acc,
-                                        })
-                                        .collect(),
-                                    &data.auth_api_key,
-                                )
-                                .await
-                                .map_err(|err| {
-                                    AppError::DriverBulkLocationUpdateFailed(err.message())
-                                })?;
-                                Ok(())
-                            };
-                            all_tasks.push(Box::pin(bulk_location_update_pickup_dobpp));
-                        } else {
-                            let push_on_pickup_driver_locations = async {
-                                push_on_pickup_driver_locations(
-                                    &data.redis,
-                                    &driver_id,
-                                    &merchant_id,
-                                    geo_entries,
-                                    &data.redis_expiry,
-                                )
-                                .await?;
-                                Ok(())
-                            };
-                            all_tasks.push(Box::pin(push_on_pickup_driver_locations));
-                        }
+                        let bulk_location_update_pickup_dobpp = async {
+                            bulk_location_update_pickup_dobpp(
+                                &data.bulk_location_pickup_callback_url,
+                                ride_id.to_owned(),
+                                driver_id.to_owned(),
+                                on_pickup_driver_locations
+                                    .into_iter()
+                                    .map(|dl| LocationUpdate {
+                                        lat: dl.lat,
+                                        lon: dl.lon,
+                                        ts: dl.ts,
+                                        acc: dl.acc,
+                                    })
+                                    .collect(),
+                                &data.auth_api_key,
+                            )
+                            .await
+                            .map_err(|err| {
+                                AppError::DriverBulkLocationUpdateFailed(err.message())
+                            })?;
+                            Ok(())
+                        };
+                        all_tasks.push(Box::pin(bulk_location_update_pickup_dobpp));
+                    } else {
+                        let push_on_pickup_driver_locations = async {
+                            push_on_pickup_driver_locations(
+                                &data.redis,
+                                &driver_id,
+                                &merchant_id,
+                                geo_entries,
+                                &data.redis_expiry,
+                            )
+                            .await?;
+                            Ok(())
+                        };
+                        all_tasks.push(Box::pin(push_on_pickup_driver_locations));
                     }
-                    _ => {}
                 }
             }
 
