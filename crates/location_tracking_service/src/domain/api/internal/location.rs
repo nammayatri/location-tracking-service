@@ -44,6 +44,20 @@ async fn get_drivers_location(
     ))
 }
 
+#[post("/internal/sharedCab/driver/{driverId}/standby")]
+async fn shared_cab_standby(
+    data: Data<AppState>,
+    param_obj: Json<SharedCabStandbyRequest>,
+    path: Path<String>,
+) -> Result<Json<APISuccess>, AppError> {
+    let request_body = param_obj.into_inner();
+    let driver_id = DriverId(path.into_inner());
+
+    Ok(Json(
+        location::shared_cab_standby(data, driver_id, request_body).await?,
+    ))
+}
+
 #[post("/internal/driver/blockTill")]
 async fn driver_block_till(
     data: Data<AppState>,

@@ -245,3 +245,9 @@ pub struct QueueDriversResponse {
     pub drivers: Vec<QueueDriverEntry>,
     pub queue_size: u64,
 }
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SharedCabStandbyRequest {
+    pub vehicle_number: Option<String>,
+}

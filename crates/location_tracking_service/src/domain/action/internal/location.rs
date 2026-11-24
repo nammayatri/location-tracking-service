@@ -956,3 +956,17 @@ pub async fn get_special_location_drivers(
     .await?;
     Ok(SpecialLocationDriversResponse { driver_ids })
 }
+
+pub async fn shared_cab_standby(
+    data: Data<AppState>,
+    driver_id: DriverId,
+    request_body: SharedCabStandbyRequest,
+) -> Result<APISuccess, AppError> {
+    set_shared_cab_standby_plate(
+        &data.redis,
+        &driver_id,
+        request_body.vehicle_number.as_deref(),
+    )
+    .await?;
+    Ok(APISuccess::default())
+}

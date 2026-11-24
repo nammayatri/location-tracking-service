@@ -2103,6 +2103,36 @@ pub async fn set_vehicle_trip_owner(
         .map_err(|err| AppError::InternalError(err.to_string()))
 }
 
+pub const SHARED_CAB_STANDBY_EXPIRY_SECS: u32 = 24 * 60 * 60;
+
+pub async fn get_shared_cab_standby_plate(
+    redis: &RedisConnectionPool,
+    driver_id: &DriverId,
+) -> Result<Option<String>, AppError> {
+    redis
+        .get_key_as_str(&shared_cab_standby_key(driver_id))
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
+/// `None` clears the standby plate.
+pub async fn set_shared_cab_standby_plate(
+    redis: &RedisConnectionPool,
+    driver_id: &DriverId,
+    vehicle_number: Option<&str>,
+) -> Result<(), AppError> {
+    let key = shared_cab_standby_key(driver_id);
+    match vehicle_number {
+        Some(plate) => {
+            redis
+                .set_key_as_str(&key, plate, SHARED_CAB_STANDBY_EXPIRY_SECS)
+                .await
+        }
+        None => redis.delete_key(&key).await,
+    }
+    .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod cohort_tag_tests {

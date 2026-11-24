@@ -259,6 +259,11 @@ pub fn vehicle_trip_owner_key(gtfs_id: &str, vehicle_no: &str) -> String {
     )
 }
 
+/// Plate of a shared-cab driver who has declared no route (set by the driver backend).
+pub fn shared_cab_standby_key(DriverId(driver_id): &DriverId) -> String {
+    format!("lts:shared_cab_standby:{driver_id}")
+}
+
 // --- Generic person/entity keys (for unified rider flow and future driver unification) ---
 
 /// Token → person identifier.

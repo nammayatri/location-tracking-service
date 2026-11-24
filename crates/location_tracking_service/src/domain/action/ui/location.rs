@@ -158,6 +158,8 @@ struct BusGpsUpdate {
     route_code: Option<String>,
     #[serde(rename = "tripId", skip_serializing_if = "Option::is_none")]
     trip_id: Option<String>,
+    #[serde(rename = "driverId", skip_serializing_if = "Option::is_none")]
+    driver_id: Option<String>,
     lat: f64,
     #[serde(rename = "long")]
     lon: f64,
@@ -175,6 +177,22 @@ fn forwardable_speed_kmph(speed: Option<SpeedInMeterPerSecond>) -> Option<SpeedI
     speed
         .map(SpeedInKiloMeterPerHour::from)
         .filter(|kmph| kmph.inner().is_finite())
+}
+
+/// The trip and route a shared-cab ping may carry: its run's id and the route on the
+/// ping, or, with no run, neither, and only for the plate the driver backend
+/// registered for this driver. None refuses the ping.
+fn shared_cab_trip_and_route(
+    run_id: Option<String>,
+    standby_plate: Option<&str>,
+    vehicle_no: &str,
+    route_code: Option<String>,
+) -> Option<(Option<String>, Option<String>)> {
+    match run_id {
+        Some(run_id) => Some((Some(run_id), route_code)),
+        None if standby_plate == Some(vehicle_no) => Some((None, None)),
+        None => None,
+    }
 }
 
 fn check_owner(cached: &CachedTripOwner, badge: Option<&str>) -> OwnerCheck {
@@ -291,14 +309,21 @@ pub async fn handle_driver_conductor_location_update(
     };
 
     // A shared cab's run is the driver's LTS ride, which driver-app starts and ends: its id is the
-    // ping's trip, so the phone can't set it. No ride, no run: the ping is refused.
-    let trip_id = if person_type_value == PersonType::SharedCabDriver {
-        let ride = get_ride_details(&data.redis, &driver_id, &merchant_id)
+    // ping's trip, so the phone can't set it. With no run, only a cab the driver backend put on
+    // standby is forwarded, with no route, for gps-processor to guess one.
+    let is_shared_cab = person_type_value == PersonType::SharedCabDriver;
+    let (trip_id, route_code) = if is_shared_cab {
+        let run_id = get_ride_details(&data.redis, &driver_id, &merchant_id)
             .await?
-            .ok_or_else(|| AppError::InvalidRequest("no active shared-cab run".to_string()))?;
-        Some(ride.ride_id.0)
+            .map(|ride| ride.ride_id.0);
+        let standby_plate = match run_id {
+            Some(_) => None,
+            None => get_shared_cab_standby_plate(&data.redis, &driver_id).await?,
+        };
+        shared_cab_trip_and_route(run_id, standby_plate.as_deref(), &vehicle_no, route_code)
+            .ok_or_else(|| AppError::InvalidRequest("no active shared-cab run".to_string()))?
     } else {
-        None
+        (None, route_code)
     };
 
     // Bus-crew identity reuses the driver auth path; the authenticated
@@ -365,6 +390,7 @@ pub async fn handle_driver_conductor_location_update(
             gtfs_id: gtfs_id.clone(),
             route_code: route_code.clone(),
             trip_id: trip_id.clone(),
+            driver_id: is_shared_cab.then(|| driver_id.0.clone()),
             lat: entry.pt.lat.0,
             lon: entry.pt.lon.0,
             timestamp: entry.ts.0.timestamp(),
@@ -2390,6 +2416,7 @@ mod bus_gps_update_tests {
             gtfs_id: "kolkata_bus".to_string(),
             route_code: None,
             trip_id: None,
+            driver_id: None,
             lat: 22.5726,
             lon: 88.3639,
             timestamp: 1_700_000_000,
@@ -2404,6 +2431,28 @@ mod bus_gps_update_tests {
     fn speed_is_forwarded_as_bare_kmph_number() {
         let speed = forwardable_speed_kmph(Some(SpeedInMeterPerSecond(12.5)));
         assert_eq!(payload(speed)["speed"], serde_json::json!(45.0));
+    }
+
+    #[test]
+    fn a_shared_cab_with_no_run_is_forwarded_only_for_its_standby_plate_and_without_a_route() {
+        let route = || Some("SC-1".to_string());
+        let run = || Some("run-1".to_string());
+        assert_eq!(
+            shared_cab_trip_and_route(run(), None, "ML05A1", route()),
+            Some((run(), route()))
+        );
+        assert_eq!(
+            shared_cab_trip_and_route(None, Some("ML05A1"), "ML05A1", route()),
+            Some((None, None))
+        );
+        assert_eq!(
+            shared_cab_trip_and_route(None, Some("ML05B2"), "ML05A1", route()),
+            None
+        );
+        assert_eq!(
+            shared_cab_trip_and_route(None, None, "ML05A1", route()),
+            None
+        );
     }
 
     #[test]
