@@ -2103,6 +2103,53 @@ pub async fn set_vehicle_trip_owner(
         .map_err(|err| AppError::InternalError(err.to_string()))
 }
 
+/// The driver-app backend's `driver-pool-data:{driverId}` entry, as far as a shared cab with
+/// no run needs it (see `DriverPoolDataForCohort` for how that entry is read).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DriverPoolDataForSharedCab {
+    #[serde(default)]
+    pub active: Option<bool>,
+    #[serde(default)]
+    pub on_ride: Option<bool>,
+    #[serde(default)]
+    pub selected_service_tiers: Option<Vec<String>>,
+    #[serde(default)]
+    pub registration_no: Option<String>,
+}
+
+/// Plate of a driver who is online in a shared cab and on no ride.
+pub fn shared_cab_standby_plate(data: DriverPoolDataForSharedCab) -> Option<String> {
+    let is_shared_cab = data
+        .selected_service_tiers
+        .as_deref()
+        .unwrap_or(&[])
+        .iter()
+        .any(|tier| tier == "SHARED_CAB");
+    (data.active == Some(true) && data.on_ride != Some(true) && is_shared_cab)
+        .then_some(data.registration_no)
+        .flatten()
+}
+
+pub async fn get_shared_cab_standby_plate(
+    redis: &RedisConnectionPool,
+    secondary_redis: Option<&RedisConnectionPool>,
+    driver_id: &DriverId,
+) -> Result<Option<String>, AppError> {
+    let key = driver_pool_data_key(driver_id);
+    let mut data = redis
+        .get_key::<DriverPoolDataForSharedCab>(&key)
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))?;
+    if let (None, Some(secondary_redis)) = (&data, secondary_redis) {
+        data = secondary_redis
+            .get_key::<DriverPoolDataForSharedCab>(&key)
+            .await
+            .map_err(|err| AppError::InternalError(err.to_string()))?;
+    }
+    Ok(data.and_then(shared_cab_standby_plate))
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod cohort_tag_tests {

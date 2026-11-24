@@ -158,6 +158,8 @@ struct BusGpsUpdate {
     route_code: Option<String>,
     #[serde(rename = "tripId", skip_serializing_if = "Option::is_none")]
     trip_id: Option<String>,
+    #[serde(rename = "driverId", skip_serializing_if = "Option::is_none")]
+    driver_id: Option<String>,
     lat: f64,
     #[serde(rename = "long")]
     lon: f64,
@@ -175,6 +177,26 @@ fn forwardable_speed_kmph(speed: Option<SpeedInMeterPerSecond>) -> Option<SpeedI
     speed
         .map(SpeedInKiloMeterPerHour::from)
         .filter(|kmph| kmph.inner().is_finite())
+}
+
+/// The trip and route a shared-cab ping may carry: its run's id and the route on the
+/// ping, or, with no run, neither, and only for the plate the driver backend has
+/// this driver online in. None refuses the ping.
+fn shared_cab_trip_and_route(
+    run_id: Option<String>,
+    standby_plate: Option<&str>,
+    vehicle_no: &str,
+    route_code: Option<String>,
+) -> Option<(Option<String>, Option<String>)> {
+    match run_id {
+        Some(run_id) => Some((Some(run_id), route_code)),
+        None if standby_plate == Some(vehicle_no) => Some((None, None)),
+        None => None,
+    }
+}
+
+fn is_shared_cab_run(ride: &RideDetails) -> bool {
+    matches!(ride.ride_info, Some(RideInfo::Bus { .. }))
 }
 
 fn check_owner(cached: &CachedTripOwner, badge: Option<&str>) -> OwnerCheck {
@@ -259,6 +281,9 @@ async fn resolve_owner(
 /// Forward bus-crew pings (`bus_conductor` / `bus_driver`) straight to the
 /// per-fleet Kafka topic keyed by `gtfs_id`, bypassing the driver location
 /// pipeline. `person_type`, `gtfs_id` and `vehicle_no` are passed as headers.
+/// Returns whether the ping belonged to a crew trip. A shared cab with no run is
+/// false: its driver can still be offered rides, so the caller also runs the
+/// driver location pipeline for it.
 pub async fn handle_driver_conductor_location_update(
     token: Token,
     data: Data<AppState>,
@@ -268,7 +293,7 @@ pub async fn handle_driver_conductor_location_update(
     gtfs_id: String,
     vehicle_no: String,
     route_code: Option<String>,
-) -> Result<(), AppError> {
+) -> Result<bool, AppError> {
     // Bus-crew path always processes locally, so the cloud_type from auth is ignored.
     let (driver_id, merchant_id, moc_id, _cloud_type, operator_badge_token) = if var("DEV").is_ok()
     {
@@ -291,14 +316,35 @@ pub async fn handle_driver_conductor_location_update(
     };
 
     // A shared cab's run is the driver's LTS ride, which driver-app starts and ends: its id is the
-    // ping's trip, so the phone can't set it. No ride, no run: the ping is refused.
-    let trip_id = if person_type_value == PersonType::SharedCabDriver {
-        let ride = get_ride_details(&data.redis, &driver_id, &merchant_id)
-            .await?
-            .ok_or_else(|| AppError::InvalidRequest("no active shared-cab run".to_string()))?;
-        Some(ride.ride_id.0)
+    // ping's trip, so the phone can't set it. With no ride, only the cab the driver backend has
+    // this driver online in is forwarded, with no route, for gps-processor to guess one.
+    let is_shared_cab = person_type_value == PersonType::SharedCabDriver;
+    let mut on_crew_trip = true;
+    let (trip_id, route_code) = if is_shared_cab {
+        let ride = get_ride_details(&data.redis, &driver_id, &merchant_id).await?;
+        // a run is registered as a bus ride; on any other ride the cab is not a shared cab
+        let run_id = ride
+            .as_ref()
+            .filter(|ride| is_shared_cab_run(ride))
+            .map(|ride| ride.ride_id.0.clone());
+        on_crew_trip = run_id.is_some();
+        let standby_plate = match ride {
+            Some(_) => None,
+            None => {
+                get_shared_cab_standby_plate(
+                    &data.redis,
+                    data.secondary_redis.as_deref(),
+                    &driver_id,
+                )
+                .await?
+            }
+        };
+        match shared_cab_trip_and_route(run_id, standby_plate.as_deref(), &vehicle_no, route_code) {
+            Some(trip_and_route) => trip_and_route,
+            None => return Ok(false),
+        }
     } else {
-        None
+        (None, route_code)
     };
 
     // Bus-crew identity reuses the driver auth path; the authenticated
@@ -322,7 +368,7 @@ pub async fn handle_driver_conductor_location_update(
     let topic = topic_for_gtfs(&gtfs_id)?.to_string();
 
     let Some(last_entry) = request_body.last() else {
-        return Ok(());
+        return Ok(on_crew_trip);
     };
     let city = get_city(&last_entry.pt.lat, &last_entry.pt.lon, &data.polygon)?;
     sliding_window_limiter(
@@ -353,7 +399,7 @@ pub async fn handle_driver_conductor_location_update(
                 result = check.as_str(),
                 "bus crew ping dropped, sender is not the vehicle trip owner"
             );
-            return Ok(());
+            return Ok(on_crew_trip);
         }
     }
 
@@ -365,6 +411,7 @@ pub async fn handle_driver_conductor_location_update(
             gtfs_id: gtfs_id.clone(),
             route_code: route_code.clone(),
             trip_id: trip_id.clone(),
+            driver_id: is_shared_cab.then(|| driver_id.0.clone()),
             lat: entry.pt.lat.0,
             lon: entry.pt.lon.0,
             timestamp: entry.ts.0.timestamp(),
@@ -382,7 +429,7 @@ pub async fn handle_driver_conductor_location_update(
         );
     }
 
-    Ok(())
+    Ok(on_crew_trip)
 }
 
 #[macros::measure_duration]
@@ -2390,6 +2437,7 @@ mod bus_gps_update_tests {
             gtfs_id: "kolkata_bus".to_string(),
             route_code: None,
             trip_id: None,
+            driver_id: None,
             lat: 22.5726,
             lon: 88.3639,
             timestamp: 1_700_000_000,
@@ -2404,6 +2452,82 @@ mod bus_gps_update_tests {
     fn speed_is_forwarded_as_bare_kmph_number() {
         let speed = forwardable_speed_kmph(Some(SpeedInMeterPerSecond(12.5)));
         assert_eq!(payload(speed)["speed"], serde_json::json!(45.0));
+    }
+
+    #[test]
+    fn a_shared_cab_with_no_run_is_forwarded_only_for_its_standby_plate_and_without_a_route() {
+        let route = || Some("SC-1".to_string());
+        let run = || Some("run-1".to_string());
+        assert_eq!(
+            shared_cab_trip_and_route(run(), None, "ML05A1", route()),
+            Some((run(), route()))
+        );
+        assert_eq!(
+            shared_cab_trip_and_route(None, Some("ML05A1"), "ML05A1", route()),
+            Some((None, None))
+        );
+        assert_eq!(
+            shared_cab_trip_and_route(None, Some("ML05B2"), "ML05A1", route()),
+            None
+        );
+        assert_eq!(
+            shared_cab_trip_and_route(None, None, "ML05A1", route()),
+            None
+        );
+    }
+
+    #[test]
+    fn only_a_bus_ride_is_a_shared_cab_run() {
+        let point = || Point {
+            lat: Latitude(25.57),
+            lon: Longitude(91.88),
+        };
+        let ride = |ride_info| RideDetails {
+            ride_id: RideId("r1".to_string()),
+            ride_status: RideStatus::INPROGRESS,
+            ride_info,
+        };
+        assert!(is_shared_cab_run(&ride(Some(RideInfo::Bus {
+            started_at: None,
+            route_code: "SC-1".to_string(),
+            route_long_name: None,
+            bus_number: "ML05A1".to_string(),
+            source: None,
+            destination: point(),
+            driver_name: None,
+            group_id: None,
+        }))));
+        assert!(!is_shared_cab_run(&ride(Some(RideInfo::Car {
+            pickup_location: point(),
+            min_distance_between_two_points: None,
+            ride_stops: None,
+            is_manual_arrival: None,
+            drop_location: None,
+        }))));
+        assert!(!is_shared_cab_run(&ride(None)));
+    }
+
+    #[test]
+    fn the_standby_plate_is_that_of_an_online_shared_cab_on_no_ride() {
+        let data = |active, on_ride, tier: &str| DriverPoolDataForSharedCab {
+            active: Some(active),
+            on_ride: Some(on_ride),
+            selected_service_tiers: Some(vec![tier.to_string()]),
+            registration_no: Some("ML05A1".to_string()),
+        };
+        assert_eq!(
+            shared_cab_standby_plate(data(true, false, "SHARED_CAB")),
+            Some("ML05A1".to_string())
+        );
+        assert_eq!(
+            shared_cab_standby_plate(data(false, false, "SHARED_CAB")),
+            None
+        );
+        assert_eq!(
+            shared_cab_standby_plate(data(true, true, "SHARED_CAB")),
+            None
+        );
+        assert_eq!(shared_cab_standby_plate(data(true, false, "SEDAN")), None);
     }
 
     #[test]

@@ -76,18 +76,23 @@ pub async fn update_driver_location(
             .get("mid")
             .and_then(|v| v.to_str().ok())
             .map(|s| MerchantId(s.to_string()));
-        return location::handle_driver_conductor_location_update(
+        let on_crew_trip = location::handle_driver_conductor_location_update(
             Token(token.clone()),
-            data,
-            request_body,
+            data.clone(),
+            request_body.clone(),
             req_merchant_id,
             person_type,
             gtfs_id,
             vehicle_no,
             route_code,
         )
-        .await
-        .map(|_| HttpResponse::Ok().finish());
+        .await?;
+        // a shared cab with no run is also a driver who can be offered rides
+        let has_driver_headers =
+            req.headers().contains_key("vt") && req.headers().contains_key("dm");
+        if on_crew_trip || !has_driver_headers {
+            return Ok(HttpResponse::Ok().finish());
+        }
     }
 
     let vehicle_type = req
