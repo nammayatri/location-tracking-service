@@ -68,6 +68,12 @@ pub fn driver_processing_location_update_lock_key(
     format!("lts:dl:processing:{merchant_id}:{driver_id}:{city}")
 }
 
+/// Constructs a Redis key tracking the last geohash cell forwarded to Kafka for a
+/// crowdsourced vehicle, used to dedupe/rate-limit pings from multiple riders on the same bus.
+pub fn crowdsourced_last_forward_key(gtfs_id: &str, vehicle_no: &str) -> String {
+    format!("lts:crowdsourced:lastforward:{gtfs_id}:{vehicle_no}")
+}
+
 /// Constructs a Redis key for storing details about an ongoing ride.
 ///
 /// The resulting key is intended to be stored in persistent Redis storage.

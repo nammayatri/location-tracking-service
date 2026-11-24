@@ -897,6 +897,38 @@ pub async fn get_driver_id(
         .map_err(|err| AppError::InternalError(err.to_string()))
 }
 
+/// Gets the last geohash cell forwarded to Kafka for a crowdsourced vehicle.
+pub async fn get_crowdsourced_last_forward(
+    redis: &RedisConnectionPool,
+    gtfs_id: &str,
+    vehicle_no: &str,
+) -> Result<Option<CrowdsourcedLastForward>, AppError> {
+    redis
+        .get_key::<CrowdsourcedLastForward>(&crowdsourced_last_forward_key(gtfs_id, vehicle_no))
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
+/// Sets the last geohash cell forwarded to Kafka for a crowdsourced vehicle. `expiry` should
+/// outlive the min-forward-interval so a vehicle that's still reporting never loses its entry
+/// between pings, while one that stops reporting ages out instead of blocking forwarding forever.
+pub async fn set_crowdsourced_last_forward(
+    redis: &RedisConnectionPool,
+    gtfs_id: &str,
+    vehicle_no: &str,
+    last_forward: CrowdsourcedLastForward,
+    expiry: u32,
+) -> Result<(), AppError> {
+    redis
+        .set_key(
+            &crowdsourced_last_forward_key(gtfs_id, vehicle_no),
+            last_forward,
+            expiry,
+        )
+        .await
+        .map_err(|err| AppError::InternalError(err.to_string()))
+}
+
 // --- Generic person/entity Redis commands (unified keys) ---
 
 /// Gets person auth data by token.

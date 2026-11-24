@@ -330,6 +330,15 @@ pub struct AuthData {
     pub operator_badge_token: Option<String>,
 }
 
+/// Last point forwarded to Kafka for a crowdsourced vehicle, keyed per (gtfs_id, vehicle_no).
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct CrowdsourcedLastForward {
+    pub geohash: String,
+    pub forwarded_at: i64,
+    pub lat: f64,
+    pub lon: f64,
+}
+
 pub struct DriverLocationPoint {
     pub driver_id: DriverId,
     pub location: Point,

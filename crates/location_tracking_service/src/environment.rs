@@ -56,6 +56,17 @@ pub struct AppConfig {
     pub driver_nearby_debug_topic: Option<String>,
     #[serde(default)]
     pub gtfs_id_to_topic: HashMap<String, String>,
+    /// 7 is ~153m x 153m per cell.
+    #[serde(default = "default_crowdsourced_geohash_precision")]
+    pub crowdsourced_geohash_precision: usize,
+    /// Forwards even if the geohash cell hasn't changed, so a stationary bus keeps refreshing.
+    #[serde(default = "default_crowdsourced_min_forward_interval_secs")]
+    pub crowdsourced_min_forward_interval_secs: u32,
+    #[serde(default = "default_crowdsourced_max_timestamp_skew_secs")]
+    pub crowdsourced_max_timestamp_skew_secs: i64,
+    #[serde(default = "default_crowdsourced_max_speed_kmph")]
+    pub crowdsourced_max_speed_kmph: f64,
+    pub crowdsourced_api_key: String,
     pub batch_size: i64,
     pub bucket_size: u64,
     pub nearby_bucket_threshold: u64,
@@ -142,6 +153,22 @@ pub struct AppConfig {
 
 fn default_queue_expiry() -> u64 {
     86400
+}
+
+fn default_crowdsourced_geohash_precision() -> usize {
+    7
+}
+
+fn default_crowdsourced_min_forward_interval_secs() -> u32 {
+    10
+}
+
+fn default_crowdsourced_max_timestamp_skew_secs() -> i64 {
+    120
+}
+
+fn default_crowdsourced_max_speed_kmph() -> f64 {
+    100.0
 }
 
 fn default_queue_position_range_offset() -> u64 {
@@ -252,6 +279,11 @@ pub struct AppState {
     pub driver_location_update_topic: String,
     pub driver_nearby_debug_topic: Option<String>,
     pub gtfs_id_to_topic: HashMap<String, String>,
+    pub crowdsourced_geohash_precision: usize,
+    pub crowdsourced_min_forward_interval_secs: u32,
+    pub crowdsourced_max_timestamp_skew_secs: i64,
+    pub crowdsourced_max_speed_kmph: f64,
+    pub crowdsourced_api_key: String,
     pub batch_size: i64,
     pub bucket_size: u64,
     pub nearby_bucket_threshold: u64,
@@ -585,6 +617,11 @@ impl AppState {
             driver_location_update_topic: app_config.driver_location_update_topic,
             driver_nearby_debug_topic: app_config.driver_nearby_debug_topic,
             gtfs_id_to_topic: app_config.gtfs_id_to_topic,
+            crowdsourced_geohash_precision: app_config.crowdsourced_geohash_precision,
+            crowdsourced_min_forward_interval_secs: app_config.crowdsourced_min_forward_interval_secs,
+            crowdsourced_max_timestamp_skew_secs: app_config.crowdsourced_max_timestamp_skew_secs,
+            crowdsourced_max_speed_kmph: app_config.crowdsourced_max_speed_kmph,
+            crowdsourced_api_key: app_config.crowdsourced_api_key,
             batch_size: app_config.batch_size,
             bucket_size: app_config.bucket_size,
             nearby_bucket_threshold: app_config.nearby_bucket_threshold,

@@ -144,32 +144,34 @@ async fn get_rider_id_from_authentication(
     }
 }
 
+/// `pub(crate)`: also built by `domain::action::internal::location::forward_crowdsourced_bus_location`,
+/// which forwards to the same gtfs_id-keyed Kafka topics via the same shape.
 #[derive(serde::Serialize)]
-struct BusGpsUpdate {
+pub(crate) struct BusGpsUpdate {
     #[serde(rename = "deviceId")]
-    device_id: String,
+    pub(crate) device_id: String,
     #[serde(rename = "vehicleNo")]
-    vehicle_no: String,
+    pub(crate) vehicle_no: String,
     #[serde(rename = "personType")]
-    person_type: &'static str,
+    pub(crate) person_type: &'static str,
     #[serde(rename = "gtfsId")]
-    gtfs_id: String,
+    pub(crate) gtfs_id: String,
     #[serde(rename = "routeCode", skip_serializing_if = "Option::is_none")]
-    route_code: Option<String>,
+    pub(crate) route_code: Option<String>,
     #[serde(rename = "tripId", skip_serializing_if = "Option::is_none")]
-    trip_id: Option<String>,
+    pub(crate) trip_id: Option<String>,
     #[serde(rename = "driverId", skip_serializing_if = "Option::is_none")]
-    driver_id: Option<String>,
-    lat: f64,
+    pub(crate) driver_id: Option<String>,
+    pub(crate) lat: f64,
     #[serde(rename = "long")]
-    lon: f64,
-    timestamp: i64,
+    pub(crate) lon: f64,
+    pub(crate) timestamp: i64,
     #[serde(rename = "serverTime")]
-    server_time: i64,
-    provider: &'static str,
+    pub(crate) server_time: i64,
+    pub(crate) provider: &'static str,
     /// Omitted, not defaulted to 0.0: 0 reads as "stopped" downstream.
     #[serde(skip_serializing_if = "Option::is_none")]
-    speed: Option<SpeedInKiloMeterPerHour>,
+    pub(crate) speed: Option<SpeedInKiloMeterPerHour>,
 }
 
 /// Non-finite serializes as null, so filter — after converting, as scaling can overflow.

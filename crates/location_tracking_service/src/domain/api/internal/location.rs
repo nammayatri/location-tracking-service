@@ -54,6 +54,24 @@ async fn driver_block_till(
     Ok(Json(location::driver_block_till(data, request_body).await?))
 }
 
+#[post("/internal/crowdsourcedBusLocation")]
+async fn forward_crowdsourced_bus_location(
+    data: Data<AppState>,
+    req: HttpRequest,
+    param_obj: Json<CrowdsourcedBusLocationReq>,
+) -> Result<Json<APISuccess>, AppError> {
+    let api_key = req
+        .headers()
+        .get("X-API-Key")
+        .and_then(|header_value| header_value.to_str().ok())
+        .map(|s| s.to_string());
+    let request_body = param_obj.into_inner();
+
+    Ok(Json(
+        location::forward_crowdsourced_bus_location(data, api_key, request_body).await?,
+    ))
+}
+
 #[get("/internal/trackVehicles")]
 async fn track_vehicles(
     data: Data<AppState>,
