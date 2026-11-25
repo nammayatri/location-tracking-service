@@ -2791,7 +2791,7 @@ dependencies = [
  "serde",
  "serde_dhall",
  "serde_json",
- "shared 0.1.0 (git+https://github.com/nammayatri/shared-kernel-rs?rev=09197c6)",
+ "shared 0.1.0 (git+https://github.com/nammayatri/shared-kernel-rs?rev=4b6adda)",
  "strum",
  "strum_macros",
  "thiserror 1.0.52",
@@ -2834,7 +2834,7 @@ dependencies = [
 [[package]]
 name = "macros"
 version = "0.1.0"
-source = "git+https://github.com/nammayatri/shared-kernel-rs?rev=09197c6#09197c6a162e0e42649f423f3fcf29639b2f0bb9"
+source = "git+https://github.com/nammayatri/shared-kernel-rs?rev=4b6adda#4b6adda5982b5e86932c98bb47276a0bf5cfd406"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4067,7 +4067,7 @@ dependencies = [
 [[package]]
 name = "shared"
 version = "0.1.0"
-source = "git+https://github.com/nammayatri/shared-kernel-rs?rev=09197c6#09197c6a162e0e42649f423f3fcf29639b2f0bb9"
+source = "git+https://github.com/nammayatri/shared-kernel-rs?rev=4b6adda#4b6adda5982b5e86932c98bb47276a0bf5cfd406"
 dependencies = [
  "actix",
  "actix-http",
@@ -4082,7 +4082,7 @@ dependencies = [
  "fred",
  "futures",
  "google-cloud-storage",
- "macros 0.1.0 (git+https://github.com/nammayatri/shared-kernel-rs?rev=09197c6)",
+ "macros 0.1.0 (git+https://github.com/nammayatri/shared-kernel-rs?rev=4b6adda)",
  "once_cell",
  "prometheus",
  "regex",
