@@ -546,6 +546,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "aws-sdk-kms"
+version = "1.65.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f5325c5e2badf4148e850017cc56cc205888c6e0b52c9e29d3501ec577005230"
+dependencies = [
+ "aws-credential-types",
+ "aws-runtime",
+ "aws-smithy-async",
+ "aws-smithy-http",
+ "aws-smithy-json",
+ "aws-smithy-runtime",
+ "aws-smithy-runtime-api",
+ "aws-smithy-types",
+ "aws-types",
+ "bytes",
+ "fastrand",
+ "http 0.2.11",
+ "once_cell",
+ "regex-lite",
+ "tracing",
+]
+
+[[package]]
 name = "aws-sdk-s3"
 version = "1.82.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2791,7 +2814,7 @@ dependencies = [
  "serde",
  "serde_dhall",
  "serde_json",
- "shared 0.1.0 (git+https://github.com/nammayatri/shared-kernel-rs?rev=4b6adda)",
+ "shared 0.1.0 (git+https://github.com/nammayatri/shared-kernel-rs?rev=54e0418)",
  "strum",
  "strum_macros",
  "thiserror 1.0.52",
@@ -2834,7 +2857,7 @@ dependencies = [
 [[package]]
 name = "macros"
 version = "0.1.0"
-source = "git+https://github.com/nammayatri/shared-kernel-rs?rev=4b6adda#4b6adda5982b5e86932c98bb47276a0bf5cfd406"
+source = "git+https://github.com/nammayatri/shared-kernel-rs?rev=2bb5555#2bb5555ea1167214e38a3bf0625691c97b214ae5"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2844,7 +2867,7 @@ dependencies = [
 [[package]]
 name = "macros"
 version = "0.1.0"
-source = "git+https://github.com/nammayatri/shared-kernel-rs?rev=2bb5555#2bb5555ea1167214e38a3bf0625691c97b214ae5"
+source = "git+https://github.com/nammayatri/shared-kernel-rs?rev=54e0418#54e04187aba54a9d1ebc8d15185db384ec23f8f8"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4067,7 +4090,7 @@ dependencies = [
 [[package]]
 name = "shared"
 version = "0.1.0"
-source = "git+https://github.com/nammayatri/shared-kernel-rs?rev=4b6adda#4b6adda5982b5e86932c98bb47276a0bf5cfd406"
+source = "git+https://github.com/nammayatri/shared-kernel-rs?rev=2bb5555#2bb5555ea1167214e38a3bf0625691c97b214ae5"
 dependencies = [
  "actix",
  "actix-http",
@@ -4082,7 +4105,7 @@ dependencies = [
  "fred",
  "futures",
  "google-cloud-storage",
- "macros 0.1.0 (git+https://github.com/nammayatri/shared-kernel-rs?rev=4b6adda)",
+ "macros 0.1.0 (git+https://github.com/nammayatri/shared-kernel-rs?rev=2bb5555)",
  "once_cell",
  "prometheus",
  "regex",
@@ -4106,7 +4129,7 @@ dependencies = [
 [[package]]
 name = "shared"
 version = "0.1.0"
-source = "git+https://github.com/nammayatri/shared-kernel-rs?rev=2bb5555#2bb5555ea1167214e38a3bf0625691c97b214ae5"
+source = "git+https://github.com/nammayatri/shared-kernel-rs?rev=54e0418#54e04187aba54a9d1ebc8d15185db384ec23f8f8"
 dependencies = [
  "actix",
  "actix-http",
@@ -4114,14 +4137,17 @@ dependencies = [
  "actix-web-prom",
  "async-trait",
  "aws-config",
+ "aws-sdk-kms",
  "aws-sdk-s3",
  "aws-types",
+ "base64 0.22.1",
  "chrono",
  "error-stack",
  "fred",
  "futures",
+ "geohash",
  "google-cloud-storage",
- "macros 0.1.0 (git+https://github.com/nammayatri/shared-kernel-rs?rev=2bb5555)",
+ "macros 0.1.0 (git+https://github.com/nammayatri/shared-kernel-rs?rev=54e0418)",
  "once_cell",
  "prometheus",
  "regex",

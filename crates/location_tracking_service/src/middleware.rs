@@ -86,7 +86,7 @@ where
 /// Responsible for building and managing root spans in the domain.
 ///
 /// `DomainRootSpanBuilder` creates root spans that encapsulate the lifecycle of a request within
-/// the domain. It extracts essential information such as request_id, merchant_id, and token from
+/// the domain. It extracts essential information such as request_id and merchant_id from
 /// the headers of incoming requests to enrich the spans.
 pub struct DomainRootSpanBuilder;
 
@@ -105,13 +105,7 @@ impl RootSpanBuilder for DomainRootSpanBuilder {
             .and_then(|merchant_id| merchant_id.to_str().ok())
             .map(|str| str.to_string());
 
-        let token = request
-            .headers()
-            .get("token")
-            .and_then(|token| token.to_str().ok())
-            .map(|str| str.to_string());
-
-        tracing_actix_web::root_span!(request, request_id, merchant_id, token)
+        tracing_actix_web::root_span!(request, request_id, merchant_id)
     }
 
     fn on_request_end<B: MessageBody>(span: Span, outcome: &Result<ServiceResponse<B>, Error>) {
