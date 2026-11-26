@@ -432,6 +432,57 @@ pub async fn handle_driver_conductor_location_update(
     Ok(on_crew_trip)
 }
 
+/// Forwards an online shared cab whose app sent no crew headers, under its city's fleet.
+async fn forward_standby_shared_cab(
+    data: &AppState,
+    driver_id: &DriverId,
+    merchant_operating_city_id: &MerchantOperatingCityId,
+    locations: &[UpdateDriverLocationRequest],
+) {
+    let Some(gtfs_id) = data
+        .shared_cab_gtfs_id_by_city
+        .get(&merchant_operating_city_id.0)
+    else {
+        return;
+    };
+    let (Some(topic), Some((person_type, provider))) = (
+        data.gtfs_id_to_topic.get(gtfs_id),
+        PersonType::SharedCabDriver.bus_kafka_tags(),
+    ) else {
+        return;
+    };
+    let Ok(Some(vehicle_no)) =
+        get_shared_cab_standby_plate(&data.redis, data.secondary_redis.as_deref(), driver_id).await
+    else {
+        return;
+    };
+    let now_secs = Utc::now().timestamp();
+    for entry in locations {
+        let payload = BusGpsUpdate {
+            device_id: format!("{gtfs_id}:{vehicle_no}"),
+            vehicle_no: vehicle_no.clone(),
+            person_type,
+            gtfs_id: gtfs_id.clone(),
+            route_code: None,
+            trip_id: None,
+            driver_id: Some(driver_id.0.clone()),
+            lat: entry.pt.lat.0,
+            lon: entry.pt.lon.0,
+            timestamp: entry.ts.0.timestamp(),
+            server_time: now_secs,
+            provider,
+            speed: forwardable_speed_kmph(entry.v),
+        };
+        crate::common::kafka::enqueue_to_kafka(
+            &data.enqueue_producer,
+            &data.enqueue_secondary_producer,
+            topic,
+            &vehicle_no,
+            &payload,
+        );
+    }
+}
+
 #[macros::measure_duration]
 fn get_filtered_driver_locations(
     last_known_location: Option<&DriverLastKnownLocation>,
@@ -689,6 +740,22 @@ pub async fn update_driver_location_by_token(
     )
     .await?;
 
+    let names_person_type = req_headers
+        .iter()
+        .any(|(name, _)| name.eq_ignore_ascii_case("person-type"));
+    let standby = (driver_ride_details.is_none()
+        && !names_person_type
+        && data
+            .shared_cab_gtfs_id_by_city
+            .contains_key(&merchant_operating_city_id.0))
+    .then(|| {
+        (
+            driver_id.clone(),
+            merchant_operating_city_id.clone(),
+            locations.clone(),
+        )
+    });
+
     with_lock_redis_after_set(
         &data.redis,
         driver_processing_location_update_lock_key(&driver_id, &merchant_id, &city),
@@ -713,6 +780,9 @@ pub async fn update_driver_location_by_token(
         ),
     )
     .await?;
+    if let Some((driver_id, city_id, locations)) = standby {
+        forward_standby_shared_cab(&data, &driver_id, &city_id, &locations).await;
+    }
     Ok(HttpResponse::Ok().finish())
 }
 

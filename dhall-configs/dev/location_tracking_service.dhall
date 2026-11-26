@@ -503,6 +503,8 @@ in {
       kolkata_bus = "gps_live_data_master",
       shillong_shared_cab = "gps_live_data_master"
     },
+    -- merchant operating city id -> its shared-cab fleet (DEV auth puts every driver in "dev")
+    shared_cab_gtfs_id_by_city = toMap { dev = "shillong_shared_cab" },
     batch_size = 100,
     bucket_size = 300,
     nearby_bucket_threshold = 4,
