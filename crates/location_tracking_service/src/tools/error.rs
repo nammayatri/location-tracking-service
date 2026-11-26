@@ -12,6 +12,7 @@ use actix_web::{
 };
 use serde::{Deserialize, Serialize};
 use shared::tools::callapi::CallAPIError;
+use tracing::error;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -152,9 +153,19 @@ impl AppError {
 
 impl ResponseError for AppError {
     fn error_response(&self) -> HttpResponse {
-        HttpResponse::build(self.status_code())
+        let status = self.status_code();
+        let body = if status.is_server_error() {
+            error!(tag = "[INTERNAL ERROR]", error_code = %self.code(), error = %self.message());
+            ErrorBody {
+                error_message: "Internal Server Error".to_string(),
+                error_code: self.code(),
+            }
+        } else {
+            self.error_message()
+        };
+        HttpResponse::build(status)
             .insert_header(ContentType::json())
-            .json(self.error_message())
+            .json(body)
     }
 
     fn status_code(&self) -> StatusCode {
@@ -208,5 +219,41 @@ impl From<CallAPIError> for AppError {
             CallAPIError::SerializationError(err) => AppError::SerializationError(err),
             CallAPIError::DeserializationError(err) => AppError::DeserializationError(err),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use actix_web::body::to_bytes;
+
+    type TestResult = Result<(), Box<dyn std::error::Error>>;
+
+    async fn body_of(err: AppError) -> Result<(StatusCode, ErrorBody), Box<dyn std::error::Error>> {
+        let resp = err.error_response();
+        let status = resp.status();
+        let bytes = to_bytes(resp.into_body()).await?;
+        Ok((status, serde_json::from_slice(&bytes)?))
+    }
+
+    #[actix_web::test]
+    async fn server_errors_hide_internal_detail() -> TestResult {
+        let (status, body) = body_of(AppError::InternalError(
+            "WRONGTYPE Operation against a key holding the wrong kind of value".to_string(),
+        ))
+        .await?;
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(body.error_code, "INTERNAL_ERROR");
+        assert_eq!(body.error_message, "Internal Server Error");
+        Ok(())
+    }
+
+    #[actix_web::test]
+    async fn client_errors_keep_their_message() -> TestResult {
+        let (status, body) =
+            body_of(AppError::InvalidRequest("lat out of range".to_string())).await?;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body.error_message, "lat out of range");
+        Ok(())
     }
 }
