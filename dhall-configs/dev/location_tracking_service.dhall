@@ -505,6 +505,11 @@ in {
     },
     -- merchant operating city id -> its shared-cab fleet (DEV auth puts every driver in "dev")
     shared_cab_gtfs_id_by_city = toMap { dev = "shillong_shared_cab" },
+    crowdsourced_geohash_precision = 7,
+    crowdsourced_min_forward_interval_secs = 10,
+    crowdsourced_max_timestamp_skew_secs = 120,
+    crowdsourced_max_speed_kmph = 100.0,
+    crowdsourced_api_key = "your-secure-api-key-here",
     batch_size = 100,
     bucket_size = 300,
     nearby_bucket_threshold = 4,

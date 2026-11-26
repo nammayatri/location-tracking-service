@@ -11,10 +11,11 @@ use std::collections::HashMap;
 use crate::tools::error::AppError;
 use crate::{
     common::{
+        kafka::enqueue_to_kafka,
         types::*,
-        utils::{get_bucket_from_timestamp, get_city},
+        utils::{distance_between_in_meters, get_bucket_from_timestamp, get_city},
     },
-    domain::types::internal::location::*,
+    domain::{action::ui::location::BusGpsUpdate, types::internal::location::*},
     environment::AppState,
     kafka::{
         producers::kafka_stream_nearby_debug,
@@ -25,6 +26,7 @@ use crate::{
 };
 use actix_web::web::Data;
 use chrono::Utc;
+use geohash::{encode, Coord};
 use shared::measure_latency_duration;
 use shared::redis::types::RedisConnectionPool;
 use shared::tools::logger::*;
@@ -637,6 +639,132 @@ pub async fn driver_block_till(
         )
         .await?;
     };
+    Ok(APISuccess::default())
+}
+
+/// Caller is rider-app's backend, authenticated via a static `crowdsourced_api_key` rather
+/// than a driver token -- there's no per-rider session to check (no owner_check either;
+/// that's rider-app's own boarding verification). Reuses the `bus_conductor` path's
+/// `gtfs_id_to_topic` map and `BusGpsUpdate` shape.
+pub async fn forward_crowdsourced_bus_location(
+    data: Data<AppState>,
+    api_key: Option<String>,
+    req: CrowdsourcedBusLocationReq,
+) -> Result<APISuccess, AppError> {
+    let provided_api_key = api_key.ok_or(AppError::MissingApiKey)?;
+    if provided_api_key != data.crowdsourced_api_key {
+        return Err(AppError::InvalidApiKey);
+    }
+
+    let topic = data
+        .gtfs_id_to_topic
+        .get(&req.gtfs_id)
+        .cloned()
+        .ok_or_else(|| {
+            AppError::InvalidRequest(format!(
+                "no kafka topic configured for gtfs_id={}",
+                req.gtfs_id
+            ))
+        })?;
+
+    get_city(&Latitude(req.lat), &Longitude(req.lon), &data.polygon)?;
+
+    let now = Utc::now().timestamp();
+    let timestamp_skew = (now - req.timestamp).abs();
+    if timestamp_skew > data.crowdsourced_max_timestamp_skew_secs {
+        return Err(AppError::InvalidGPSData(format!(
+            "client timestamp too far from server time: skew={timestamp_skew}s"
+        )));
+    }
+
+    let geohash = encode(
+        Coord {
+            x: req.lon,
+            y: req.lat,
+        },
+        data.crowdsourced_geohash_precision,
+    )
+    .map_err(|err| AppError::InvalidGPSData(err.to_string()))?;
+
+    let min_interval_secs = data.crowdsourced_min_forward_interval_secs;
+
+    let last_forward =
+        get_crowdsourced_last_forward(&data.redis, &req.gtfs_id, &req.vehicle_no).await?;
+
+    if let Some(last) = &last_forward {
+        let elapsed_secs = (now - last.forwarded_at).max(1) as f64;
+        let distance_m = distance_between_in_meters(
+            &Point {
+                lat: Latitude(last.lat),
+                lon: Longitude(last.lon),
+            },
+            &Point {
+                lat: Latitude(req.lat),
+                lon: Longitude(req.lon),
+            },
+        );
+        let implied_speed_kmph = (distance_m / 1000.0) / (elapsed_secs / 3600.0);
+        if implied_speed_kmph > data.crowdsourced_max_speed_kmph {
+            return Err(AppError::InvalidGPSData(format!(
+                "implausible speed for vehicle {}: {implied_speed_kmph:.1} km/h over {elapsed_secs:.0}s",
+                req.vehicle_no
+            )));
+        }
+    }
+
+    let should_forward = match &last_forward {
+        Some(last) => last.geohash != geohash || now - last.forwarded_at >= min_interval_secs as i64,
+        None => true,
+    };
+
+    if !should_forward {
+        debug!(
+            tag = "[Crowdsourced Ping Deduped]",
+            gtfs_id = req.gtfs_id.as_str(),
+            vehicle_no = req.vehicle_no.as_str(),
+            "same geohash cell within min interval, skipping forward"
+        );
+        return Ok(APISuccess::default());
+    }
+
+    set_crowdsourced_last_forward(
+        &data.redis,
+        &req.gtfs_id,
+        &req.vehicle_no,
+        CrowdsourcedLastForward {
+            geohash,
+            forwarded_at: now,
+            lat: req.lat,
+            lon: req.lon,
+        },
+        min_interval_secs * 2,
+    )
+    .await?;
+
+    let payload = BusGpsUpdate {
+        device_id: format!("crowdsourced:{}:{}", req.gtfs_id, req.vehicle_no),
+        vehicle_no: req.vehicle_no.clone(),
+        person_type: "rider_crowdsourced",
+        gtfs_id: req.gtfs_id.clone(),
+        route_code: req.route_code,
+        trip_id: req.trip_id,
+        driver_id: None,
+        lat: req.lat,
+        lon: req.lon,
+        timestamp: req.timestamp,
+        server_time: now,
+        provider: "lts-rider-crowdsourced",
+        speed: None,
+    };
+
+    enqueue_to_kafka(
+        &data.enqueue_producer,
+        &data.enqueue_secondary_producer,
+        &topic,
+        &req.vehicle_no,
+        &payload,
+    );
+
     Ok(APISuccess::default())
 }
 

@@ -126,6 +126,20 @@ pub struct DriverBlockTillRequest {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
+pub struct CrowdsourcedBusLocationReq {
+    pub gtfs_id: String,
+    pub vehicle_no: String,
+    #[serde(default)]
+    pub route_code: Option<String>,
+    #[serde(default)]
+    pub trip_id: Option<String>,
+    pub lat: f64,
+    pub lon: f64,
+    pub timestamp: i64,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
 pub enum TrackVehicleRequest {
     RouteCode(String),
     TripCodes(Vec<String>),
