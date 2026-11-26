@@ -96,6 +96,9 @@ pub struct AppConfig {
     pub rider_auth_api_key: String,
     pub rider_auth_token_expiry: u32,
     pub special_location_list_base_url: Option<String>,
+    /// Merchant operating city id -> its shared-cab fleet (gtfs id).
+    #[serde(default)]
+    pub shared_cab_gtfs_id_by_city: HashMap<String, String>,
     #[serde(default)]
     pub vehicle_trip_owner_resolve_url: Option<String>,
     #[serde(default = "default_vehicle_trip_owner_cache_secs")]
@@ -285,6 +288,7 @@ pub struct AppState {
     pub rider_auth_api_key: String,
     pub rider_auth_token_expiry: u32,
     pub special_location_list_base_url: Option<Url>,
+    pub shared_cab_gtfs_id_by_city: HashMap<String, String>,
     pub vehicle_trip_owner_resolve_url: Option<Url>,
     pub vehicle_trip_owner_cache_secs: u32,
     pub vehicle_trip_owner_failure_cache_secs: u32,
@@ -627,6 +631,7 @@ impl AppState {
                 .special_location_list_base_url
                 .as_ref()
                 .and_then(|s| Url::parse(s).ok()),
+            shared_cab_gtfs_id_by_city: app_config.shared_cab_gtfs_id_by_city,
             vehicle_trip_owner_resolve_url: app_config
                 .vehicle_trip_owner_resolve_url
                 .as_ref()
