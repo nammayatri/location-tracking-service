@@ -1468,6 +1468,7 @@ async fn process_driver_locations(
                     &Some(vehicle_type.clone()),
                     &group_id,
                     &group_id2,
+                    &Some(driver_mode.clone()),
                 )
                 .await?;
                 Ok(())
@@ -1660,6 +1661,7 @@ async fn process_driver_locations(
                     &Some(vehicle_type.clone()),
                     &group_id,
                     &group_id2,
+                    &Some(driver_mode.clone()),
                 )
                 .await?;
                 Ok(())
